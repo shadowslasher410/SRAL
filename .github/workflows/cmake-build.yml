@@ -1,47 +1,84 @@
-name: CMake Build
+name: SRAL Build
 
 on:
   push:
-    branches:
-      - main
+    branches: [ "main" ]
+    tags: [ "v*" ]
   pull_request:
+    branches: [ "main" ]
 
 jobs:
   build:
+    name: ${{ matrix.preset }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        include:
+          - os: windows-latest
+            preset: x64-release
+          - os: ubuntu-latest
+            preset: linux-release
+          - os: macos-latest
+            preset: macos-universal-release
+          - os: ubuntu-latest
+            preset: android-arm64-release
+          - os: ubuntu-latest
+            preset: linux-to-win-mingw
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
+      - uses: actions/checkout@v6
+      
+      - name: Setup Windows Environment
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          mkdir -p Dep
+          Invoke-WebRequest -Uri "https://githubusercontent.com" -OutFile "Dep/nvda_control.h"
+          Invoke-WebRequest -Uri "https://githubusercontent.com" -OutFile "Dep/nvda_control.c"
 
-      - name: Set up CMake
-        uses: jwlawson/actions-setup-cmake@v2
+      - name: Set up MSVC
+        if: matrix.os == 'windows-latest'
+        uses: TheMrMilchmann/setup-msvc-dev@v4
         with:
+          arch: x64
           cmake-version: '3.25.0'
 
-      - name: Install packages
+          
+      - name: Install Linux/MinGW Dependencies
         if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libspeechd-dev libx11-dev brltty libbrlapi-dev
+          sudo apt-get install -y ninja-build pkg-config libspeechd-dev libbrlapi-dev libdbus-1-dev brltty
+          if [[ "${{ matrix.preset }}" == *"mingw"* ]]; then
+            sudo apt-get install -y g++-mingw-w64-x86-64
+          fi
+          
+      - name: Setup Android NDK
+        if: matrix.preset == 'android-arm64-release'
+        run: |
+          echo "ANDROID_NDK_HOME=${ANDROID_NDK_LATEST_HOME}" >> $GITHUB_ENV
+          
+      - name: Install Ninja (macOS)
+        if: matrix.os == 'macos-latest'
+        run: brew install ninja
 
-
-
+    
       - name: Configure CMake
-        run: cmake . -B build -DCMAKE_OSX_ARCHITECTURES=x86_64 -DBUILD_SHARED_LIBS=ON
-
-      - name: Build with CMake
-        run: cmake --build build --config Release -j 16
-
-
+        run: cmake --preset ${{ matrix.preset }}
+        
+      - name: Build
+        run: cmake --build --preset ${{ matrix.preset }}
+        
+      - name: Package Assets
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp Include/SRAL.h dist/
+          find out/build/${{ matrix.preset }} -name "*.lib" -o -name "*.dll" -o -name "*.a" -o -name "*.so" -exec cp {} dist/ \;
 
       - name: Archive artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.os }}-build
-          path: build
-
-
+          name: SRAL-${{ matrix.preset }}
+          path: dist/

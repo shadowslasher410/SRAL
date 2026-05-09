@@ -5,11 +5,16 @@
 
 namespace Sral {
 	bool Nvda::Initialize() {
-		int r = nvda_connect();
-		if (r == 0) {
+		if (nvda_connect() == 0) {
+			this->extended = true;
 			return true;
 		}
-		lib = LoadLibraryW(L"nvdaControllerClient.dll");
+
+		this->extended = false;
+		if (lib == nullptr) {
+			lib = LoadLibraryW(L"nvdaControllerClient.dll");
+		}
+
 		if (lib == nullptr) {
 			return false;
 		}
@@ -23,42 +28,47 @@ namespace Sral {
 
 	bool Nvda::Uninitialize() {
 		nvda_disconnect();
-		if (lib == nullptr)return true;
-		FreeLibrary(lib);
+		if (lib != nullptr) {
+			FreeLibrary(lib);
+			lib = nullptr;
+		}
 		nvdaController_speakText = nullptr;
 		nvdaController_brailleMessage = nullptr;
 		nvdaController_cancelSpeech = nullptr;
 		nvdaController_testIfRunning = nullptr;
 		nvdaController_speakSsml = nullptr;
+		this->extended = false;
 
 		return true;
 	}
 
 	bool Nvda::GetActive() {
 		if (nvda_active() == 0) {
+			if (!this->extended) Initialize();
 			this->extended = true;
 			return true;
 		}
-		else {
-			// Try to use the library
-			this->extended = false;
-			this->Uninitialize();
-			this->Initialize();
+
+		if (this->extended) {
+			Uninitialize();
+			Initialize();
 		}
 		if (lib == nullptr) return false;
-		if (nvdaController_testIfRunning) return  (!!FindWindowW(L"wxWindowClassNR", L"NVDA") && nvdaController_testIfRunning() == 0);
+		if (nvdaController_testIfRunning) {
+			return (!!FindWindowW(L"wxWindowClassNR", L"NVDA") && nvdaController_testIfRunning() == 0);
+		}
 		return false;
 	}
 
 	bool Nvda::Speak(const char* text, bool interrupt) {
 		if (!GetActive())return false;
 		if (interrupt) {
-			this->extended ? nvda_cancel_speech() : nvdaController_cancelSpeech();
+			this->extended ? nvda_cancel_speech() : (nvdaController_cancelSpeech ? nvdaController_cancelSpeech() : 0);
 		}
 		if (this->extended)
 			return !enable_spelling ? nvda_speak(text, this->symbolLevel) == 0 : nvda_speak_spelling(text, "", this->use_character_descriptions) == 0;
 		std::wstring out;
-		if (this->symbolLevel == -1) {
+		if (this->symbolLevel == -1 || !nvdaController_speakSsml) {
 			UnicodeConvert(text, out);
 			return nvdaController_speakText(out.c_str()) == 0;
 		}
@@ -71,25 +81,25 @@ namespace Sral {
 			UnicodeConvert(text, out);
 			return nvdaController_speakText(out.c_str()) == 0;
 		}
-		else {
-			return result == 0;
-		}
-		return false;
+		return result == 0;
 	}
 
 	bool Nvda::SpeakSsml(const char* ssml, bool interrupt) {
 		if (!GetActive())return false;
 		if (interrupt)
-			this->extended ? nvda_cancel_speech() : nvdaController_cancelSpeech();
+			this->extended ? nvda_cancel_speech() : (nvdaController_cancelSpeech ? nvdaController_cancelSpeech() : 0);
 		if (this->extended)
 			return nvda_speak_ssml(ssml, this->symbolLevel) == 0;
-		std::string text_str(ssml);
+
+		if (!nvdaController_speakSsml) return Speak(ssml, interrupt);
+
 		std::wstring out;
 		UnicodeConvert(ssml, out);
 		return nvdaController_speakSsml(out.c_str(), this->symbolLevel, 0, true) == 0;
 	}
 
 	bool Nvda::SetParameter(int param, const void* value) {
+		if (!value) return false;
 		switch (param) {
 		case SRAL_PARAM_SYMBOL_LEVEL:
 			this->symbolLevel = *reinterpret_cast<const int*>(value);
@@ -107,6 +117,7 @@ namespace Sral {
 	}
 
 	bool Nvda::GetParameter(int param, void* value) {
+		if (!value) return false;
 		switch (param) {
 		case SRAL_PARAM_SYMBOL_LEVEL:
 			*(int*)value = this->symbolLevel;
@@ -131,13 +142,14 @@ namespace Sral {
 		if (!GetActive())return false;
 		if (this->extended)
 			return nvda_braille(text) == 0;
+		if (!nvdaController_brailleMessage) return false;
 		std::wstring out;
 		UnicodeConvert(text, out);
 		return nvdaController_brailleMessage(out.c_str()) == 0;
 	}
 	bool Nvda::StopSpeech() {
 		if (!GetActive())return false;
-		return 		this->extended ? nvda_cancel_speech() == 0 : nvdaController_cancelSpeech() == 0;
+		return this->extended ? nvda_cancel_speech() == 0 : (nvdaController_cancelSpeech ? nvdaController_cancelSpeech() == 0 : false);
 	}
 	bool Nvda::PauseSpeech() {
 		if (!GetActive())return false;
@@ -158,6 +170,7 @@ namespace Sral {
 		return true;
 	}
 	bool Nvda::ResumeSpeech() {
-		return 		this->extended ? nvda_pause_speech(false) == 0 : PauseSpeech();
+		if (!GetActive()) return false;
+		return this->extended ? nvda_pause_speech(false) == 0 : PauseSpeech();
 	}
 }

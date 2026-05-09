@@ -30,16 +30,17 @@ namespace Sral {
 	}
 
 	bool Uia::Speak(const char* text, bool interrupt) {
-		NotificationProcessing flags = NotificationProcessing_ImportantAll;
-		if (interrupt)
-			flags = NotificationProcessing_ImportantMostRecent;
+
+		if (!UiaClientsAreListening()) return false;
+		NotificationProcessing flags = interrupt ? NotificationProcessing_ImportantMostRecent : NotificationProcessing_ImportantAll;
+
 		std::wstring str;
 		UnicodeConvert(text, str);
 		if (pProvider) {
-			pProvider->Release();
+			pProvider->Release(); pProvider = nullptr;
 		}
 		if (pElement) {
-			pElement->Release();
+			pElement->Release(); pElement = nullptr;
 		}
 		pProvider = new Provider(GetForegroundWindow());
 

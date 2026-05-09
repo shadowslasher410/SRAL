@@ -1,2 +1,29 @@
-option('build_sral_test', type : 'boolean', value : true, description : 'Build SRAL examples/tests')
-option('sral_disable_uia', type : 'boolean', value : false, description : 'Disable UIA (UI Automation) support')
+option('build_sral_test', 
+  type : 'boolean', 
+  value : true, 
+  description : 'Build SRAL examples/tests'
+)
+
+option('sral_disable_uia', 
+  type : 'boolean', 
+  value : false, 
+  description : 'Disable UIA (UI Automation) support'
+)
+
+option('sral_disable_nsspeech', 
+  type : 'boolean', 
+  value : false, 
+  description : 'Disable NSSpeech (macOS-only NSSpeechSynthesizer) support'
+)
+
+option('sral_disable_orca', 
+  type : 'boolean', 
+  value : false, 
+  description : 'Disable Orca (D-Bus) support on Linux'
+)
+
+option('sral_accesskit_path',
+  type : 'string',
+  value : '',
+  description : 'Custom path to search for the AccessKit C-binding library'
+)

@@ -24,11 +24,11 @@ SRAL supports Windows, macOS, iOS, Android, and Linux.
 | Category | Supported Engines |
 | --- | --- |
 | **Windows Screen Readers** | NVDA, JAWS, ZDSR, Microsoft Narrator |
-| **Windows Frameworks** | Microsoft UI Automation (UIA) |
+| **Windows Frameworks** | Microsoft UI Automation (UIA) | AccessKit Announcer (UIA) |
 | **macOS** | VoiceOver, NSSpeech, AVFoundation (AVSpeech) |
 | **iOS** | VoiceOver, AVFoundation (AVSpeech) |
 | **Android** | Android TextToSpeech, Android AccessibilityManager (TalkBack etc.) |
-| **Linux** | Speech Dispatcher |
+| **Linux** | Speech Dispatcher | Orca (D-Bus) |
 | **General APIs** | Microsoft SAPI (Windows), BRLTTY (Braille) |
 
 ---
@@ -60,14 +60,21 @@ When you initialize the library, SRAL loads all available and supported engines.
 
 SRAL uses CMake and can be built as either a static or dynamic library.
 
+**Windows Requirements:**
+You must have either `nvdaControllerClient.dll` (standard) or `NVDAControlEx` (extended) for NVDA support.
+
 **Linux Requirements:**
-You must install the following packages: `libspeechd-dev`, `libbrlapi-dev`, and `brltty`.
+You must install the following packages: `libspeechd-dev`, `libbrlapi-dev`, `libdbus-1-dev` and `brltty`.
 
 **Build Commands:**
 
 ```bash
-cmake . -B build
-cmake --build build --config Release
+# List available platforms (Windows, Linux, Android, macOS)
+cmake --list-presets
+
+# Configure and Build
+cmake --preset x64-release
+cmake --build out/build/x64-release
 
 ```
 
@@ -101,7 +108,8 @@ For C++ developers, a convenient inline wrapper is available in `Include/SRAL.hp
 ### Language Bindings
 
 * **Python**: Currently supported and available in the repository.
-* **LUA**: Bindings are currently in preparation and coming soon.
+* **LUA**: Currently supported and available in the repository.
+* **C#**: Currently supported and available in the repository.
 
 ---
 

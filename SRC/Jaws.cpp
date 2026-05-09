@@ -6,10 +6,7 @@ namespace Sral {
 
 	bool Jaws::Initialize() {
 		HRESULT hr = CoCreateInstance(CLSID_JawsApi, NULL, CLSCTX_INPROC_SERVER, IID_IJawsApi, (void**)&pJawsApi);
-		if (!pJawsApi || FAILED(hr)) {
-			return false;
-		}
-		return true;
+		return (SUCCEEDED(hr) && pJawsApi != nullptr);
 	}
 	bool Jaws::Uninitialize() {
 		if (pJawsApi) {
@@ -27,12 +24,12 @@ namespace Sral {
 		if (interrupt)pJawsApi->StopSpeech();
 		std::wstring str;
 		UnicodeConvert(text, str);
-		const BSTR bstr = SysAllocString(str.c_str());
+		BSTR bstr = SysAllocString(str.c_str());
+		if (!bstr) return false;
 		VARIANT_BOOL result = VARIANT_FALSE;
-		const VARIANT_BOOL flush = interrupt ? VARIANT_TRUE : VARIANT_FALSE;
-		const bool succeeded = SUCCEEDED(pJawsApi->SayString(bstr, flush, &result));
+		HRESULT hr = pJawsApi->SayString(bstr, interrupt ? VARIANT_TRUE : VARIANT_FALSE, &result);
 		SysFreeString(bstr);
-		return (succeeded && result == VARIANT_TRUE);
+		return (SUCCEEDED(hr) && result == VARIANT_TRUE);
 	}
 	bool Jaws::Braille(const char* text) {
 		if (!GetActive())return false;
@@ -43,13 +40,14 @@ namespace Sral {
 			wstr[i] = L'\'';
 			i = wstr.find_first_of(L"\"", i + 1);
 		}
-		wstr.insert(0, L"BrailleString(\"");
-		wstr.append(L"\")");
-		const BSTR bstr = SysAllocString(wstr.c_str());
+		BSTR bstr = SysAllocString(wstr.c_str());
+		if (!bstr) return false;
+
 		VARIANT_BOOL result = VARIANT_FALSE;
+		HRESULT hr = pJawsApi->RunFunction(bstr, &result);
 		SysFreeString(bstr);
-		const bool succeeded = SUCCEEDED(pJawsApi->RunFunction(bstr, &result));
-		return (succeeded && result == VARIANT_TRUE);
+
+		return (SUCCEEDED(hr) && result == VARIANT_TRUE);
 	}
 
 	bool Jaws::StopSpeech() {

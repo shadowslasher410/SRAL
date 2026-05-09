@@ -27,10 +27,13 @@ namespace Sral {
 #if TARGET_OS_IOS || TARGET_OS_TV
 		UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, msg);
 #elif TARGET_OS_OSX
-		NSDictionary* userInfo = @{ NSAccessibilityAnnouncementKey: msg };
-		NSAccessibilityPostNotificationWithUserInfo(NSApp, NSAccessibilityAnnouncementRequestedNotification, userInfo);
+	if (NSApp == nil) return false;
+
+	NSNumber* priority = interrupt ? @(NSAccessibilityPriorityHigh) : @(NSAccessibilityPriorityNormal);
+
+		NSDictionary* userInfo = @{ NSAccessibilityAnnouncementKey: msg, NSAccessibilityPriorityKey: priority };
+		NSAccessibilityPostNotificationWithUserInfo([NSApp mainWindow] ? [NSApp mainWindow] : NSApp, NSAccessibilityAnnouncementRequestedNotification, userInfo);
 #endif
-		(void)interrupt; // Unused yet
 		return true;
 	}
 

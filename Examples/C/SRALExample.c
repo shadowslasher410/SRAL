@@ -13,7 +13,6 @@
 #include <unistd.h> // For usleep
 #endif
 
-
 void sleep_ms(int milliseconds) {
 #ifdef _WIN32
 	Sleep(milliseconds);
@@ -25,13 +24,13 @@ void sleep_ms(int milliseconds) {
 void prompt_user(const char* message) {
 	printf("\n>>> %s (Press Enter to continue)...", message);
 	int c;
-	while ((c = getchar()) != '\n' && c != EOF);
+	while ((c = getchar()) != '\n' && c != EOF)
+		;
 
 	if (c == EOF && feof(stdin)) {
 		printf("EOF detected on stdin, continuing without prompt.\n");
 	}
 }
-
 
 void PrintEngineNames(int engineBitmask, const char* title) {
 	printf("%s:\n", title);
@@ -55,10 +54,14 @@ void PrintEngineNames(int engineBitmask, const char* title) {
 
 const char* CategoryName(int category) {
 	switch (category) {
-		case SRAL_ENGINE_CATEGORY_SCREEN_READER: return "Screen Reader";
-		case SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE: return "Text-To-Speech Engine";
-		case SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER: return "Accessibility Provider";
-		default: return "Unknown";
+	case SRAL_ENGINE_CATEGORY_SCREEN_READER:
+		return "Screen Reader";
+	case SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE:
+		return "Text-To-Speech Engine";
+	case SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER:
+		return "Accessibility Provider";
+	default:
+		return "Unknown";
 	}
 }
 
@@ -68,52 +71,66 @@ void print_supported_features(int features) {
 		printf("  (None)\n");
 		return;
 	}
-	if (features & SRAL_SUPPORTS_SPEECH) printf("  - SUPPORTS_SPEECH\n");
-	if (features & SRAL_SUPPORTS_BRAILLE) printf("  - SUPPORTS_BRAILLE\n");
-	if (features & SRAL_SUPPORTS_SPEECH_RATE) printf("  - SUPPORTS_SPEECH_RATE\n");
-	if (features & SRAL_SUPPORTS_SPEECH_VOLUME) printf("  - SUPPORTS_SPEECH_VOLUME\n");
-	if (features & SRAL_SUPPORTS_SELECT_VOICE) printf("  - SUPPORTS_SELECT_VOICE\n");
-	if (features & SRAL_SUPPORTS_PAUSE_SPEECH) printf("  - SUPPORTS_PAUSE_SPEECH\n");
-	if (features & SRAL_SUPPORTS_SSML) printf("  - SUPPORTS_SSML\n");
-	if (features & SRAL_SUPPORTS_SPEAK_TO_MEMORY) printf("  - SUPPORTS_SPEAK_TO_MEMORY\n");
-	if (features & SRAL_SUPPORTS_SPELLING) printf("  - SUPPORTS_SPELLING\n");
+	if (features & SRAL_SUPPORTS_SPEECH)
+		printf("  - SUPPORTS_SPEECH\n");
+	if (features & SRAL_SUPPORTS_BRAILLE)
+		printf("  - SUPPORTS_BRAILLE\n");
+	if (features & SRAL_SUPPORTS_SPEECH_RATE)
+		printf("  - SUPPORTS_SPEECH_RATE\n");
+	if (features & SRAL_SUPPORTS_SPEECH_VOLUME)
+		printf("  - SUPPORTS_SPEECH_VOLUME\n");
+	if (features & SRAL_SUPPORTS_SELECT_VOICE)
+		printf("  - SUPPORTS_SELECT_VOICE\n");
+	if (features & SRAL_SUPPORTS_PAUSE_SPEECH)
+		printf("  - SUPPORTS_PAUSE_SPEECH\n");
+	if (features & SRAL_SUPPORTS_SSML)
+		printf("  - SUPPORTS_SSML\n");
+	if (features & SRAL_SUPPORTS_SPEAK_TO_MEMORY)
+		printf("  - SUPPORTS_SPEAK_TO_MEMORY\n");
+	if (features & SRAL_SUPPORTS_SPELLING)
+		printf("  - SUPPORTS_SPELLING\n");
 	printf("\n");
 }
 
-#define TEST_SECTION(name) \
-    printf("\n\n========================================\n"); \
-    printf("  Testing: %s\n", name); \
-    printf("========================================\n");
+#define TEST_SECTION(name)                                                                                             \
+	printf("\n\n========================================\n");                                                          \
+	printf("  Testing: %s\n", name);                                                                                   \
+	printf("========================================\n");
 
-#define CHECK(condition, success_msg, fail_msg) \
-    if (condition) { \
-        printf("[SUCCESS] %s\n", success_msg); \
-    } else { \
-        printf("[FAILURE] %s\n", fail_msg); \
-    }
+#define CHECK(condition, success_msg, fail_msg)                                                                        \
+	if (condition) {                                                                                                   \
+		printf("[SUCCESS] %s\n", success_msg);                                                                         \
+	}                                                                                                                  \
+	else {                                                                                                             \
+		printf("[FAILURE] %s\n", fail_msg);                                                                            \
+	}
 
-#define CHECK_SRAL(func_call, action_desc) \
-    { \
-        bool success_val = func_call; \
-        if (success_val) { \
-            printf("[SUCCESS] %s\n", action_desc); \
-        } else { \
-            printf("[FAILURE] %s\n", action_desc); \
-        } \
-    }
+#define CHECK_SRAL(func_call, action_desc)                                                                             \
+	{                                                                                                                  \
+		bool success_val = func_call;                                                                                  \
+		if (success_val) {                                                                                             \
+			printf("[SUCCESS] %s\n", action_desc);                                                                     \
+		}                                                                                                              \
+		else {                                                                                                         \
+			printf("[FAILURE] %s\n", action_desc);                                                                     \
+		}                                                                                                              \
+	}
 
 int main(void) {
 	printf("SRAL Tester\n");
 	printf("-------------------------\n");
 
 	TEST_SECTION("SRAL_IsInitialized (Before Initialization)");
-	CHECK(!SRAL_IsInitialized(), "SRAL_IsInitialized correctly returns false before init.", "SRAL_IsInitialized returned true before init!");
+	CHECK(!SRAL_IsInitialized(),
+		"SRAL_IsInitialized correctly returns false before init.",
+		"SRAL_IsInitialized returned true before init!");
 
 	TEST_SECTION("SRAL_Initialize");
 	int engines_to_exclude = SRAL_ENGINE_NONE;
 	engines_to_exclude = SRAL_ENGINE_UIA;
 	printf("Attempting to initialize SRAL, excluding engines: 0x%X (%s)\n",
-		engines_to_exclude, SRAL_GetEngineName(engines_to_exclude) ? SRAL_GetEngineName(engines_to_exclude) : "None");
+		engines_to_exclude,
+		SRAL_GetEngineName(engines_to_exclude) ? SRAL_GetEngineName(engines_to_exclude) : "None");
 
 	if (SRAL_Initialize(engines_to_exclude)) {
 		printf("[SUCCESS] SRAL_Initialize successful.\n");
@@ -122,7 +139,9 @@ int main(void) {
 		printf("[FAILURE] SRAL_Initialize failed. Some tests may not run or behave as expected. Exiting.\n");
 		return 1;
 	}
-	CHECK(SRAL_IsInitialized(), "SRAL_IsInitialized correctly returns true after init.", "SRAL_IsInitialized returned false after init!");
+	CHECK(SRAL_IsInitialized(),
+		"SRAL_IsInitialized correctly returns true after init.",
+		"SRAL_IsInitialized returned false after init!");
 
 	TEST_SECTION("Engine Information");
 	int available_engines = SRAL_GetAvailableEngines();
@@ -153,14 +172,15 @@ int main(void) {
 	printf("\n");
 
 	int current_engine_id = SRAL_GetCurrentEngine();
-	printf("Current Default Engine: %s (0x%X)\n", SRAL_GetEngineName(current_engine_id) ? SRAL_GetEngineName(current_engine_id) : "None/Unknown", current_engine_id);
+	printf("Current Default Engine: %s (0x%X)\n",
+		SRAL_GetEngineName(current_engine_id) ? SRAL_GetEngineName(current_engine_id) : "None/Unknown",
+		current_engine_id);
 
 	printf("\nNames of all SRAL_Engines enum members (as per SRAL_GetEngineName):\n");
 	for (int e_val = SRAL_ENGINE_NVDA; e_val <= SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH; e_val <<= 1) {
 		const char* name = SRAL_GetEngineName(e_val);
 		printf("  Engine ID 0x%X: %s\n", e_val, name ? name : "(Name not defined or not a single engine ID)");
 	}
-
 
 	int specific_engine_for_ex_tests = SRAL_ENGINE_NONE;
 	if (active_engines != SRAL_ENGINE_NONE) {
@@ -182,37 +202,43 @@ int main(void) {
 
 	if (specific_engine_for_ex_tests != SRAL_ENGINE_NONE) {
 		printf("\nWill use engine '%s' (0x%X) for specific engine (Ex) tests.\n",
-			SRAL_GetEngineName(specific_engine_for_ex_tests), specific_engine_for_ex_tests);
+			SRAL_GetEngineName(specific_engine_for_ex_tests),
+			specific_engine_for_ex_tests);
 	}
 	else {
-		printf("\nNo specific engine distinct from default (or no active engines) for Ex tests. Ex tests might target default or fail if engine doesn't support action.\n");
+		printf("\nNo specific engine distinct from default (or no active engines) for Ex tests. Ex tests might target "
+			   "default or fail if engine doesn't support action.\n");
 	}
-
 
 	TEST_SECTION("Keyboard Hooks");
 
 	if (SRAL_RegisterKeyboardHooks()) {
 		printf("[SUCCESS] SRAL_RegisterKeyboardHooks registered.\n");
-		prompt_user("Keyboard hooks (Ctrl=Interrupt, Shift=Pause/Resume) are active. Test them with upcoming speech. This primarily affects non-screen-reader engines like SAPI or SpeechDispatcher.");
+		prompt_user("Keyboard hooks (Ctrl=Interrupt, Shift=Pause/Resume) are active. Test them with upcoming speech. "
+					"This primarily affects non-screen-reader engines like SAPI or SpeechDispatcher.");
 	}
 	else {
-		printf("[INFO] SRAL_RegisterKeyboardHooks failed or did not register. This might be expected if no suitable engine is active or if permissions are lacking.\n");
+		printf("[INFO] SRAL_RegisterKeyboardHooks failed or did not register. This might be expected if no suitable "
+			   "engine is active or if permissions are lacking.\n");
 	}
 
 	TEST_SECTION("SRAL_GetEngineFeatures");
-	printf("Features for Current Default Engine (%s):\n", SRAL_GetEngineName(current_engine_id) ? SRAL_GetEngineName(current_engine_id) : "None");
+	printf("Features for Current Default Engine (%s):\n",
+		SRAL_GetEngineName(current_engine_id) ? SRAL_GetEngineName(current_engine_id) : "None");
 	int current_engine_features = SRAL_GetEngineFeatures(SRAL_ENGINE_NONE);
 	print_supported_features(current_engine_features);
 
 	if (specific_engine_for_ex_tests != SRAL_ENGINE_NONE) {
-		printf("Features for Specific Engine selected for Ex tests (%s):\n", SRAL_GetEngineName(specific_engine_for_ex_tests));
+		printf("Features for Specific Engine selected for Ex tests (%s):\n",
+			SRAL_GetEngineName(specific_engine_for_ex_tests));
 		int specific_engine_features = SRAL_GetEngineFeatures(specific_engine_for_ex_tests);
 		print_supported_features(specific_engine_features);
 	}
 
 	if (current_engine_features & SRAL_SUPPORTS_SPEECH) {
 		TEST_SECTION("SRAL_Speak (Default Engine)");
-		CHECK_SRAL(SRAL_Speak("Testing SRAL Speak, not interrupting previous speech.", false), "SRAL_Speak (no interrupt)");
+		CHECK_SRAL(
+			SRAL_Speak("Testing SRAL Speak, not interrupting previous speech.", false), "SRAL_Speak (no interrupt)");
 		sleep_ms(2000);
 		CHECK_SRAL(SRAL_Speak("Testing SRAL Speak, interrupting previous speech.", true), "SRAL_Speak (interrupt)");
 		sleep_ms(2000);
@@ -221,13 +247,16 @@ int main(void) {
 			TEST_SECTION("SRAL_SpeakEx (Specific Engine)");
 			int features_ex = SRAL_GetEngineFeatures(specific_engine_for_ex_tests);
 			if (features_ex & SRAL_SUPPORTS_SPEECH) {
-				CHECK_SRAL(SRAL_SpeakEx(specific_engine_for_ex_tests, "Testing SRAL SpeakEx, not interrupting.", false), "SRAL_SpeakEx (no interrupt)");
+				CHECK_SRAL(SRAL_SpeakEx(specific_engine_for_ex_tests, "Testing SRAL SpeakEx, not interrupting.", false),
+					"SRAL_SpeakEx (no interrupt)");
 				sleep_ms(2000);
-				CHECK_SRAL(SRAL_SpeakEx(specific_engine_for_ex_tests, "Testing SRAL SpeakEx, interrupting.", true), "SRAL_SpeakEx (interrupt)");
+				CHECK_SRAL(SRAL_SpeakEx(specific_engine_for_ex_tests, "Testing SRAL SpeakEx, interrupting.", true),
+					"SRAL_SpeakEx (interrupt)");
 				sleep_ms(2000);
 			}
 			else {
-				printf("Specific engine %s does not support speech for SpeakEx.\n", SRAL_GetEngineName(specific_engine_for_ex_tests));
+				printf("Specific engine %s does not support speech for SpeakEx.\n",
+					SRAL_GetEngineName(specific_engine_for_ex_tests));
 			}
 		}
 	}
@@ -249,7 +278,8 @@ int main(void) {
 				sleep_ms(3000);
 			}
 			else {
-				printf("Specific engine %s does not support SSML for SpeakSsmlEx.\n", SRAL_GetEngineName(specific_engine_for_ex_tests));
+				printf("Specific engine %s does not support SSML for SpeakSsmlEx.\n",
+					SRAL_GetEngineName(specific_engine_for_ex_tests));
 			}
 		}
 	}
@@ -257,12 +287,12 @@ int main(void) {
 		printf("Current default engine does not support SSML. Skipping SSML tests.\n");
 	}
 
-
 	if (current_engine_features & SRAL_SUPPORTS_SPEAK_TO_MEMORY) {
 		TEST_SECTION("SRAL_SpeakToMemory (Default Engine)");
 		uint64_t buffer_size;
 		int channels, sample_rate, bits_per_sample;
-		void* pcm_buffer = SRAL_SpeakToMemory("Testing speak to memory audio synthesis.", &buffer_size, &channels, &sample_rate, &bits_per_sample);
+		void* pcm_buffer = SRAL_SpeakToMemory(
+			"Testing speak to memory audio synthesis.", &buffer_size, &channels, &sample_rate, &bits_per_sample);
 		if (pcm_buffer) {
 			printf("[SUCCESS] SRAL_SpeakToMemory successful.\n");
 			printf("  Buffer Size: %llu bytes\n", (unsigned long long)buffer_size);
@@ -280,9 +310,15 @@ int main(void) {
 			TEST_SECTION("SRAL_SpeakToMemoryEx (Specific Engine)");
 			int features_ex = SRAL_GetEngineFeatures(specific_engine_for_ex_tests);
 			if (features_ex & SRAL_SUPPORTS_SPEAK_TO_MEMORY) {
-				pcm_buffer = SRAL_SpeakToMemoryEx(specific_engine_for_ex_tests, "Testing speak to memory ex.", &buffer_size, &channels, &sample_rate, &bits_per_sample);
+				pcm_buffer = SRAL_SpeakToMemoryEx(specific_engine_for_ex_tests,
+					"Testing speak to memory ex.",
+					&buffer_size,
+					&channels,
+					&sample_rate,
+					&bits_per_sample);
 				if (pcm_buffer) {
-					printf("[SUCCESS] SRAL_SpeakToMemoryEx successful for engine %s.\n", SRAL_GetEngineName(specific_engine_for_ex_tests));
+					printf("[SUCCESS] SRAL_SpeakToMemoryEx successful for engine %s.\n",
+						SRAL_GetEngineName(specific_engine_for_ex_tests));
 					printf("  Buffer Size: %llu bytes\n", (unsigned long long)buffer_size);
 					printf("  Channels: %d\n", channels);
 					printf("  Sample Rate: %d Hz\n", sample_rate);
@@ -291,18 +327,19 @@ int main(void) {
 					printf("  PCM buffer freed.\n");
 				}
 				else {
-					printf("[FAILURE] SRAL_SpeakToMemoryEx failed for engine %s.\n", SRAL_GetEngineName(specific_engine_for_ex_tests));
+					printf("[FAILURE] SRAL_SpeakToMemoryEx failed for engine %s.\n",
+						SRAL_GetEngineName(specific_engine_for_ex_tests));
 				}
 			}
 			else {
-				printf("Specific engine %s does not support Speak To Memory for SpeakToMemoryEx.\n", SRAL_GetEngineName(specific_engine_for_ex_tests));
+				printf("Specific engine %s does not support Speak To Memory for SpeakToMemoryEx.\n",
+					SRAL_GetEngineName(specific_engine_for_ex_tests));
 			}
 		}
 	}
 	else {
 		printf("Current default engine does not support Speak To Memory. Skipping these tests.\n");
 	}
-
 
 	if (current_engine_features & SRAL_SUPPORTS_BRAILLE) {
 		TEST_SECTION("SRAL_Braille (Default Engine)");
@@ -314,10 +351,12 @@ int main(void) {
 			int features_ex = SRAL_GetEngineFeatures(specific_engine_for_ex_tests);
 			if (features_ex & SRAL_SUPPORTS_BRAILLE) {
 				prompt_user("Prepare to check Braille display for 'Testing SRAL Braille Ex output.'");
-				CHECK_SRAL(SRAL_BrailleEx(specific_engine_for_ex_tests, "Testing SRAL Braille Ex output."), "SRAL_BrailleEx");
+				CHECK_SRAL(
+					SRAL_BrailleEx(specific_engine_for_ex_tests, "Testing SRAL Braille Ex output."), "SRAL_BrailleEx");
 			}
 			else {
-				printf("Specific engine %s does not support Braille for BrailleEx.\n", SRAL_GetEngineName(specific_engine_for_ex_tests));
+				printf("Specific engine %s does not support Braille for BrailleEx.\n",
+					SRAL_GetEngineName(specific_engine_for_ex_tests));
 			}
 		}
 	}
@@ -336,16 +375,19 @@ int main(void) {
 	if (specific_engine_for_ex_tests != SRAL_ENGINE_NONE) {
 		TEST_SECTION("SRAL_OutputEx (Specific Engine)");
 		prompt_user("Prepare for SRAL_OutputEx with specific engine for 'Testing SRAL OutputEx, not interrupting.'");
-		CHECK_SRAL(SRAL_OutputEx(specific_engine_for_ex_tests, "Testing SRAL OutputEx, not interrupting.", false), "SRAL_OutputEx (no interrupt)");
+		CHECK_SRAL(SRAL_OutputEx(specific_engine_for_ex_tests, "Testing SRAL OutputEx, not interrupting.", false),
+			"SRAL_OutputEx (no interrupt)");
 		sleep_ms(2000);
 		prompt_user("Prepare for SRAL_OutputEx with specific engine for 'Testing SRAL OutputEx, interrupting.'");
-		CHECK_SRAL(SRAL_OutputEx(specific_engine_for_ex_tests, "Testing SRAL OutputEx, interrupting now.", true), "SRAL_OutputEx (interrupt)");
+		CHECK_SRAL(SRAL_OutputEx(specific_engine_for_ex_tests, "Testing SRAL OutputEx, interrupting now.", true),
+			"SRAL_OutputEx (interrupt)");
 		sleep_ms(2000);
 	}
 
 	if (current_engine_features & SRAL_SUPPORTS_SPEECH) {
 		TEST_SECTION("Speech Control (Default Engine)");
-		const char* long_speech = "This is a moderately long sentence designed to test the pause, resume, and stop functionality of the SRAL library effectively.";
+		const char* long_speech = "This is a moderately long sentence designed to test the pause, resume, and stop "
+								  "functionality of the SRAL library effectively.";
 		printf("Speaking long sentence with default engine: \"%s\"\n", long_speech);
 		SRAL_Speak(long_speech, true);
 		prompt_user("Speech started. Press Enter to attempt PAUSE (if supported).");
@@ -358,7 +400,8 @@ int main(void) {
 			prompt_user("Speech Resumed (hopefully). Press Enter to STOP.");
 		}
 		else {
-			printf("Pause/Resume not supported by current default engine according to features. Will attempt stop directly.\n");
+			printf("Pause/Resume not supported by current default engine according to features. Will attempt stop "
+				   "directly.\n");
 			prompt_user("Speech should be ongoing. Press Enter to STOP.");
 		}
 		CHECK_SRAL(SRAL_StopSpeech(), "SRAL_StopSpeech");
@@ -369,7 +412,9 @@ int main(void) {
 			TEST_SECTION("Speech Control Ex (Specific Engine)");
 			int features_ex = SRAL_GetEngineFeatures(specific_engine_for_ex_tests);
 			if (features_ex & SRAL_SUPPORTS_SPEECH) {
-				printf("Speaking long sentence with engine %s: \"%s\"\n", SRAL_GetEngineName(specific_engine_for_ex_tests), long_speech);
+				printf("Speaking long sentence with engine %s: \"%s\"\n",
+					SRAL_GetEngineName(specific_engine_for_ex_tests),
+					long_speech);
 				SRAL_SpeakEx(specific_engine_for_ex_tests, long_speech, true);
 				prompt_user("Speech started (Ex). Press Enter to PAUSE (Ex) (if supported).");
 				printf("IsSpeaking status: %s", SRAL_IsSpeakingEx(specific_engine_for_ex_tests) ? "true" : "false");
@@ -381,7 +426,8 @@ int main(void) {
 					prompt_user("Speech Resumed (Ex). Press Enter to STOP (Ex).");
 				}
 				else {
-					printf("Pause/Resume not supported by specific engine %s. Will attempt stop directly.\n", SRAL_GetEngineName(specific_engine_for_ex_tests));
+					printf("Pause/Resume not supported by specific engine %s. Will attempt stop directly.\n",
+						SRAL_GetEngineName(specific_engine_for_ex_tests));
 					prompt_user("Speech should be ongoing (Ex). Press Enter to STOP (Ex).");
 				}
 				CHECK_SRAL(SRAL_StopSpeechEx(specific_engine_for_ex_tests), "SRAL_StopSpeechEx");
@@ -389,11 +435,11 @@ int main(void) {
 				sleep_ms(500);
 			}
 			else {
-				printf("Specific engine %s does not support speech. Skipping Speech Control Ex tests.\n", SRAL_GetEngineName(specific_engine_for_ex_tests));
+				printf("Specific engine %s does not support speech. Skipping Speech Control Ex tests.\n",
+					SRAL_GetEngineName(specific_engine_for_ex_tests));
 			}
 		}
 	}
-
 
 	TEST_SECTION("SRAL Engine Parameters (Default Engine)");
 
@@ -404,14 +450,19 @@ int main(void) {
 			printf("  Original rate: %d\n", original_rate);
 			current_rate = original_rate;
 			int new_rate = (original_rate <= 90) ? (original_rate + 10) : (original_rate - 10);
-			if (new_rate < 0) new_rate = 0; if (new_rate > 100) new_rate = 100; // Clamp
+			if (new_rate < 0)
+				new_rate = 0;
+			if (new_rate > 100)
+				new_rate = 100; // Clamp
 
 			printf("  Attempting to set rate to: %d\n", new_rate);
 			if (SRAL_SetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_SPEECH_RATE, &new_rate)) {
 				int fetched_rate;
 				SRAL_GetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_SPEECH_RATE, &fetched_rate);
 				printf("  New rate confirmed by get: %d\n", fetched_rate);
-				CHECK(abs(fetched_rate - new_rate) <= 5, "Rate set and get matches (or is close)", "Rate set/get mismatch or significant difference");
+				CHECK(abs(fetched_rate - new_rate) <= 5,
+					"Rate set and get matches (or is close)",
+					"Rate set/get mismatch or significant difference");
 				SRAL_Speak("Testing new speech rate setting.", true);
 				sleep_ms(2500);
 				SRAL_SetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_SPEECH_RATE, &original_rate);
@@ -436,14 +487,19 @@ int main(void) {
 			printf("  Original volume: %d\n", original_volume);
 			current_volume = original_volume;
 			int new_volume = (original_volume <= 90) ? (original_volume + 10) : (original_volume - 10);
-			if (new_volume < 0) new_volume = 0; if (new_volume > 100) new_volume = 100;
+			if (new_volume < 0)
+				new_volume = 0;
+			if (new_volume > 100)
+				new_volume = 100;
 
 			printf("  Attempting to set volume to: %d\n", new_volume);
 			if (SRAL_SetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_SPEECH_VOLUME, &new_volume)) {
 				int fetched_volume;
 				SRAL_GetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_SPEECH_VOLUME, &fetched_volume);
 				printf("  New volume confirmed by get: %d\n", fetched_volume);
-				CHECK(abs(fetched_volume - new_volume) <= 5, "Volume set and get matches (or is close)", "Volume set/get mismatch or significant difference");
+				CHECK(abs(fetched_volume - new_volume) <= 5,
+					"Volume set and get matches (or is close)",
+					"Volume set/get mismatch or significant difference");
 				SRAL_Speak("Testing new speech volume setting.", true);
 				sleep_ms(2500);
 				SRAL_SetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_SPEECH_VOLUME, &original_volume);
@@ -475,24 +531,33 @@ int main(void) {
 						printf("    %d: %s\n", i, voice_infos[i].language);
 						printf("    %d: %s\n", i, voice_infos[i].gender);
 						printf("    %d: %s\n", i, voice_infos[i].vendor);
-
 					}
 
 					int current_voice_index = -1, original_voice_index = -1;
 					SRAL_GetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_VOICE_INDEX, &original_voice_index);
-					printf("  Current voice index: %d (%s)\n", original_voice_index, (original_voice_index >= 0 && original_voice_index < voice_count && voice_infos[original_voice_index].name) ? voice_infos[original_voice_index].name : "Unknown/Default");
+					printf("  Current voice index: %d (%s)\n",
+						original_voice_index,
+						(original_voice_index >= 0 && original_voice_index < voice_count &&
+							voice_infos[original_voice_index].name)
+							? voice_infos[original_voice_index].name
+							: "Unknown/Default");
 
 					if (voice_count > 1) {
 						int new_voice_index = (original_voice_index + 1) % voice_count;
-						printf("  Attempting to set voice to index: %d (%s)\n", new_voice_index, voice_infos[new_voice_index].name);
+						printf("  Attempting to set voice to index: %d (%s)\n",
+							new_voice_index,
+							voice_infos[new_voice_index].name);
 						if (SRAL_SetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_VOICE_INDEX, &new_voice_index)) {
 							SRAL_GetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_VOICE_INDEX, &current_voice_index);
 							printf("  New voice index confirmed by get: %d\n", current_voice_index);
-							CHECK(current_voice_index == new_voice_index, "Voice index set and get matches", "Voice index set/get mismatch");
+							CHECK(current_voice_index == new_voice_index,
+								"Voice index set and get matches",
+								"Voice index set/get mismatch");
 							SRAL_Speak("Testing newly selected voice.", true);
 							sleep_ms(3000);
 							if (original_voice_index != -1) {
-								SRAL_SetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_VOICE_INDEX, &original_voice_index);
+								SRAL_SetEngineParameter(
+									SRAL_ENGINE_NONE, SRAL_PARAM_VOICE_INDEX, &original_voice_index);
 								printf("  Restored original voice index to: %d\n", original_voice_index);
 							}
 						}
@@ -501,7 +566,8 @@ int main(void) {
 						}
 					}
 				}
-				if (voice_infos) SRAL_free(voice_infos);
+				if (voice_infos)
+					SRAL_free(voice_infos);
 			}
 		}
 		else {
@@ -521,32 +587,39 @@ int main(void) {
 		if (SRAL_SetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_ENABLE_SPELLING, &new_spelling_state)) {
 			SRAL_GetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_ENABLE_SPELLING, &spelling_enabled);
 			printf("  New spelling state confirmed by get: %s\n", spelling_enabled ? "Enabled" : "Disabled");
-			CHECK(spelling_enabled == new_spelling_state, "Spelling state set/get matches", "Spelling state set/get mismatch");
+			CHECK(spelling_enabled == new_spelling_state,
+				"Spelling state set/get matches",
+				"Spelling state set/get mismatch");
 			SRAL_Speak(new_spelling_state ? "Spelling test: H E L L O" : "Spelling test: Hello", true);
 			sleep_ms(3000);
 			SRAL_SetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_ENABLE_SPELLING, &original_spelling_state); // Restore
 			printf("  Restored original spelling state.\n");
 		}
 		else {
-			printf("  Failed to set ENABLE_SPELLING (This might be normal if not truly settable by this engine, or if feature isn't fully supported).\n");
+			printf("  Failed to set ENABLE_SPELLING (This might be normal if not truly settable by this engine, or if "
+				   "feature isn't fully supported).\n");
 		}
 	}
 	else {
 		printf("  Failed to get initial ENABLE_SPELLING (This might be normal if not supported by current engine).\n");
 	}
 
-	if (current_engine_id == SRAL_ENGINE_NVDA || (specific_engine_for_ex_tests != SRAL_ENGINE_NONE && specific_engine_for_ex_tests == SRAL_ENGINE_NVDA)) {
+	if (current_engine_id == SRAL_ENGINE_NVDA ||
+		(specific_engine_for_ex_tests != SRAL_ENGINE_NONE && specific_engine_for_ex_tests == SRAL_ENGINE_NVDA)) {
 		printf("\nTesting NVDA_IS_CONTROL_EX (for NVDA):\n");
 		bool nvda_is_control_ex_val;
 		if (SRAL_GetEngineParameter(SRAL_ENGINE_NVDA, SRAL_PARAM_NVDA_IS_CONTROL_EX, &nvda_is_control_ex_val)) {
-			printf("  NVDA_IS_CONTROL_EX value from NVDA engine: %s\n", nvda_is_control_ex_val ? "true (extended control available)" : "false (standard control)");
+			printf("  NVDA_IS_CONTROL_EX value from NVDA engine: %s\n",
+				nvda_is_control_ex_val ? "true (extended control available)" : "false (standard control)");
 		}
 		else {
-			printf("  Failed to get NVDA_IS_CONTROL_EX (NVDA might not be the one responding or parameter not available).\n");
+			printf("  Failed to get NVDA_IS_CONTROL_EX (NVDA might not be the one responding or parameter not "
+				   "available).\n");
 		}
 	}
 
-	if (current_engine_id == SRAL_ENGINE_SAPI || (specific_engine_for_ex_tests != SRAL_ENGINE_NONE && specific_engine_for_ex_tests == SRAL_ENGINE_SAPI)) {
+	if (current_engine_id == SRAL_ENGINE_SAPI ||
+		(specific_engine_for_ex_tests != SRAL_ENGINE_NONE && specific_engine_for_ex_tests == SRAL_ENGINE_SAPI)) {
 		printf("\nTesting SAPI_TRIM_THRESHOLD (for SAPI):\n");
 		int trim_threshold, original_trim_threshold;
 		if (SRAL_GetEngineParameter(SRAL_ENGINE_SAPI, SRAL_PARAM_SAPI_TRIM_THRESHOLD, &original_trim_threshold)) {
@@ -556,7 +629,9 @@ int main(void) {
 			if (SRAL_SetEngineParameter(SRAL_ENGINE_SAPI, SRAL_PARAM_SAPI_TRIM_THRESHOLD, &new_threshold)) {
 				SRAL_GetEngineParameter(SRAL_ENGINE_SAPI, SRAL_PARAM_SAPI_TRIM_THRESHOLD, &trim_threshold);
 				printf("  New SAPI_TRIM_THRESHOLD confirmed by get: %d\n", trim_threshold);
-				CHECK(trim_threshold == new_threshold, "SAPI_TRIM_THRESHOLD set/get matches", "SAPI_TRIM_THRESHOLD set/get mismatch");
+				CHECK(trim_threshold == new_threshold,
+					"SAPI_TRIM_THRESHOLD set/get matches",
+					"SAPI_TRIM_THRESHOLD set/get mismatch");
 				SRAL_SpeakEx(SRAL_ENGINE_SAPI, "Testing SAPI trim threshold. ... Some silence here.", true);
 				sleep_ms(3000);
 				SRAL_SetEngineParameter(SRAL_ENGINE_SAPI, SRAL_PARAM_SAPI_TRIM_THRESHOLD, &original_trim_threshold);
@@ -567,7 +642,8 @@ int main(void) {
 			}
 		}
 		else {
-			printf("  Failed to get initial SAPI_TRIM_THRESHOLD (SAPI might not be responding or param not available).\n");
+			printf(
+				"  Failed to get initial SAPI_TRIM_THRESHOLD (SAPI might not be responding or param not available).\n");
 		}
 	}
 
@@ -581,7 +657,9 @@ int main(void) {
 			SRAL_GetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_SYMBOL_LEVEL, &symbol_level);
 			printf("  New symbol_level confirmed by get: %d\n", symbol_level);
 			CHECK(symbol_level == new_symbol_level, "Symbol level set/get matches", "Symbol level set/get mismatch");
-			SRAL_Speak("Testing symbol level with punctuation! At symbol @ hash # dollar $ percent % caret ^ ampersand & asterisk *.", true);
+			SRAL_Speak("Testing symbol level with punctuation! At symbol @ hash # dollar $ percent % caret ^ ampersand "
+					   "& asterisk *.",
+				true);
 			sleep_ms(4000);
 			SRAL_SetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_SYMBOL_LEVEL, &original_symbol_level);
 			printf("  Restored original symbol_level: %d\n", original_symbol_level);
@@ -603,7 +681,9 @@ int main(void) {
 		if (SRAL_SetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_USE_CHARACTER_DESCRIPTIONS, &new_use_char_desc)) {
 			SRAL_GetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_USE_CHARACTER_DESCRIPTIONS, &use_char_desc);
 			printf("  New USE_CHARACTER_DESCRIPTIONS confirmed by get: %s\n", use_char_desc ? "Enabled" : "Disabled");
-			CHECK(use_char_desc == new_use_char_desc, "USE_CHARACTER_DESCRIPTIONS set/get matches", "USE_CHARACTER_DESCRIPTIONS set/get mismatch");
+			CHECK(use_char_desc == new_use_char_desc,
+				"USE_CHARACTER_DESCRIPTIONS set/get matches",
+				"USE_CHARACTER_DESCRIPTIONS set/get mismatch");
 			bool temp_spelling_state = true;
 			SRAL_SetEngineParameter(SRAL_ENGINE_NONE, SRAL_PARAM_ENABLE_SPELLING, &temp_spelling_state);
 			SRAL_Speak("Testing character descriptions: A B C", true);
@@ -619,32 +699,38 @@ int main(void) {
 		printf("  Failed to get initial USE_CHARACTER_DESCRIPTIONS (might not be supported).\n");
 	}
 
-
 	TEST_SECTION("SRAL_Delay");
-	prompt_user("Prepare for delay test. 'First message.' will speak, then a 3-second delay, then 'Second message after delay.'");
+	prompt_user("Prepare for delay test. 'First message.' will speak, then a 3-second delay, then 'Second message "
+				"after delay.'");
 	SRAL_Speak("First message.", true);
 	SRAL_Delay(3000);
 	SRAL_Speak("Second message after delay.", true);
 	prompt_user("Delay test finished. Press Enter to continue.");
 	SRAL_StopSpeech(); // Good practice to stop, also clear delay queue.
 
-
 	TEST_SECTION("SRAL_Set/GetEnginesExclude");
 
 	int original_engines_to_exclude = engines_to_exclude;
 	engines_to_exclude = SRAL_ENGINE_NVDA | SRAL_ENGINE_SAPI;
 	printf("Original excluding engines: 0x%X (%s)\n",
-		original_engines_to_exclude, SRAL_GetEngineName(original_engines_to_exclude) ? SRAL_GetEngineName(original_engines_to_exclude) : "None");
+		original_engines_to_exclude,
+		SRAL_GetEngineName(original_engines_to_exclude) ? SRAL_GetEngineName(original_engines_to_exclude) : "None");
 
 	printf("Attempting to exclude engines: 0x%X (%s)\n",
-		engines_to_exclude, SRAL_GetEngineName(engines_to_exclude) ? SRAL_GetEngineName(engines_to_exclude) : "None");
+		engines_to_exclude,
+		SRAL_GetEngineName(engines_to_exclude) ? SRAL_GetEngineName(engines_to_exclude) : "None");
 
-	CHECK(SRAL_SetEnginesExclude(SRAL_ENGINE_NVDA | SRAL_ENGINE_SAPI), "Excludes was successfully set.", "Failed to set engines excludes");
+	CHECK(SRAL_SetEnginesExclude(SRAL_ENGINE_NVDA | SRAL_ENGINE_SAPI),
+		"Excludes was successfully set.",
+		"Failed to set engines excludes");
 	int new_engines_to_exclude = SRAL_GetEnginesExclude();
 	printf("  New excludes confirmed by get: 0x%X (%s)\n",
-		engines_to_exclude, SRAL_GetEngineName(new_engines_to_exclude) ? SRAL_GetEngineName(new_engines_to_exclude) : "None");
+		engines_to_exclude,
+		SRAL_GetEngineName(new_engines_to_exclude) ? SRAL_GetEngineName(new_engines_to_exclude) : "None");
 
-	CHECK(engines_to_exclude == new_engines_to_exclude, "Engines exclude set/get matches", "Engines exclude set/get mismatch");
+	CHECK(engines_to_exclude == new_engines_to_exclude,
+		"Engines exclude set/get matches",
+		"Engines exclude set/get mismatch");
 
 	// Regression check: excluding the whole TTS category must never leave a TTS
 	// engine selected as current. Previously a sticky fallback engine (e.g. NS
@@ -659,7 +745,6 @@ int main(void) {
 		"A TTS engine is still current despite the TTS category being excluded!");
 	SRAL_SetEnginesExclude(engines_to_exclude); // Restore the prior exclude state.
 
-
 	TEST_SECTION("Unregister Keyboard Hooks");
 	SRAL_UnregisterKeyboardHooks();
 	printf("SRAL_UnregisterKeyboardHooks called. Hooks should now be inactive (if they were active).\n");
@@ -667,11 +752,12 @@ int main(void) {
 	SRAL_Speak("Testing speech output after attempting to unregister keyboard hooks.", true);
 	sleep_ms(3000);
 
-
 	TEST_SECTION("SRAL_Uninitialize");
 	SRAL_Uninitialize();
 	printf("SRAL_Uninitialize called.\n");
-	CHECK(!SRAL_IsInitialized(), "SRAL_IsInitialized correctly returns false after uninit.", "SRAL_IsInitialized returned true after uninit!");
+	CHECK(!SRAL_IsInitialized(),
+		"SRAL_IsInitialized correctly returns false after uninit.",
+		"SRAL_IsInitialized returned true after uninit!");
 
 	printf("\nAttempting to speak after uninitialization (should fail or do nothing):\n");
 	if (SRAL_Speak("This speech should not happen.", false)) {

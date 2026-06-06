@@ -23,6 +23,22 @@ option (BUILD_SRAL_TEST "Build SRAL examples/tests" ON)
 option (SRAL_DISABLE_UIA "Disable UIA (UI Automation) support" OFF)
 option (SRAL_DISABLE_NSSPEECH "Disable NSSpeech (macOS-only NSSpeechSynthesizer) support" OFF)
 add_library(${PROJECT_NAME}_obj OBJECT)
+
+file(GLOB_RECURSE ALL_CXX_FILES 
+  "${CMAKE_CURRENT_SOURCE_DIR}/Include/*"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SRC/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SRC/*.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/SRC/*.mm"
+)
+
+find_program(CLANG_FORMAT NAMES clang-format)
+if(CLANG_FORMAT_EXE)
+  add_custom_target(format
+    COMMAND ${CLANG_FORMAT} -i ${ALL_CXX_FILES}
+      COMMENT "Formatting..."
+  )
+endif()
+
 target_sources(${PROJECT_NAME}_obj PRIVATE
   "SRC/Encoding.h" "SRC/Encoding.cpp"
   "SRC/SRAL.cpp" "SRC/Engine.h" "SRC/Engine.cpp")

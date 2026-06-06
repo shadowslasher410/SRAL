@@ -1,17 +1,18 @@
 #define SRAL_EXPORT
 #include "../Include/SRAL.h"
+
 #include "Engine.h"
 #if defined(_WIN32)
 #define UNICODE
-#include "NVDA.h"
-#include "ZDSR.h"
-#include "SAPI.h"
 #include "Jaws.h"
+#include "NVDA.h"
+#include "SAPI.h"
+#include "ZDSR.h"
 #ifndef SRAL_NO_UIA
 #include "UIA.h"
 #endif
-#include <windows.h>
 #include <tlhelp32.h>
+#include <windows.h>
 #elif defined(__APPLE__)
 #include "AVSpeech.h"
 #ifndef SRAL_NO_NSSPEECH
@@ -19,41 +20,34 @@
 #endif
 #include "VoiceOver.h"
 #elif defined(__ANDROID__)
-#include "AndroidTextToSpeech.h"
-#include "AndroidAccessibilityManager.h"
 #include "../Dep/AndroidContext.h"
+#include "AndroidAccessibilityManager.h"
+#include "AndroidTextToSpeech.h"
 #else
 #include "SpeechDispatcher.h"
 #endif
-#include <map>
-#include <mutex>
-#include <vector>
-#include <string>
 #include <chrono>
-#include <thread>
+#include <map>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <thread>
+#include <vector>
 
 class Timer {
 public:
-	Timer() {
-		restart();
-	}
+	Timer() { restart(); }
 
 	inline uint64_t elapsed() {
 		auto now = std::chrono::high_resolution_clock::now();
 		return std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
 	}
 
-	inline void restart() {
-		start_time = std::chrono::high_resolution_clock::now();
-	}
+	inline void restart() { start_time = std::chrono::high_resolution_clock::now(); }
 
 private:
 	std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
 };
-
-
-
 
 static Sral::Engine* g_currentEngine{nullptr};
 static std::map<SRAL_Engines, std::unique_ptr<Sral::Engine>> g_engines;
@@ -80,7 +74,6 @@ static std::thread g_outputThread;
 
 static std::atomic<uint64_t> g_lastDelayTime{0};
 
-
 static void output_thread() {
 	g_outputThreadRunning.store(true);
 	static Timer s_timer;
@@ -106,25 +99,22 @@ static void output_thread() {
 			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		}
 
-		if (!g_delayOperation.load()) break;
+		if (!g_delayOperation.load())
+			break;
 
 		if (current_output.speak) {
 			if (current_output.ssml)
 				current_output.engine->SpeakSsml(current_output.text.c_str(), current_output.interrupt);
 			else
 				current_output.engine->Speak(current_output.text.c_str(), current_output.interrupt);
-
 		}
 		else if (current_output.braille)
 			current_output.engine->Braille(current_output.text.c_str());
-
 	}
 	g_delayOperation = false;
 	g_lastDelayTime = 0;
 	g_outputThreadRunning.store(false);
 }
-
-
 
 static std::atomic<bool> g_keyboardHookThread{false};
 static std::atomic<bool> g_shiftPressed{false};
@@ -135,13 +125,16 @@ static LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
 	if (nCode >= 0) {
 		KBDLLHOOKSTRUCT* pKeyInfo = (KBDLLHOOKSTRUCT*)lParam;
 		for (const auto& [value, ptr] : g_engines) {
-			if (ptr == nullptr || !ptr->GetActive()) continue;
+			if (ptr == nullptr || !ptr->GetActive())
+				continue;
 
 			if (wParam == WM_KEYDOWN) {
-				if ((pKeyInfo->vkCode == VK_LCONTROL || pKeyInfo->vkCode == VK_RCONTROL) && ptr->GetKeyFlags() & Sral::HANDLE_INTERRUPT) {
+				if ((pKeyInfo->vkCode == VK_LCONTROL || pKeyInfo->vkCode == VK_RCONTROL) &&
+					ptr->GetKeyFlags() & Sral::HANDLE_INTERRUPT) {
 					ptr->StopSpeech();
 				}
-				else if ((pKeyInfo->vkCode == VK_LSHIFT || pKeyInfo->vkCode == VK_RSHIFT) && ptr->GetKeyFlags() & Sral::HANDLE_PAUSE_RESUME && !g_shiftPressed.load()) {
+				else if ((pKeyInfo->vkCode == VK_LSHIFT || pKeyInfo->vkCode == VK_RSHIFT) &&
+					ptr->GetKeyFlags() & Sral::HANDLE_PAUSE_RESUME && !g_shiftPressed.load()) {
 					if (ptr->paused)
 						ptr->ResumeSpeech();
 					else
@@ -163,7 +156,8 @@ static std::thread g_hookThread;
 
 static void hook_thread() {
 	g_keyboardHook = SetWindowsHookEx(WH_KEYBOARD_LL, KeyboardHookProc, GetModuleHandle(NULL), 0);
-	if (g_keyboardHook == nullptr)return;
+	if (g_keyboardHook == nullptr)
+		return;
 	MSG msg;
 
 	while (g_keyboardHookThread.load()) {
@@ -176,8 +170,10 @@ static void hook_thread() {
 }
 
 extern "C" SRAL_API bool SRAL_RegisterKeyboardHooks(void) {
-	if (!SRAL_IsInitialized()) return false;
-	if (g_keyboardHookThread.load()) return true;
+	if (!SRAL_IsInitialized())
+		return false;
+	if (g_keyboardHookThread.load())
+		return true;
 	g_keyboardHookThread.store(true);
 	g_hookThread = std::thread(hook_thread);
 	g_hookThread.detach();
@@ -192,7 +188,8 @@ extern "C" SRAL_API bool SRAL_RegisterKeyboardHooks(void) {
 }
 
 extern "C" SRAL_API void SRAL_UnregisterKeyboardHooks(void) {
-	if (!SRAL_IsInitialized()) return;
+	if (!SRAL_IsInitialized())
+		return;
 	PostMessage(0, WM_KEYUP, 0, 0);
 	g_keyboardHookThread.store(false);
 	if (g_hookThread.joinable()) {
@@ -208,8 +205,6 @@ extern "C" SRAL_API void SRAL_UnregisterKeyboardHooks(void) {
 }
 #endif
 
-
-
 extern "C" SRAL_API void* SRAL_malloc(size_t size) {
 	return malloc(size);
 }
@@ -218,11 +213,9 @@ extern "C" void SRAL_free(void* memory) {
 	free(memory);
 }
 
-
-
-
 extern "C" SRAL_API bool SRAL_Initialize(int engines_exclude) {
-	if (g_initialized)return true;
+	if (g_initialized)
+		return true;
 #if defined(_WIN32)
 	CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 	g_engines[SRAL_ENGINE_NVDA] = std::make_unique<Sral::Nvda>();
@@ -257,13 +250,15 @@ extern "C" SRAL_API bool SRAL_Initialize(int engines_exclude) {
 	}
 
 	g_initialized = success;
-	if (!g_initialized) return false;
+	if (!g_initialized)
+		return false;
 	SRAL_SetEnginesExclude(engines_exclude);
 	return g_initialized;
 }
 
 extern "C" SRAL_API void SRAL_Uninitialize(void) {
-	if (!SRAL_IsInitialized())return;
+	if (!SRAL_IsInitialized())
+		return;
 	for (const auto& [value, ptr] : g_engines) {
 		ptr->Uninitialize();
 	}
@@ -297,9 +292,6 @@ static Sral::Engine* get_engine(int engine) {
 	return nullptr;
 }
 
-
-
-
 #ifdef _WIN32
 // This is used for find the Windows Narrator process
 static BOOL FindProcess(const wchar_t* name) {
@@ -317,7 +309,7 @@ static BOOL FindProcess(const wchar_t* name) {
 	// Retrieve information about the first process.
 	if (!Process32First(hProcessSnap, &pe32)) {
 		CloseHandle(hProcessSnap); // Clean up the snapshot object
-		return FALSE; // Unable to retrieve process information
+		return FALSE;			   // Unable to retrieve process information
 	}
 
 	// Now walk the snapshot of processes
@@ -325,14 +317,13 @@ static BOOL FindProcess(const wchar_t* name) {
 		// Compare the process name with the input name
 		if (_wcsicmp(pe32.szExeFile, name) == 0) {
 			CloseHandle(hProcessSnap); // Clean up the snapshot object
-			return TRUE; // Process found
+			return TRUE;			   // Process found
 		}
 	} while (Process32Next(hProcessSnap, &pe32));
 
 	CloseHandle(hProcessSnap); // Clean up the snapshot object
-	return FALSE; // Process not found
+	return FALSE;			   // Process not found
 }
-
 
 #endif
 static void speech_engine_update() {
@@ -343,10 +334,8 @@ static void speech_engine_update() {
 	// that appears, and must also react to changes in g_excludes. Asking the
 	// engine its own category keeps this in sync as new engines are added.
 	int category = g_currentEngine ? g_currentEngine->GetCategory() : SRAL_ENGINE_CATEGORY_UNKNOWN;
-	if (!g_currentEngine
-		|| !g_currentEngine->GetActive()
-		|| category == SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE
-		|| category == SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER) {
+	if (!g_currentEngine || !g_currentEngine->GetActive() || category == SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE ||
+		category == SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER) {
 #if defined(_WIN32) && !defined(SRAL_NO_UIA)
 		if (FindProcess(L"narrator.exe") == TRUE) {
 			g_currentEngine = get_engine(SRAL_ENGINE_UIA);
@@ -372,78 +361,90 @@ static void speech_engine_update() {
 
 extern "C" SRAL_API bool SRAL_Speak(const char* text, bool interrupt) {
 	speech_engine_update();
-	if (g_currentEngine == nullptr)		return false;
+	if (g_currentEngine == nullptr)
+		return false;
 	return SRAL_SpeakEx(g_currentEngine->GetNumber(), text, interrupt);
 }
 
-extern "C" SRAL_API void* SRAL_SpeakToMemory(const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) {
+extern "C" SRAL_API void* SRAL_SpeakToMemory(
+	const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) {
 	speech_engine_update();
-	if (g_currentEngine == nullptr)		return nullptr;
-	return SRAL_SpeakToMemoryEx(g_currentEngine->GetNumber(), text, buffer_size, channels, sample_rate, bits_per_sample);
+	if (g_currentEngine == nullptr)
+		return nullptr;
+	return SRAL_SpeakToMemoryEx(
+		g_currentEngine->GetNumber(), text, buffer_size, channels, sample_rate, bits_per_sample);
 }
 
 extern "C" SRAL_API bool SRAL_SpeakSsml(const char* ssml, bool interrupt) {
 	speech_engine_update();
-	if (g_currentEngine == nullptr)		return false;
+	if (g_currentEngine == nullptr)
+		return false;
 	return SRAL_SpeakSsmlEx(g_currentEngine->GetNumber(), ssml, interrupt);
 }
 
 extern "C" SRAL_API bool SRAL_Braille(const char* text) {
 	speech_engine_update();
-	if (g_currentEngine == nullptr)return false;
+	if (g_currentEngine == nullptr)
+		return false;
 	return SRAL_BrailleEx(g_currentEngine->GetNumber(), text);
 }
 
 extern "C" SRAL_API bool SRAL_Output(const char* text, bool interrupt) {
 	speech_engine_update();
-	if (g_currentEngine == nullptr)return false;
+	if (g_currentEngine == nullptr)
+		return false;
 	return SRAL_OutputEx(g_currentEngine->GetNumber(), text, interrupt);
 }
 
 extern "C" SRAL_API bool SRAL_StopSpeech(void) {
 	speech_engine_update();
-	if (g_currentEngine == nullptr)return false;
+	if (g_currentEngine == nullptr)
+		return false;
 	return SRAL_StopSpeechEx(g_currentEngine->GetNumber());
 }
 
 extern "C" SRAL_API bool SRAL_PauseSpeech(void) {
 	speech_engine_update();
-	if (g_currentEngine == nullptr)return false;
+	if (g_currentEngine == nullptr)
+		return false;
 	return SRAL_PauseSpeechEx(g_currentEngine->GetNumber());
 }
 
 extern "C" SRAL_API bool SRAL_ResumeSpeech(void) {
 	speech_engine_update();
-	if (g_currentEngine == nullptr)return false;
+	if (g_currentEngine == nullptr)
+		return false;
 	return SRAL_ResumeSpeechEx(g_currentEngine->GetNumber());
 }
 
 extern "C" SRAL_API bool SRAL_IsSpeaking(void) {
 	speech_engine_update();
-	if (g_currentEngine == nullptr)		return false;
+	if (g_currentEngine == nullptr)
+		return false;
 	return SRAL_IsSpeakingEx(g_currentEngine->GetNumber());
 }
 
 extern "C" SRAL_API int SRAL_GetCurrentEngine(void) {
 	speech_engine_update();
-	if (g_currentEngine == nullptr)return SRAL_ENGINE_NONE;
+	if (g_currentEngine == nullptr)
+		return SRAL_ENGINE_NONE;
 	return g_currentEngine->GetNumber();
 }
 
 extern "C" SRAL_API int SRAL_GetEngineFeatures(int engine) {
 	if (engine == 0) {
-		if (g_currentEngine == nullptr)return -1;
+		if (g_currentEngine == nullptr)
+			return -1;
 		return g_currentEngine->GetFeatures();
 	}
 	else {
 		Sral::Engine* e = get_engine(engine);
-		if (e == nullptr)return -1;
+		if (e == nullptr)
+			return -1;
 		return e->GetFeatures();
 	}
 	return -1;
 }
-
-
 
 extern "C" SRAL_API bool SRAL_SetEngineParameter(int engine, int param, const void* value) {
 #ifdef __ANDROID__
@@ -453,32 +454,32 @@ extern "C" SRAL_API bool SRAL_SetEngineParameter(int engine, int param, const vo
 		return Sral::SetAndroidJNIEnv((JNIEnv*)const_cast<void*>(value));
 	}
 	if (param == SRAL_PARAM_ANDROID_ACTIVITY) {
-		return Sral::SetAndroidActivity((jobject)const_cast<void*>(value));
+		return Sral::SetAndroidActivity((jobject) const_cast<void*>(value));
 	}
 #endif
 	if (engine == 0 && g_currentEngine != nullptr) {
 		return g_currentEngine->SetParameter(param, value);
 	}
 	Sral::Engine* e = get_engine(engine);
-	if (e == nullptr)return false;
+	if (e == nullptr)
+		return false;
 	return e->SetParameter(param, value);
 }
-
 
 extern "C" SRAL_API bool SRAL_GetEngineParameter(int engine, int param, void* value) {
 	if (engine == 0 && g_currentEngine != nullptr) {
 		return g_currentEngine->GetParameter(param, value);
 	}
 	Sral::Engine* e = get_engine(engine);
-	if (e == nullptr)return false;
+	if (e == nullptr)
+		return false;
 	return e->GetParameter(param, value);
 }
 
-
-
 extern "C" SRAL_API bool SRAL_SpeakEx(int engine, const char* text, bool interrupt) {
 	Sral::Engine* e = get_engine(engine);
-	if (e == nullptr)return false;
+	if (e == nullptr)
+		return false;
 	if (!g_delayOperation.load())
 		return e->Speak(text, interrupt);
 	else {
@@ -503,15 +504,18 @@ extern "C" SRAL_API bool SRAL_SpeakEx(int engine, const char* text, bool interru
 	return false;
 }
 
-extern "C" SRAL_API void* SRAL_SpeakToMemoryEx(int engine, const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) {
+extern "C" SRAL_API void* SRAL_SpeakToMemoryEx(
+	int engine, const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) {
 	Sral::Engine* e = get_engine(engine);
-	if (e == nullptr)return nullptr;
+	if (e == nullptr)
+		return nullptr;
 	return e->SpeakToMemory(text, buffer_size, channels, sample_rate, bits_per_sample);
 }
 
 extern "C" SRAL_API bool SRAL_SpeakSsmlEx(int engine, const char* ssml, bool interrupt) {
 	Sral::Engine* e = get_engine(engine);
-	if (e == nullptr)return false;
+	if (e == nullptr)
+		return false;
 	if (!g_delayOperation.load())
 		return e->SpeakSsml(ssml, interrupt);
 	else {
@@ -538,13 +542,15 @@ extern "C" SRAL_API bool SRAL_SpeakSsmlEx(int engine, const char* ssml, bool int
 
 extern "C" SRAL_API bool SRAL_BrailleEx(int engine, const char* text) {
 	Sral::Engine* e = get_engine(engine);
-	if (e == nullptr)return false;
+	if (e == nullptr)
+		return false;
 	return e->Braille(text);
 }
 
 extern "C" SRAL_API bool SRAL_OutputEx(int engine, const char* text, bool interrupt) {
 	Sral::Engine* e = get_engine(engine);
-	if (e == nullptr)return false;
+	if (e == nullptr)
+		return false;
 	const bool speech = e->Speak(text, interrupt);
 	const bool braille = e->Braille(text);
 	return speech || braille;
@@ -552,7 +558,8 @@ extern "C" SRAL_API bool SRAL_OutputEx(int engine, const char* text, bool interr
 
 extern "C" SRAL_API bool SRAL_StopSpeechEx(int engine) {
 	Sral::Engine* e = get_engine(engine);
-	if (e == nullptr)return false;
+	if (e == nullptr)
+		return false;
 	if (g_delayOperation.load()) {
 		{
 			std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
@@ -566,10 +573,10 @@ extern "C" SRAL_API bool SRAL_StopSpeechEx(int engine) {
 	return e->StopSpeech();
 }
 
-
 extern "C" SRAL_API bool SRAL_PauseSpeechEx(int engine) {
 	Sral::Engine* e = get_engine(engine);
-	if (e == nullptr)return false;
+	if (e == nullptr)
+		return false;
 	if (g_delayOperation.load()) {
 		g_delayOperation.store(false);
 		if (g_outputThread.joinable()) {
@@ -579,11 +586,10 @@ extern "C" SRAL_API bool SRAL_PauseSpeechEx(int engine) {
 	return e->PauseSpeech();
 }
 
-
-
 extern "C" SRAL_API bool SRAL_ResumeSpeechEx(int engine) {
 	Sral::Engine* e = get_engine(engine);
-	if (e == nullptr)return false;
+	if (e == nullptr)
+		return false;
 	{
 		std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
 		if (!g_delayedOutputs.empty()) {
@@ -597,10 +603,10 @@ extern "C" SRAL_API bool SRAL_ResumeSpeechEx(int engine) {
 	return e->ResumeSpeech();
 }
 
-
 extern "C" SRAL_API bool SRAL_IsSpeakingEx(int engine) {
 	Sral::Engine* e = get_engine(engine);
-	if (e == nullptr)return false;
+	if (e == nullptr)
+		return false;
 	return e->IsSpeaking();
 }
 
@@ -608,16 +614,16 @@ extern "C" SRAL_API bool SRAL_IsInitialized(void) {
 	return g_initialized && !g_engines.empty();
 }
 
-
-
 extern "C" SRAL_API void SRAL_Delay(int time) {
-	if (!SRAL_IsInitialized()) return;
+	if (!SRAL_IsInitialized())
+		return;
 	g_lastDelayTime = time;
 	g_delayOperation.store(true);
 }
 
 extern "C" SRAL_API int SRAL_GetAvailableEngines(void) {
-	if (g_engines.empty())return 0;
+	if (g_engines.empty())
+		return 0;
 	int mask = 0;
 	for (const auto& [value, ptr] : g_engines) {
 		if (ptr)
@@ -627,7 +633,8 @@ extern "C" SRAL_API int SRAL_GetAvailableEngines(void) {
 }
 
 extern "C" SRAL_API int SRAL_GetActiveEngines(void) {
-	if (g_engines.empty())return 0;
+	if (g_engines.empty())
+		return 0;
 	int mask = 0;
 	for (const auto& [value, ptr] : g_engines) {
 		if (ptr && ptr->GetActive())
@@ -637,13 +644,15 @@ extern "C" SRAL_API int SRAL_GetActiveEngines(void) {
 }
 
 extern "C" SRAL_API SRAL_EngineCategory SRAL_GetEngineCategory(int engine) {
-	if (!SRAL_IsInitialized()) return SRAL_ENGINE_CATEGORY_UNKNOWN;
+	if (!SRAL_IsInitialized())
+		return SRAL_ENGINE_CATEGORY_UNKNOWN;
 	Sral::Engine* e = get_engine(engine);
 	return e ? static_cast<SRAL_EngineCategory>(e->GetCategory()) : SRAL_ENGINE_CATEGORY_UNKNOWN;
 }
 
 extern "C" SRAL_API int SRAL_GetTTSEngines(void) {
-	if (g_engines.empty())return 0;
+	if (g_engines.empty())
+		return 0;
 	int mask = 0;
 	for (const auto& [value, ptr] : g_engines) {
 		if (ptr && ptr->GetCategory() == SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE)
@@ -653,40 +662,55 @@ extern "C" SRAL_API int SRAL_GetTTSEngines(void) {
 }
 
 extern "C" SRAL_API int SRAL_GetAssistiveTechEngines(void) {
-	if (g_engines.empty())return 0;
+	if (g_engines.empty())
+		return 0;
 	int mask = 0;
 	for (const auto& [value, ptr] : g_engines) {
-		if (!ptr) continue;
+		if (!ptr)
+			continue;
 		int category = ptr->GetCategory();
-		if (category == SRAL_ENGINE_CATEGORY_SCREEN_READER
-			|| category == SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER)
+		if (category == SRAL_ENGINE_CATEGORY_SCREEN_READER || category == SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER)
 			mask |= value;
 	}
 	return mask;
 }
 
-
 extern "C" SRAL_API const char* SRAL_GetEngineName(int engine) {
 	switch (static_cast<SRAL_Engines>(engine)) {
-		case SRAL_ENGINE_NONE: return "None";
-		case SRAL_ENGINE_NVDA: return "NVDA";
-		case SRAL_ENGINE_SAPI: return "SAPI";
-		case SRAL_ENGINE_JAWS: return "JAWS";
-		case SRAL_ENGINE_SPEECH_DISPATCHER: return "Speech Dispatcher";
-		case SRAL_ENGINE_UIA: return "UIA";
-		case SRAL_ENGINE_AV_SPEECH: return "AV Speech";
-		case SRAL_ENGINE_NS_SPEECH: return "NS Speech";
-		case SRAL_ENGINE_NARRATOR: return "Narrator";
-		case SRAL_ENGINE_VOICE_OVER: return "Voice Over";
-		case SRAL_ENGINE_ZDSR: return "ZDSR";
-		case SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH: return "Android TTS";
-		case SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER: return "Android AccessibilityManager";
-		default: return "Unknown";
+	case SRAL_ENGINE_NONE:
+		return "None";
+	case SRAL_ENGINE_NVDA:
+		return "NVDA";
+	case SRAL_ENGINE_SAPI:
+		return "SAPI";
+	case SRAL_ENGINE_JAWS:
+		return "JAWS";
+	case SRAL_ENGINE_SPEECH_DISPATCHER:
+		return "Speech Dispatcher";
+	case SRAL_ENGINE_UIA:
+		return "UIA";
+	case SRAL_ENGINE_AV_SPEECH:
+		return "AV Speech";
+	case SRAL_ENGINE_NS_SPEECH:
+		return "NS Speech";
+	case SRAL_ENGINE_NARRATOR:
+		return "Narrator";
+	case SRAL_ENGINE_VOICE_OVER:
+		return "Voice Over";
+	case SRAL_ENGINE_ZDSR:
+		return "ZDSR";
+	case SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH:
+		return "Android TTS";
+	case SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER:
+		return "Android AccessibilityManager";
+	default:
+		return "Unknown";
 	}
 }
 
 extern "C" SRAL_API bool SRAL_SetEnginesExclude(int engines_exclude) {
-	if (!SRAL_IsInitialized()) return false;
+	if (!SRAL_IsInitialized())
+		return false;
 	g_excludes = engines_exclude;
 	speech_engine_update();
 	return true;

@@ -1,4 +1,5 @@
 #include "Encoding.h"
+
 #include <vector>
 #ifdef _WIN32
 #include <windows.h>
@@ -38,8 +39,6 @@ bool UnicodeConvert(const std::wstring& input, std::string& output) {
 #endif
 }
 
-
-
 void XmlEncode(std::string& data) {
 	std::string encoded;
 	encoded.reserve(data.size()); // Reserve space for efficiency
@@ -69,4 +68,3 @@ void XmlEncode(std::string& data) {
 
 	data = encoded; // Update the original string with the encoded version
 }
-

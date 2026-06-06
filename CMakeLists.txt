@@ -32,7 +32,7 @@ file(GLOB_RECURSE ALL_CXX_FILES
 )
 
 find_program(CLANG_FORMAT NAMES clang-format)
-if(CLANG_FORMAT_EXE)
+if(CLANG_FORMAT)
   add_custom_target(format
     COMMAND ${CLANG_FORMAT} -i ${ALL_CXX_FILES}
       COMMENT "Formatting..."

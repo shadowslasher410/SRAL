@@ -6,30 +6,24 @@
 #include "Engine.h"
 
 namespace Sral {
-	class Uia final : public Engine {
-	public:
-		bool Speak(const char* text, bool interrupt)override;
+class Uia final : public Engine {
+public:
+	bool Speak(const char* text, bool interrupt) override;
 
-		bool StopSpeech()override;
-		int GetNumber()override {
-			return SRAL_ENGINE_UIA;
-		}
-		int GetCategory() override {
-			return SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER;
-		}
-		bool GetActive()override;
-		bool Initialize()override;
-		bool Uninitialize()override;
-		int GetFeatures()override {
-			return SRAL_SUPPORTS_SPEECH;
-		}
+	bool StopSpeech() override;
+	int GetNumber() override { return SRAL_ENGINE_UIA; }
+	int GetCategory() override { return SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER; }
+	bool GetActive() override;
+	bool Initialize() override;
+	bool Uninitialize() override;
+	int GetFeatures() override { return SRAL_SUPPORTS_SPEECH; }
 
-	private:
-		IUIAutomation* pAutomation = nullptr;
-		IUIAutomationCondition* pCondition = nullptr;
-		VARIANT varName;
-		Provider* pProvider = nullptr;
-		IUIAutomationElement* pElement = nullptr;
-	};
-}
+private:
+	IUIAutomation* pAutomation = nullptr;
+	IUIAutomationCondition* pCondition = nullptr;
+	VARIANT varName;
+	Provider* pProvider = nullptr;
+	IUIAutomationElement* pElement = nullptr;
+};
+} // namespace Sral
 #endif

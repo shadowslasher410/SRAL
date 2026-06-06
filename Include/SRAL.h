@@ -96,6 +96,26 @@ SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH = 1 << 12
 	};
 
 	/**
+	 * @enum SRAL_EngineCategory
+	 * @brief Broad categories an engine can belong to.
+	 *
+	 * Each engine reports its own category (see SRAL_GetEngineCategory).
+	 *
+	 * Unlike SRAL_Engines, these values are NOT bit flags; an engine has exactly
+	 * one category.
+	 */
+	typedef enum SRAL_EngineCategory {
+		/** @brief Category unknown, or the engine is not available/initialized. */
+		SRAL_ENGINE_CATEGORY_UNKNOWN = 0,
+		/** @brief A screen reader (e.g. NVDA, JAWS, ZDSR, VoiceOver). */
+		SRAL_ENGINE_CATEGORY_SCREEN_READER,
+		/** @brief A pure text-to-speech synthesizer (e.g. SAPI, Speech Dispatcher, NSSpeech, AVSpeech, Android TextToSpeech). */
+		SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE,
+		/** @brief An accessibility provider that drives whatever assistive tech is consuming it (e.g. UIA, Android AccessibilityManager). */
+		SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER
+	} SRAL_EngineCategory;
+
+	/**
  * @enum SRAL_SupportedFeatures
  * @brief Enumeration of supported features in the engines.
  *
@@ -517,6 +537,66 @@ SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH = 1 << 12
 
 
 	SRAL_API int SRAL_GetActiveEngines(void);
+
+
+
+	/**
+* @brief Get the category of a specific engine.
+*
+* The category is reported by the engine itself (see SRAL_EngineCategory). The
+* library must be initialized; the engine is resolved against the engines
+* instantiated on the current platform, so an engine that is not available here
+* (or an unknown identifier) returns SRAL_ENGINE_CATEGORY_UNKNOWN.
+*
+* @param engine An SRAL_Engines identifier.
+* @return The engine's SRAL_EngineCategory.
+*/
+
+
+	SRAL_API SRAL_EngineCategory SRAL_GetEngineCategory(int engine);
+
+
+
+	/**
+* @brief Get the bitmask of engines that are pure text-to-speech synthesizers
+* (e.g., SAPI, Speech Dispatcher, NSSpeech, AVSpeech, Android TextToSpeech).
+*
+* The mask is derived at runtime from each available engine's category
+* (SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE), so it reflects the engines
+* instantiated on the current platform and requires the library to be
+* initialized (returns 0 otherwise).
+*
+* Intended use: pass to SRAL_SetEnginesExclude when the application wants to
+* opt out of TTS output (for instance, only speaking through a screen reader
+* unless the user has enabled an in-app TTS option).
+*
+* @return Bitmask of TTS engines defined by the SRAL_Engines enumeration.
+*/
+
+
+	SRAL_API int SRAL_GetTTSEngines(void);
+
+
+
+	/**
+* @brief Get the bitmask of engines that represent assistive technology
+* (screen readers and the accessibility providers that drive them, e.g.,
+* NVDA, JAWS, ZDSR, UIA, VoiceOver, Android AccessibilityManager).
+*
+* The mask is derived at runtime from each available engine's category
+* (SRAL_ENGINE_CATEGORY_SCREEN_READER or SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER),
+* so it reflects the engines instantiated on the current platform and requires
+* the library to be initialized (returns 0 otherwise).
+*
+* When any of these engines is active, output is routed to the user's
+* configured assistive tech (which itself handles speech and braille
+* per the user's preferences).
+*
+* @return Bitmask of assistive-tech engines defined by the SRAL_Engines enumeration.
+*/
+
+
+	SRAL_API int SRAL_GetAssistiveTechEngines(void);
 
 
 

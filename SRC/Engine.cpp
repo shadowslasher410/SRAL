@@ -32,6 +32,10 @@ namespace Sral {
 		return SRAL_ENGINE_NONE;
 	}
 
+	int Engine::GetCategory() {
+		return SRAL_ENGINE_CATEGORY_UNKNOWN;
+	}
+
 	bool Engine::GetParameter(int parameter, void* value) {
 		(void)parameter;
 		(void)value;

@@ -14,6 +14,9 @@ namespace Sral {
 		int GetNumber()override {
 			return SRAL_ENGINE_ZDSR;
 		}
+		int GetCategory() override {
+			return SRAL_ENGINE_CATEGORY_SCREEN_READER;
+		}
 		bool GetActive()override;
 		bool Initialize()override;
 		bool Uninitialize()override;

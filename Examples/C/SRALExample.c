@@ -40,7 +40,7 @@ void PrintEngineNames(int engineBitmask, const char* title) {
 		return;
 	}
 	bool found = false;
-	for (int engine_val = SRAL_ENGINE_NVDA; engine_val <= SRAL_ENGINE_AV_SPEECH; engine_val <<= 1) {
+	for (int engine_val = SRAL_ENGINE_NVDA; engine_val <= SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH; engine_val <<= 1) {
 		if (engineBitmask & engine_val) {
 			const char* name = SRAL_GetEngineName(engine_val);
 			printf("  - %s (0x%X)\n", name ? name : "Unknown Engine", engine_val);
@@ -51,6 +51,15 @@ void PrintEngineNames(int engineBitmask, const char* title) {
 		printf("  (Unknown bitmask: 0x%X)\n", engineBitmask);
 	}
 	printf("\n");
+}
+
+const char* CategoryName(int category) {
+	switch (category) {
+		case SRAL_ENGINE_CATEGORY_SCREEN_READER: return "Screen Reader";
+		case SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE: return "Text-To-Speech Engine";
+		case SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER: return "Accessibility Provider";
+		default: return "Unknown";
+	}
 }
 
 void print_supported_features(int features) {
@@ -122,11 +131,32 @@ int main(void) {
 	int active_engines = SRAL_GetActiveEngines();
 	PrintEngineNames(active_engines, "Currently Active/Usable Engines");
 
+	int tts_engines = SRAL_GetTTSEngines();
+	PrintEngineNames(tts_engines, "TTS Engines (category)");
+
+	int at_engines = SRAL_GetAssistiveTechEngines();
+	PrintEngineNames(at_engines, "Assistive-Tech Engines (category)");
+
+	bool at_active = (active_engines & at_engines) != 0;
+	printf("Assistive tech currently active: %s\n\n", at_active ? "yes" : "no");
+
+	CHECK((tts_engines & at_engines) == 0,
+		"TTS and assistive-tech masks are disjoint.",
+		"TTS and assistive-tech masks overlap!");
+
+	printf("\nCategory of each available engine (SRAL_GetEngineCategory):\n");
+	for (int e_val = SRAL_ENGINE_NVDA; e_val <= SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH; e_val <<= 1) {
+		if (available_engines & e_val) {
+			printf("  - %s: %s\n", SRAL_GetEngineName(e_val), CategoryName(SRAL_GetEngineCategory(e_val)));
+		}
+	}
+	printf("\n");
+
 	int current_engine_id = SRAL_GetCurrentEngine();
 	printf("Current Default Engine: %s (0x%X)\n", SRAL_GetEngineName(current_engine_id) ? SRAL_GetEngineName(current_engine_id) : "None/Unknown", current_engine_id);
 
 	printf("\nNames of all SRAL_Engines enum members (as per SRAL_GetEngineName):\n");
-	for (int e_val = SRAL_ENGINE_NVDA; e_val <= SRAL_ENGINE_AV_SPEECH; e_val <<= 1) {
+	for (int e_val = SRAL_ENGINE_NVDA; e_val <= SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH; e_val <<= 1) {
 		const char* name = SRAL_GetEngineName(e_val);
 		printf("  Engine ID 0x%X: %s\n", e_val, name ? name : "(Name not defined or not a single engine ID)");
 	}
@@ -134,14 +164,14 @@ int main(void) {
 
 	int specific_engine_for_ex_tests = SRAL_ENGINE_NONE;
 	if (active_engines != SRAL_ENGINE_NONE) {
-		for (int e_val = SRAL_ENGINE_NVDA; e_val <= SRAL_ENGINE_AV_SPEECH; e_val <<= 1) {
+		for (int e_val = SRAL_ENGINE_NVDA; e_val <= SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH; e_val <<= 1) {
 			if ((active_engines & e_val) && e_val != current_engine_id) {
 				specific_engine_for_ex_tests = e_val;
 				break;
 			}
 		}
 		if (specific_engine_for_ex_tests == SRAL_ENGINE_NONE) {
-			for (int e_val = SRAL_ENGINE_NVDA; e_val <= SRAL_ENGINE_AV_SPEECH; e_val <<= 1) {
+			for (int e_val = SRAL_ENGINE_NVDA; e_val <= SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH; e_val <<= 1) {
 				if (active_engines & e_val) {
 					specific_engine_for_ex_tests = e_val;
 					break;
@@ -615,6 +645,19 @@ int main(void) {
 		engines_to_exclude, SRAL_GetEngineName(new_engines_to_exclude) ? SRAL_GetEngineName(new_engines_to_exclude) : "None");
 
 	CHECK(engines_to_exclude == new_engines_to_exclude, "Engines exclude set/get matches", "Engines exclude set/get mismatch");
+
+	// Regression check: excluding the whole TTS category must never leave a TTS
+	// engine selected as current. Previously a sticky fallback engine (e.g. NS
+	// Speech) could keep speaking through TTS after it had been excluded.
+	CHECK_SRAL(SRAL_SetEnginesExclude(SRAL_GetTTSEngines()), "Excluded the TTS engine category.");
+	int current_with_tts_excluded = SRAL_GetCurrentEngine();
+	printf("  Current engine with TTS excluded: %s (0x%X)\n",
+		SRAL_GetEngineName(current_with_tts_excluded) ? SRAL_GetEngineName(current_with_tts_excluded) : "None",
+		current_with_tts_excluded);
+	CHECK((current_with_tts_excluded & SRAL_GetTTSEngines()) == 0,
+		"No TTS engine is current while the TTS category is excluded.",
+		"A TTS engine is still current despite the TTS category being excluded!");
+	SRAL_SetEnginesExclude(engines_to_exclude); // Restore the prior exclude state.
 
 
 	TEST_SECTION("Unregister Keyboard Hooks");

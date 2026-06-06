@@ -27,8 +27,12 @@ const (
 	NSSpeechEngine
 	// AVSpeechEngine — AVFoundation Speech Synthesizer (AVSpeechSynthesizer) for Apple platforms.
 	AVSpeechEngine
+	// AndroidAccessibilityManagerEngine — Android AccessibilityManager, drives the active screen reader (typically TalkBack).
+	AndroidAccessibilityManagerEngine
+	// AndroidTextToSpeechEngine — Android TextToSpeech synthesizer.
+	AndroidTextToSpeechEngine
 	// AllEngines is a bitmask of all supported engines.
-	AllEngines Engine = NVDAEngine | JAWSEngine | ZDSREngine | NarratorEngine | UIAEngine | SAPIEngine | SpeechDispatcherEngine | NSSpeechEngine | VoiceOverEngine | AVSpeechEngine
+	AllEngines Engine = NVDAEngine | JAWSEngine | ZDSREngine | NarratorEngine | UIAEngine | SAPIEngine | SpeechDispatcherEngine | NSSpeechEngine | VoiceOverEngine | AVSpeechEngine | AndroidAccessibilityManagerEngine | AndroidTextToSpeechEngine
 	// InvalidEngine represents an error or uninitialized engine state.
 	InvalidEngine Engine = -1
 	// NoSpecifiedEngine is used for auto-selection of the engine.
@@ -67,6 +71,24 @@ const (
 func (f Feature) IsSupported(other Feature) bool {
 	return (f & other) != 0
 }
+
+// EngineCategory is the broad category an engine belongs to. Unlike Engine,
+// these values are not bit flags; an engine has exactly one category.
+type EngineCategory int
+
+const (
+	// UnknownCategory indicates the category is unknown, or the engine is not
+	// available/initialized.
+	UnknownCategory EngineCategory = iota
+	// ScreenReaderCategory — a screen reader (e.g. NVDA, JAWS, ZDSR, VoiceOver).
+	ScreenReaderCategory
+	// TextToSpeechCategory — a pure text-to-speech synthesizer (e.g. SAPI,
+	// Speech Dispatcher, NSSpeech, AVSpeech, Android TextToSpeech).
+	TextToSpeechCategory
+	// AccessibilityProviderCategory — an accessibility provider that drives
+	// whatever assistive tech is consuming it (e.g. UIA, Android AccessibilityManager).
+	AccessibilityProviderCategory
+)
 
 // EngineParam defines parameters that can be set or retrieved from a speech engine.
 type EngineParam int

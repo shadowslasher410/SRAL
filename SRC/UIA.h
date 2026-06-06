@@ -14,6 +14,9 @@ namespace Sral {
 		int GetNumber()override {
 			return SRAL_ENGINE_UIA;
 		}
+		int GetCategory() override {
+			return SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER;
+		}
 		bool GetActive()override;
 		bool Initialize()override;
 		bool Uninitialize()override;

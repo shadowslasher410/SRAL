@@ -26,6 +26,7 @@ namespace Sral {
 		virtual bool ResumeSpeech();
 		virtual bool IsSpeaking();
 		virtual int GetNumber();
+		virtual int GetCategory();
 		virtual bool GetActive();
 		virtual int GetFeatures();
 		virtual bool Initialize();

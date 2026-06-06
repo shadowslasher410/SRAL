@@ -31,6 +31,8 @@ class SRALEngine(IntEnum):
     VOICE_OVER = 1 << 8
     NS_SPEECH = 1 << 9
     AV_SPEECH = 1 << 10
+    ANDROID_ACCESSIBILITY_MANAGER = 1 << 11
+    ANDROID_TEXT_TO_SPEECH = 1 << 12
 
 class SRALFeature(IntEnum):
     """
@@ -45,6 +47,18 @@ class SRALFeature(IntEnum):
     SSML = 1 << 7
     SPEAK_TO_MEMORY = 1 << 8
     SPELLING = 1 << 9
+
+class SRALEngineCategory(IntEnum):
+    """
+    Broad categories an engine can belong to.
+
+    Unlike SRALEngine, these values are not bit flags; an engine has exactly
+    one category.
+    """
+    UNKNOWN = 0
+    SCREEN_READER = 1
+    TEXT_TO_SPEECH_ENGINE = 2
+    ACCESSIBILITY_PROVIDER = 3
 
 class SRALParam(IntEnum):
     """
@@ -216,6 +230,15 @@ if _sral_lib:
 
     _sral_lib.SRAL_GetActiveEngines.argtypes = []
     _sral_lib.SRAL_GetActiveEngines.restype = ctypes.c_int
+
+    _sral_lib.SRAL_GetTTSEngines.argtypes = []
+    _sral_lib.SRAL_GetTTSEngines.restype = ctypes.c_int
+
+    _sral_lib.SRAL_GetAssistiveTechEngines.argtypes = []
+    _sral_lib.SRAL_GetAssistiveTechEngines.restype = ctypes.c_int
+
+    _sral_lib.SRAL_GetEngineCategory.argtypes = [ctypes.c_int]
+    _sral_lib.SRAL_GetEngineCategory.restype = ctypes.c_int
 
     _sral_lib.SRAL_GetEngineName.argtypes = [ctypes.c_int]
     _sral_lib.SRAL_GetEngineName.restype = ctypes.c_char_p
@@ -771,6 +794,59 @@ class SRAL:
         self._check_initialized()
         if not _sral_lib: return 0
         return _sral_lib.SRAL_GetActiveEngines()
+
+    def get_tts_engines(self) -> int:
+        """
+        Get the bitmask of engines that are pure text-to-speech synthesizers.
+
+        The mask is derived at runtime from each available engine's category,
+        so it reflects the engines available on the current platform and
+        requires the library to be initialized.
+
+        Intended use: pass to set_engines_exclude when the application wants
+        to opt out of TTS output (e.g., only speak through assistive tech
+        unless the user has enabled an in-app TTS option).
+
+        Returns:
+            A bitmask of SRALEngine enums representing TTS engines.
+        """
+        self._check_initialized()
+        if not _sral_lib: return 0
+        return _sral_lib.SRAL_GetTTSEngines()
+
+    def get_assistive_tech_engines(self) -> int:
+        """
+        Get the bitmask of engines that represent assistive technology
+        (screen readers and the accessibility providers that drive them).
+
+        The mask is derived at runtime from each available engine's category,
+        so it reflects the engines available on the current platform and
+        requires the library to be initialized.
+
+        Returns:
+            A bitmask of SRALEngine enums representing assistive-tech engines.
+        """
+        self._check_initialized()
+        if not _sral_lib: return 0
+        return _sral_lib.SRAL_GetAssistiveTechEngines()
+
+    def get_engine_category(self, engine: SRALEngine) -> SRALEngineCategory:
+        """
+        Get the category of the specified engine.
+
+        The category is reported by the engine itself. The engine is resolved
+        against the engines available on the current platform, so an engine
+        that is not available here returns SRALEngineCategory.UNKNOWN.
+
+        Args:
+            engine: The identifier of the engine to query.
+
+        Returns:
+            The engine's SRALEngineCategory.
+        """
+        self._check_initialized()
+        if not _sral_lib: return SRALEngineCategory.UNKNOWN
+        return SRALEngineCategory(_sral_lib.SRAL_GetEngineCategory(engine.value))
 
     def set_engines_exclude(self, engines_exclude: int) -> bool:
         """

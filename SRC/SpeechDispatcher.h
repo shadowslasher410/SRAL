@@ -24,6 +24,9 @@ namespace Sral {
 		int GetNumber()override {
 			return SRAL_ENGINE_SPEECH_DISPATCHER;
 		}
+		int GetCategory() override {
+			return SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE;
+		}
 		bool GetActive()override;
 		bool Initialize()override;
 		bool Uninitialize()override;

@@ -122,4 +122,19 @@ bool SRAL_Braille(const char* text);
 // Check if an engine is currently speaking
 bool SRAL_IsSpeaking(void);
 
+// Categorized engine bitmasks (use with SRAL_SetEnginesExclude)
+int  SRAL_GetTTSEngines(void);
+int  SRAL_GetAssistiveTechEngines(void);
+```
+
+### Routing only through assistive tech (with optional in-app TTS)
+
+If your application should always speak through the user's assistive
+technology, but only fall back to platform TTS when the user has
+explicitly enabled it, exclude the TTS engines by default:
+
+```c
+bool tts_option_enabled = /* your app's setting */;
+SRAL_SetEnginesExclude(tts_option_enabled ? 0 : SRAL_GetTTSEngines());
+SRAL_Speak("hello", true);  // routes to AT always; to TTS only if opted in
 ```

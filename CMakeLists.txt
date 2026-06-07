@@ -47,7 +47,7 @@ target_sources(${PROJECT_NAME}_obj PRIVATE
 target_sources(${PROJECT_NAME}_obj PUBLIC
   FILE_SET HEADERS
   BASE_DIRS "${INCLUDES}"
-  FILES "${INCLUDES}/SRAL.h")
+  FILES "${INCLUDES}/SRAL.h" "${INCLUDES}/Sral.hpp")
 if(WIN32)
   target_sources(${PROJECT_NAME}_obj PRIVATE
     "SRC/NVDA.h" "SRC/NVDA.cpp" "SRC/SAPI.h" "SRC/SAPI.cpp"

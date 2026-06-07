@@ -1,0 +1,105 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - '*-Stable'
+      - '*-RC'
+      - '*-Beta'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Tag/release name to publish (e.g. 0.5-Stable)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  # Resolve the release name once (tag name on push, manual input on dispatch).
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Resolve version
+        id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          fi
+
+  # Windows / macOS (universal) / Linux native builds.
+  desktop:
+    needs: setup
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            name: linux-x64
+          - os: windows-latest
+            name: windows-x64
+          - os: macos-latest
+            name: macos-universal
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.25.0'
+
+      - name: Install packages
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libspeechd-dev libx11-dev brltty libbrlapi-dev
+
+      - name: Configure CMake
+        run: cmake . -B build -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded -DBUILD_SHARED_LIBS=ON -DBUILD_SRAL_TEST=OFF
+
+      - name: Build with CMake
+        run: cmake --build build --config Release -j 16
+
+      - name: Install into staging tree
+        run: cmake --install build --config Release --prefix dist
+
+      - name: Archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.name }}
+          path: dist
+
+  # Collect platform bundles, zip each, and publish the GitHub Release.
+  release:
+    needs: [setup, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download bundles
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-*
+          path: bundles
+
+      - name: Package release assets
+        run: |
+          mkdir -p assets
+          version="${{ needs.setup.outputs.version }}"
+          for dir in bundles/bundle-*; do
+            platform="${dir#bundles/bundle-}"
+            (cd "$dir" && zip -r "$GITHUB_WORKSPACE/assets/SRAL-${version}-${platform}.zip" .)
+          done
+          ls -l assets
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.setup.outputs.version }}
+          name: SRAL ${{ needs.setup.outputs.version }}
+          files: assets/*.zip
+          fail_on_unmatched_files: true

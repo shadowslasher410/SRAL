@@ -75,9 +75,96 @@ jobs:
           name: bundle-${{ matrix.name }}
           path: dist
 
+  # Android: cross-compile a shared lib per ABI, bundled with the header and JNI helpers.
+  android:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.25.0'
+
+      - name: Set up NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26d
+
+      - name: Build with CMake
+        env:
+          NDK: ${{ steps.ndk.outputs.ndk-path }}
+        run: |
+          mkdir -p dist/include dist/java
+          for ABI in arm64-v8a armeabi-v7a x86_64; do
+            cmake . -B "build-$ABI" \
+              -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI="$ABI" -DANDROID_PLATFORM=android-21 \
+              -DBUILD_SHARED_LIBS=ON -DBUILD_SRAL_TEST=OFF
+            cmake --build "build-$ABI" --config Release -j 16
+            mkdir -p "dist/lib/$ABI"
+            find "build-$ABI" -name 'libSRAL.so' -exec cp {} "dist/lib/$ABI/" \;
+          done
+          cp Include/SRAL.h Include/Sral.hpp dist/include/
+          cp Dep/AndroidTTSHelper.java Dep/AndroidAccessibilityManagerHelper.java dist/java/
+
+      - name: Archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-android
+          path: dist
+
+  # iOS: cross-compile static libs for device + simulator, combined into an xcframework.
+  ios:
+    needs: setup
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up CMake
+        uses: jwlawson/actions-setup-cmake@v2
+        with:
+          cmake-version: '3.25.0'
+
+      - name: Build with CMake
+        run: |
+          cmake . -B build-ios \
+            -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphoneos \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DSRAL_DISABLE_NSSPEECH=ON -DBUILD_SRAL_TEST=OFF -DBUILD_SHARED_LIBS=OFF
+          cmake --build build-ios --config Release -j 16
+
+          cmake . -B build-sim \
+            -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DSRAL_DISABLE_NSSPEECH=ON -DBUILD_SRAL_TEST=OFF -DBUILD_SHARED_LIBS=OFF
+          cmake --build build-sim --config Release -j 16
+
+      - name: Assemble xcframework
+        run: |
+          DEVICE_LIB=$(find build-ios -name 'libSRAL_static.a' | head -n1)
+          SIM_LIB=$(find build-sim -name 'libSRAL_static.a' | head -n1)
+          mkdir -p dist/include dist/lib
+          cp Include/SRAL.h Include/Sral.hpp dist/include/
+          cp "$DEVICE_LIB" dist/lib/libSRAL_static.a
+          xcodebuild -create-xcframework \
+            -library "$DEVICE_LIB" -headers Include \
+            -library "$SIM_LIB" -headers Include \
+            -output dist/SRAL.xcframework
+
+      - name: Archive artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-ios
+          path: dist
+
   # Collect platform bundles, zip each, and publish the GitHub Release.
   release:
-    needs: [setup, desktop]
+    needs: [setup, desktop, android, ios]
     runs-on: ubuntu-latest
     steps:
       - name: Download bundles

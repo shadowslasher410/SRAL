@@ -19,8 +19,17 @@
 #ifndef SRAL_H_
 #define SRAL_H_
 #pragma once
+
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
+
+#ifndef __cplusplus
+#include <stdbool.h>
+#endif
+
 #ifdef _WIN32
-#if defined SRAL_EXPORT
+#if defined(SRAL_EXPORT)
 #define SRAL_API __declspec(dllexport)
 #elif defined(SRAL_STATIC)
 #define SRAL_API
@@ -28,70 +37,69 @@
 #define SRAL_API __declspec(dllimport)
 #endif
 #else
-#define SRAL_API
+#define SRAL_API __attribute__((visibility("default")))
 #endif
+
 #ifdef __cplusplus
 extern "C" {
-#include <stdbool.h>
 #endif
-#include <stdint.h>
-#include <stdlib.h>
-
 /**
  * @enum SRAL_Engines
- * @brief Defines bit flags representing various accessibility engines.
+ * @brief Defines unique bit flags representing various accessibility engines.
  *
- * These flags identify different screen readers, speech synthesis engines,
- * or accessibility frameworks across various operating systems.
+ * These flags identify different screen readers, speech synthesis engines, or
+ * accessibility frameworks across various operating systems. They can be
+ * bitwise OR'ed (|) together to build exclusion engine masks.
  */
+
 enum SRAL_Engines {
-	/** @brief No specific engine identified, or engine is unknown. */
-	SRAL_ENGINE_NONE = 0,
+    /** @brief No specific engine identified or engine is unknown. */
+    SRAL_ENGINE_NONE = 0,
 
-	// --- Windows Screen Readers ---
-	/** @brief NonVisual Desktop Access (NVDA), a popular open-source screen reader for Windows. */
-	SRAL_ENGINE_NVDA = 1 << 1,
-	/** @brief Job Access With Speech (JAWS), a commercial screen reader for Windows. */
-	SRAL_ENGINE_JAWS = 1 << 2,
-	/** @brief Zhengdu Screen Reader (ZDSR), The most powerful screen reading solution for Windows. */
-	SRAL_ENGINE_ZDSR = 1 << 3,
-	/** @brief Microsoft Narrator, the built-in screen reader for Windows. */
-	SRAL_ENGINE_NARRATOR = 1 << 4,
+    /* Windows Screen Readers */
+    /** @brief NonVisual Desktop Access (NVDA) open-source screen reader for Windows. */
+    SRAL_ENGINE_NVDA = 1 << 1,
+    /** @brief Job Access With Speech (JAWS) commercial screen reader for Windows. */
+    SRAL_ENGINE_JAWS = 1 << 2,
+    /** @brief Zhengdu Screen Reader (ZDSR) specialized screen reader for Windows. */
+    SRAL_ENGINE_ZDSR = 1 << 3,
+    /** @brief Microsoft Narrator, the built-in screen reader for Windows systems. */
+    SRAL_ENGINE_NARRATOR = 1 << 4,
 
-	// --- Windows Accessibility Frameworks ---
-	/**
-	 * @brief Microsoft UI Automation (UIA) framework for Windows.
-	 * Provides programmatic access to UI and can be used for accessibility notifications.
-	 */
+    /* Windows Accessibility Frameworks */
+    /** @brief Microsoft UI Automation (UIA) notification bridge framework for Windows. */
 	SRAL_ENGINE_UIA = 1 << 5,
 
-	// --- Windows Speech Synthesis Engines ---
-	/** @brief Microsoft Speech API (SAPI), for text-to-speech capabilities on Windows. */
-	SRAL_ENGINE_SAPI = 1 << 6,
+    /* Windows Speech Synthesis Engines */
+    /** @brief Microsoft Speech API (SAPI) for text-to-speech rendering on Windows. */
+    SRAL_ENGINE_SAPI = 1 << 6,
 
-	// --- Linux Speech Synthesis Engines ---
-	/** @brief Speech Dispatcher, a common daemon for speech synthesis on Linux systems. */
-	SRAL_ENGINE_SPEECH_DISPATCHER = 1 << 7,
+    /* Linux Speech Synthesis Engines */
+    /** @brief Speech Dispatcher, the standard central speech synthesis daemon on Linux. */
+    SRAL_ENGINE_SPEECH_DISPATCHER = 1 << 7,
+    
+	/** @brief Orca, the standard open-source desktop screen reader for Linux environments. */
+    SRAL_ENGINE_ORCA = 1 << 8,
 
-	// --- Apple Screen Readers (macOS, iOS, etc.) ---
+    /* Apple Screen Readers (macOS, iOS, etc.) */
+    /** @brief Apple VoiceOver, the integrated system screen reader on macOS and iOS. */
+    SRAL_ENGINE_VOICE_OVER = 1 << 9,
 
-	/** @brief Apple VoiceOver, the built-in screen reader on macOS, iOS, and other Apple platforms. */
+    /* Apple Speech Synthesis Engines */
+    /** @brief Legacy Cocoa NSSpeechSynthesizer engine for macOS text-to-speech. */
+    SRAL_ENGINE_NS_SPEECH = 1 << 10,
+    /** @brief Modern AVFoundation AVSpeechSynthesizer framework for Apple platforms. */
+    SRAL_ENGINE_AV_SPEECH = 1 << 11,
 
-	SRAL_ENGINE_VOICE_OVER = 1 << 8,
+    /* Android Speech Synthesis Engines */
+    /** @brief Android AccessibilityManager driving screen readers such as TalkBack. */
+    SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER = 1 << 12,
+    /** @brief Native Android Text-To-Speech rendering subsystem engine layer. */
+    SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH = 1 << 13,
 
-	// --- Apple Speech Synthesis Engines (macOS, iOS, etc.) ---
-
-	SRAL_ENGINE_NS_SPEECH = 1 << 9,
-
-	/** @brief AVFoundation Speech Synthesizer (AVSpeechSynthesizer), for text-to-speech on Apple platforms. */
-	SRAL_ENGINE_AV_SPEECH = 1 << 10,
-
-	// --- Android Speech Synthesis Engines ---
-
-	/** @brief Android AccessibilityManager, for driving the active screen reader (most commonly TalkBack) */
-	SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER = 1 << 11,
-
-	SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH = 1 << 12
+    /* Chrome OS / Browser */
+    /** @brief ChromeVox accessibility engine browser extension & ChromeOS native service. */
+    SRAL_ENGINE_CHROMEVOX = 1 << 14
 };
 
 /**
@@ -447,14 +455,31 @@ SRAL_API bool SRAL_IsSpeakingEx(int engine);
 SRAL_API bool SRAL_IsInitialized(void);
 
 /**
-
-	// *@brief Delayes the next speech or output operation by a given time.
-		* @param time A value in milliseconds.
-
-
-		*/
-
+ * @brief Delays the next speech or output operation by a given time.
+ * @param time The duration to delay in milliseconds.
+ */
 SRAL_API void SRAL_Delay(int time);
+
+#ifdef __ANDROID__
+/**
+ * @brief Schedules a text speech operation to be spoken after a specified delay time on the current engine.
+ * @param time Delay time in milliseconds.
+ * @param text The text string payload phrase to speak.
+ * @param interrupt Flag indicating whether to flush active speaking channels.
+ * @return true if successfully scheduled, false otherwise.
+ */
+SRAL_API bool SRAL_DelayOutput(int time, const char* text, bool interrupt);
+
+/**
+ * @brief Schedules a text speech operation to be spoken after a specified delay time on a specific engine.
+ * @param engine Target engine token identifier.
+ * @param time Delay time in milliseconds.
+ * @param text The text string payload phrase to speak.
+ * @param interrupt Flag indicating whether to flush active speaking channels.
+ * @return true if successfully scheduled, false otherwise.
+ */
+SRAL_API bool SRAL_DelayOutputEx(int engine, int time, const char* text, bool interrupt);
+#endif
 
 /**
  *@brief Install speech interruption and pause keyboard hooks for speech engines other than screen readers, such as

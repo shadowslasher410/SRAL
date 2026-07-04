@@ -77,7 +77,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends $DEPS
 
       - name: Run CMake via Presets
-        uses: lukka/run-cmake@2cb26ba7b74f07328bf3a07b7b12f6cd00db34ee # v10.9
+        uses: lukka/run-cmake@5d55ea7949e25f69f0ecb516d8d572297e03a956 # v10.9
         env:
           SRAL_INJECTED_VER: ${{ inputs.release_version || github.ref_name || github.sha }}
         with:
@@ -123,7 +123,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
              
       - name: Run CMake via Presets
-        uses: lukka/run-cmake@2cb26ba7b74f07328bf3a07b7b12f6cd00db34ee # v10.9
+        uses: lukka/run-cmake@5d55ea7949e25f69f0ecb516d8d572297e03a956 # v10.9
         env:
           ANDROID_NDK_HOME: ${{ secrets.ANDROID_NDK_HOME || '/usr/local/lib/android/sdk/ndk-bundle' }}
           SRAL_INJECTED_VER: ${{ inputs.release_version || github.ref_name || github.sha }}
@@ -163,7 +163,7 @@ jobs:
         uses: lukka/get-cmake@ea83089aa35e08e459464341fe24ad024ee2466f # v4.3.1
 
       - name: Run CMake via WebAssembly Presets
-        uses: lukka/run-cmake@2cb26ba7b74f07328bf3a07b7b12f6cd00db34ee # v10.9
+        uses: lukka/run-cmake@5d55ea7949e25f69f0ecb516d8d572297e03a956 # v10.9
         env:
           SRAL_INJECTED_VER: ${{ inputs.release_version || github.ref_name || github.sha }}
         with:
@@ -204,7 +204,7 @@ jobs:
         uses: lukka/get-cmake@ea83089aa35e08e459464341fe24ad024ee2466f # v4.3.1
 
       - name: Run CMake for iOS Device
-        uses: lukka/run-cmake@2cb26ba7b74f07328bf3a07b7b12f6cd00db34ee # v10.9
+        uses: lukka/run-cmake@5d55ea7949e25f69f0ecb516d8d572297e03a956 # v10.9
         env:
           SRAL_INJECTED_VER: ${{ inputs.release_version || github.ref_name || github.sha }}
         with:
@@ -213,7 +213,7 @@ jobs:
           configurePresetAdditionalArgs: '["-DSRAL_DISABLE_NSSPEECH=ON", "-DBUILD_SRAL_TEST=OFF", "-DBUILD_SHARED_LIBS=OFF", "-DSRAL_VERSION=${{ env.SRAL_INJECTED_VER }}"]'
 
       - name: Run CMake for iOS Simulator
-        uses: lukka/run-cmake@2cb26ba7b74f07328bf3a07b7b12f6cd00db34ee # v10.9
+        uses: lukka/run-cmake@5d55ea7949e25f69f0ecb516d8d572297e03a956 # v10.9
         env:
           SRAL_INJECTED_VER: ${{ inputs.release_version || github.ref_name || github.sha }}
         with:

@@ -1,87 +1,417 @@
 {
-  "version": 3,
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 4,
+    "minor": 3,
+    "patch": 1
+  },
   "configurePresets": [
     {
-      "name": "windows-base",
+      "name": "base-common",
       "hidden": true,
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/install/${presetName}",
+      "binaryDir": "${sourceDir}/out/build/${presetName}"
+    },
+    {
+      "name": "base-release",
+      "hidden": true,
+      "inherits": "base-common",
       "cacheVariables": {
-      },
-      "condition": {
-        "type": "equals",
-        "lhs": "${hostSystemName}",
-        "rhs": "Windows"
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_SHARED_LIBS": "ON",
+        "BUILD_SRAL_TEST": "OFF",
+        "SRAL_BUILD_BINDINGS": "OFF"
       }
     },
     {
-      "name": "x64-debug",
-      "displayName": "x64 Debug",
-      "inherits": "windows-base",
-      "architecture": {
-        "value": "x64",
-        "strategy": "external"
-      },
+      "name": "base-debug",
+      "hidden": true,
+      "inherits": "base-common",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_SHARED_LIBS": "OFF",
+        "BUILD_SRAL_TEST": "ON",
+        "SRAL_BUILD_BINDINGS": "OFF"
       }
     },
     {
-      "name": "x64-release",
-      "displayName": "x64 Release",
-      "inherits": "x64-debug",
+      "name": "base-linux-vars",
+      "hidden": true,
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
+        "SRAL_WITH_SPEECH_DISPATCHER": "ON",
+        "SRAL_WITH_ORCA": "ON",
+        "SRAL_WITH_BRLAPI": "ON",
+        "SRAL_WITH_CHROMEVOX": "ON"
       }
     },
     {
-      "name": "x86-debug",
-      "displayName": "x86 Debug",
-      "inherits": "windows-base",
-      "architecture": {
-        "value": "x86",
-        "strategy": "external"
-      },
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "x86-release",
-      "displayName": "x86 Release",
-      "inherits": "x86-debug",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
-      "name": "linux-debug",
-      "displayName": "Linux Debug",
-      "description": "Target the Windows Subsystem for Linux (WSL) or a remote Linux system.",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/out/build/${presetName}",
-      "installDir": "${sourceDir}/out/install/${presetName}",
-      "cacheVariables": {},
+      "name": "linux-gcc-release",
+      "inherits": [ "base-release", "base-linux-vars" ],
       "condition": {
         "type": "equals",
         "lhs": "${hostSystemName}",
         "rhs": "Linux"
       },
-      "vendor": {
-        "microsoft.com/VisualStudioRemoteSettings/CMake/2.0": {
-          "remoteSourceRootDir": "$env{HOME}/.vs/$ms{projectDirName}",
-          "copyBuildOutput": true
-        }
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++"
       }
     },
     {
-      "name": "linux-release",
-      "displayName": "Linux Release",
-      "inherits": "linux-debug",
+      "name": "linux-gcc-debug",
+      "inherits": [ "base-debug", "base-linux-vars" ],
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -O0 -fsanitize=address"
       }
+    },
+    {
+      "name": "linux-clang-release",
+      "inherits": [ "base-release", "base-linux-vars" ],
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "linux-clang-debug",
+      "inherits": [ "base-debug", "base-linux-vars" ],
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -O0 -fsanitize=address"
+      }
+    },
+    {
+      "name": "base-windows-vars",
+      "hidden": true,
+      "cacheVariables": {
+        "SRAL_WITH_NVDA": "ON",
+        "SRAL_WITH_JAWS": "ON",
+        "SRAL_WITH_ZDSR": "ON",
+        "SRAL_WITH_SAPI": "ON",
+        "SRAL_WITH_UIA": "ON"
+      }
+    },
+    {
+      "name": "msvc-x64-release",
+      "inherits": [ "base-release", "base-windows-vars" ],
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "host=x64",
+        "strategy": "external"
+      },
+      "cacheVariables": { "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreadedDLL" }
+    },
+    {
+      "name": "msvc-x64-debug",
+      "inherits": [ "base-debug", "base-windows-vars" ],
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "generator": "Visual Studio 18 2026",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "toolset": {
+        "value": "host=x64",
+        "strategy": "external"
+      },
+      "cacheVariables": { "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreadedDebugDLL" }
+    },
+    {
+      "name": "windows-clang-release",
+      "inherits": [ "base-release", "base-windows-vars" ],
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl"
+      }
+    },
+    {
+      "name": "windows-clang-debug",
+      "inherits": [ "base-debug", "base-windows-vars" ],
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang-cl",
+        "CMAKE_CXX_COMPILER": "clang-cl",
+        "CMAKE_CXX_FLAGS": "-g -O0 -fsanitize=address -Wno-unused-command-line-argument",
+        "CMAKE_C_FLAGS": "-g -O0 -fsanitize=address -Wno-unused-command-line-argument",
+        "CMAKE_EXE_LINKER_FLAGS": "clang_rt.asan_dynamic-x86_64.lib clang_rt.asan_dynamic_runtime_thunk-x86_64.lib",
+        "CMAKE_SHARED_LINKER_FLAGS": "clang_rt.asan_dynamic-x86_64.lib clang_rt.asan_dynamic_runtime_thunk-x86_64.lib",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreadedDLL"
+      }
+    },
+    {
+      "name": "base-macos-vars",
+      "hidden": true,
+      "cacheVariables": {
+        "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64",
+        "SRAL_WITH_VOICEOVER": "ON",
+        "SRAL_WITH_AVSPEECH": "ON",
+        "SRAL_WITH_NSSPEECH": "ON"
+      }
+    },
+    {
+      "name": "macos-clang-release",
+      "inherits": [ "base-release", "base-macos-vars" ],
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++"
+      }
+    },
+    {
+      "name": "macos-clang-debug",
+      "inherits": [ "base-debug", "base-macos-vars" ],
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -O0 -fsanitize=address"
+      }
+    },
+    {
+      "name": "android-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "BUILD_SHARED_LIBS": "ON",
+        "BUILD_SRAL_TEST": "OFF",
+        "CMAKE_TOOLCHAIN_FILE": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+        "ANDROID_PLATFORM": "android-21",
+        "SRAL_WITH_ANDROID_TTS": "ON",
+        "SRAL_WITH_ANDROID_ACCESSIBILITY": "ON"
+      }
+    },
+    {
+      "name": "android-arm64-release",
+      "inherits": "android-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ANDROID_ABI": "arm64-v8a"
+      }
+    },
+    {
+      "name": "android-arm64-debug",
+      "inherits": "android-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ANDROID_ABI": "arm64-v8a"
+      }
+    },
+    {
+      "name": "android-x86_64-release",
+      "inherits": "android-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ANDROID_ABI": "x86_64"
+      }
+    },
+    {
+      "name": "android-x86_64-debug",
+      "inherits": "android-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "ANDROID_ABI": "x86_64"
+      }
+    },
+    {
+      "name": "ios-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      },
+      "cacheVariables": {
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "BUILD_SHARED_LIBS": "OFF",
+        "BUILD_SRAL_TEST": "OFF",
+        "SRAL_DISABLE_NSSPEECH": "ON",
+        "SRAL_WITH_VOICEOVER": "ON",
+        "SRAL_WITH_AVSPEECH": "ON"
+      }
+    },
+    {
+      "name": "ios-device-release",
+      "inherits": "ios-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_SYSROOT": "iphoneos",
+        "CMAKE_OSX_ARCHITECTURES": "arm64"
+      }
+    },
+    {
+      "name": "ios-device-debug",
+      "inherits": "ios-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_OSX_SYSROOT": "iphoneos",
+        "CMAKE_OSX_ARCHITECTURES": "arm64"
+      }
+    },
+    {
+      "name": "ios-simulator-debug",
+      "inherits": "ios-base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_OSX_SYSROOT": "iphonesimulator",
+        "CMAKE_OSX_ARCHITECTURES": "arm64;x86_64"
+      }
+    },
+    {
+      "name": "wasm-release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_SHARED_LIBS": "OFF",
+        "BUILD_SRAL_TEST": "OFF",
+        "SRAL_WITH_CHROMEVOX": "ON"
+      },
+      "environment": {
+        "SRAL_FORCE_BOOTSTRAP_PASS": "TRUE"
+      }
+    },
+    {
+      "name": "wasm-debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_SHARED_LIBS": "OFF",
+        "BUILD_SRAL_TEST": "ON",
+        "SRAL_WITH_CHROMEVOX": "ON",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -O0"
+      },
+      "environment": {
+        "SRAL_FORCE_BOOTSTRAP_PASS": "TRUE"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "linux-gcc-release-build",
+      "configurePreset": "linux-gcc-release"
+    },
+    {
+      "name": "linux-gcc-debug-build",
+      "configurePreset": "linux-gcc-debug"
+    },
+    {
+      "name": "linux-clang-release-build",
+      "configurePreset": "linux-clang-release"
+    },
+    {
+      "name": "linux-clang-debug-build",
+      "configurePreset": "linux-clang-debug"
+    },
+    {
+      "name": "msvc-x64-release-build",
+      "configurePreset": "msvc-x64-release"
+    },
+    {
+      "name": "msvc-x64-debug-build",
+      "configurePreset": "msvc-x64-debug"
+    },
+    {
+      "name": "windows-clang-release-build",
+      "configurePreset": "windows-clang-release"
+    },
+    {
+      "name": "windows-clang-debug-build",
+      "configurePreset": "windows-clang-debug"
+    },
+    {
+      "name": "macos-clang-release-build",
+      "configurePreset": "macos-clang-release"
+    },
+    {
+      "name": "macos-clang-debug-build",
+      "configurePreset": "macos-clang-debug"
+    },
+    {
+      "name": "android-arm64-release-build",
+      "configurePreset": "android-arm64-release"
+    },
+    {
+      "name": "android-arm64-debug-build",
+      "configurePreset": "android-arm64-debug"
+    },
+    {
+      "name": "android-x86_64-release-build",
+      "configurePreset": "android-x86_64-release"
+    },
+    {
+      "name": "android-x86_64-debug-build",
+      "configurePreset": "android-x86_64-debug"
+    },
+    {
+      "name": "ios-device-release-build",
+      "configurePreset": "ios-device-release"
+    },
+    {
+      "name": "ios-device-debug-build",
+      "configurePreset": "ios-device-debug"
+    },
+    {
+      "name": "ios-simulator-debug-build",
+      "configurePreset": "ios-simulator-debug"
+    },
+    {
+      "name": "wasm-release-build",
+      "configurePreset": "wasm-release"
+    },
+    {
+      "name": "wasm-debug-build",
+      "configurePreset": "wasm-debug"
     }
   ]
 }

@@ -1,2 +1,32 @@
-option('build_sral_test', type : 'boolean', value : true, description : 'Build SRAL examples/tests')
-option('sral_disable_uia', type : 'boolean', value : false, description : 'Disable UIA (UI Automation) support')
+# Core Library Options
+option('build_shared', type: 'boolean', value: true, description: 'Build shared library (.dll/.so/.dylib/.wasm)')
+option('build_tests', type: 'boolean', value: true, description: 'Build SRAL examples/tests')
+option('build_bindings', type: 'boolean', value: false, description: 'Enable compilation hooks for language bindings')
+
+# Language Bindings Toggles
+option('binding_csharp', type: 'boolean', value: true, description: 'Compile C# bindings (.NET SDK required)')
+option('binding_rust', type: 'boolean', value: false, description: 'Compile Rust binding wrapper (Cargo required)')
+option('binding_node', type: 'boolean', value: false, description: 'Build Node.js native addon')
+option('binding_sources', type : 'boolean', value : true, description : 'Deploy raw source script files for wrapper engines into shared runtime destination paths')
+
+# Windows Backends
+option('with_nvda', type: 'boolean', value: true, description: 'Enable NVDA Screen Reader backend')
+option('with_jaws', type: 'boolean', value: true, description: 'Enable JAWS Screen Reader backend')
+option('with_zdsr', type: 'boolean', value: true, description: 'Enable ZDSR Screen Reader backend')
+option('with_sapi', type: 'boolean', value: true, description: 'Enable Microsoft SAPI backend')
+option('with_uia', type: 'boolean', value: true, description: 'Enable Microsoft UI Automation support')
+
+# Apple Backends
+option('with_voiceover', type: 'boolean', value: true, description: 'Enable VoiceOver accessibility channel target support')
+option('with_avspeech', type: 'boolean', value: true, description: 'Enable AVFoundation AVSpeechSynthesizer engine integration')
+option('with_nsspeech', type: 'boolean', value: true, description: 'Enable older legacy NSSpeechSynthesizer engine context (macOS-only)')
+
+# Android Backends
+option('with_android_tts', type: 'boolean', value: true, description: 'Enable native Android TextToSpeech engine wrappers')
+option('with_android_accessibility', type: 'boolean', value: true, description: 'Enable TalkBack framework AccessibilityManager triggers')
+
+# Linux & Emscripten Backends
+option('with_speech_dispatcher', type: 'boolean', value: true, description: 'Enable standard open system Speech Dispatcher socket pipelines')
+option('with_orca', type: 'boolean', value: true, description: 'Enable Orca AT-SPI2 desktop bus messaging endpoints')
+option('with_brlapi', type: 'boolean', value: true, description: 'Enable BRLTTY hardware cell line braille device layers')
+option('with_chromevox', type: 'boolean', value: true, description: 'Enable ChromeVox engine interfaces')

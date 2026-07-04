@@ -17,7 +17,7 @@
  */
 
 
-#ifndef NVDA_CONTROL_H
+ #ifndef NVDA_CONTROL_H
 #define NVDA_CONTROL_H
 
 #include <windows.h>
@@ -28,96 +28,90 @@
 extern "C" {
 #endif
 
-
-
-	// Named pipe name
+/* Unified packet-oriented Named Pipe descriptor matching official addon specifications */
 #define NVDA_PIPE_NAME L"\\\\.\\pipe\\NVDAControlPipe"
 
-// Symbol level enumeration
-	enum nvda_symbol_level
-	{
-		NVDA_SYMBOL_LEVEL_NONE = 0,
-		NVDA_SYMBOL_LEVEL_SOME = 100,
-		NVDA_SYMBOL_LEVEL_MOST = 200,
-		NVDA_SYMBOL_LEVEL_ALL = 300,
-		NVDA_SYMBOL_LEVEL_CHAR = 1000,
-		NVDA_SYMBOL_LEVEL_UNCHANGED = -1
-	};
+/*Symbol punctuation level enumeration constraints*/
+enum nvda_symbol_level {
+	NVDA_SYMBOL_LEVEL_NONE = 0,
+	NVDA_SYMBOL_LEVEL_SOME = 100,
+	NVDA_SYMBOL_LEVEL_MOST = 200,
+	NVDA_SYMBOL_LEVEL_ALL = 300,
+	NVDA_SYMBOL_LEVEL_CHAR = 1000,
+	NVDA_SYMBOL_LEVEL_UNCHANGED = -1
+};
 
+/**
+ * @brief Connects to the NVDA named pipe.
+ * @return 0 if successful, or -1 on failure.
+ */
+int nvda_connect(void);
 
+/**
+ * @brief Disconnects from the NVDA named pipe.
+ */
+void nvda_disconnect(void);
 
-	/**
-	 * Connects to the NVDA named pipe.
-	 * Returns 0 if successful, or -1 on failure.
-	 */
-	int nvda_connect(void);
+/**
+ * @brief Sends a pre-formatted command directly to the NVDA named pipe.
+ * @param command The raw command string to transmit.
+ * @return 0 on success, -1 on failure.
+ */
+int nvda_send_command(const char* command);
 
-	/**
-	 * Disconnects from the NVDA named pipe.
-	 */
-	void nvda_disconnect(void);
+/**
+ * @brief Sends a "speak" command to NVDA.
+ * @param text The text payload phrase to speak.
+ * @param symbol_level Punctuation level for speech.
+ * @return 0 on success, -1 on failure.
+ */
+int nvda_speak(const char* text, int symbol_level);
 
-	/**
-	 * Sends a command to the NVDA named pipe.
-	 * @param command The command to send.
-	 * @return 0 on success, -1 on failure.
-	 */
-	int nvda_send_command(const char* command);
+/**
+ * @brief Sends a "speakSpelling" command to NVDA.
+ * @param text The text characters to spell out explicitly.
+ * @param locale The locale language selection descriptor for speech spelling.
+ * @param use_character_descriptions Force NVDA to describe each character.
+ * @return 0 on success, -1 on failure.
+ */
+int nvda_speak_spelling(const char* text, const char* locale, int use_character_descriptions);
 
-	/**
-	 * Sends a "speak" command to NVDA.
-	 * @param text The text to speak.
-	 * @param symbol_level Punctuation level for speech.
-	 * @return 0 on success, -1 on failure.
-	 */
-	int nvda_speak(const char* text, int symbol_level);
+/**
+ * @brief Sends a "speakSsml" command to NVDA.
+ * @param ssml The raw SSML string snippet to speak.
+ * @param symbol_level Punctuation level for speech.
+ * @return 0 on success, -1 on failure.
+ */
+int nvda_speak_ssml(const char* ssml, int symbol_level);
 
-	/**
-	 * Sends a "speakSpelling" command to NVDA.
-	 * @param text The text to spell.
-	 * @param locale The locale for speech.
-	 * @param use_character_descriptions Describe each spoken character.
-	 * @return 0 on success, -1 on failure.
-	 */
-	int nvda_speak_spelling(const char* text, const char* locale, int use_character_descriptions);
+/**
+ * @brief Sends a "pauseSpeech" command to NVDA.
+ * @param pause Pass 1 to pause speech stream, or 0 to resume it.
+ * @return 0 on success, -1 on failure.
+ */
+int nvda_pause_speech(int pause);
 
-	/**
-	 * Sends a "speakSsml" command to NVDA.
-	 * @param ssml The SSML text to speak.
-	 * @param symbol_level Punctuation level for speech.
-	 * @return 0 on success, -1 on failure.
-	 */
-	int nvda_speak_ssml(const char* ssml, int symbol_level);
+/**
+ * @brief Sends a "cancelSpeech" command to clear active speech channels instantly.
+ * @return 0 on success, -1 on failure.
+ */
+int nvda_cancel_speech(void);
 
-	/**
-	 * Sends a "pauseSpeech" command to NVDA.
-	 * @param pause 1 to pause, 0 to unpause.
-	 * @return 0 on success, -1 on failure.
-	 */
-	int nvda_pause_speech(int pause);
+/**
+ * @brief Sends a "braille" command to update physical braille display lines.
+ * @param text The text translation phrase to map down to the display cells.
+ * @return 0 on success, -1 on failure.
+ */
+int nvda_braille(const char* text);
 
-	/**
-	 * Sends a "cancelSpeech" command to NVDA.
-	 * @return 0 on success, -1 on failure.
-	 */
-	int nvda_cancel_speech(void);
-
-	/**
-	 * Sends a "braille" command to NVDA.
-	 * @param text The text to show on braille display.
-	 * @return 0 on success, -1 on failure.
-	 */
-	int nvda_braille(const char* text);
-
-	/**
-	 * Check that NVDA is active.
-	 * Returns 0 if successful, or -1 on failure.
-	 */
-	int nvda_active(void);
+/**
+ * @brief Non-blocking transactional probe confirming if the extension is alive.
+ * @return 0 if alive, or -1 on connectivity failures.
+ */
+int nvda_active(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-
-#endif // NVDA_CONTROL_H
+#endif /* NVDA_CONTROL_H */

@@ -1,28 +1,36 @@
-#pragma once
-#include "../Include/SRAL.h"
-#include "Engine.h"
+#ifndef NS_SPEECH_H
+#define NS_SPEECH_H
 
-class NSSpeechSynthesizerWrapper;
+#if defined(__APPLE__) || defined(__MACH__)
+#include <TargetConditionals.h>
+
+#if TARGET_OS_OSX
 
 namespace Sral {
-class NsSpeech final : public Engine {
-public:
-	bool Initialize() override;
-	bool Uninitialize() override;
-	bool Speak(const char* text, bool interrupt) override;
-	bool StopSpeech() override;
-	bool IsSpeaking() override;
-	bool GetActive() override;
-	bool SetParameter(int param, const void* value) override;
-	bool GetParameter(int param, void* value) override;
 
-	int GetNumber() override { return SRAL_ENGINE_NS_SPEECH; }
-	int GetCategory() override { return SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE; }
-	int GetFeatures() override {
-		return SRAL_SUPPORTS_SPEECH | SRAL_SUPPORTS_SPEECH_RATE | SRAL_SUPPORTS_SPEECH_VOLUME;
-	}
+constexpr int SRAL_PARAM_SPEECH_RATE = 1;
+constexpr int SRAL_PARAM_SPEECH_VOLUME = 2;
+
+class NsSpeech {
+public:
+	static bool Initialize();
+	static bool Uninitialize();
+
+	static bool Speak(const char* text, bool interrupt);
+	static bool StopSpeech();
+
+	static bool IsSpeaking();
+	static bool GetActive();
+
+	static bool SetParameter(int param, const void* value);
+	static bool GetParameter(int param, void* value);
 
 private:
-	NSSpeechSynthesizerWrapper* obj = nullptr;
+	static void* obj;
 };
+
 } // namespace Sral
+
+#endif /* TARGET_OS_OSX */
+#endif /* defined(__APPLE__) || defined(__MACH__) */
+#endif /* NS_SPEECH_H */

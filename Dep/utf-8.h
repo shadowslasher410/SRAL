@@ -22,53 +22,103 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifndef utf8_iter_H
-#define utf8_iter_H
+/* 
+ * ==============================================================================
+ * NOTICE OF ALTERATION
+ * ==============================================================================
+ * This file is an ALTERED and MODIFIED version of the original software library.
+ * Changes made to this version include:
+ *  1. Upgraded source file parameters to match the ISO C17 standard specifications.
+ *  2. Converted 'unicode_to_utf8' and 'unicode_converter' signatures to target
+ *     caller-allocated memory banks to establish complete thread safety.
+ *  3. Applied strict const-correctness constraints to pointer data observers.
+ *  4. Cleaned syntax and structural verification parameters across header blocks.
+ * ==============================================================================
+ */
+
+#pragma once
+
+#ifndef UTF8_ITER_H
+#define UTF8_ITER_H
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-
 #include <stdint.h>
+#include <stddef.h>
 
+/**
+ * @struct utf8_iter
+ * @brief Thread-safe UTF-8 string multi-byte iteration state tracker (C17 Standard Compliant).
+ */
 typedef struct utf8_iter {
-
-	const char* ptr;
-	uint32_t	codepoint;
-
-	uint8_t		size; 		// character size in bytes
-	uint32_t 	position; 	// current character position
-	uint32_t 	next; 		// next character position
-	uint32_t 	count; 		// number of counter characters currently
-	uint32_t 	length;		// strlen()
-
+    const char* ptr;        /* Pointer tracking the underlying raw character vector */
+    uint32_t    codepoint;  /* Decoded Unicode codepoint integer token value */
+    uint8_t     size;       /* Current character footprint size calculated in bytes */
+    uint32_t    position;   /* Current absolute byte position offset within array */
+    uint32_t    next;       /* Imminent byte position marker index */
+    uint32_t    count;      /* Logical multi-byte character sequence array counter */
+    uint32_t    length;     /* Total physical byte size layout of string (strlen) */
 } utf8_iter;
 
-void 			utf8_init			(utf8_iter* iter, const char* ptr); // all values to 0 and set ptr.
-void			utf8_initEx			(utf8_iter* iter, const char* ptr, uint32_t length); // allows you to set a custom length.
+/* --- Lifecycle Management --- */
 
-uint8_t			utf8_next			(utf8_iter* iter); // returns 1 if there is a character in the next position. If there is not, return 0.
-uint8_t			utf8_previous		(utf8_iter* iter); // returns 1 if there is a character in the back position. If there is not, return 0.
+/**
+ * @brief Initializes a UTF-8 iterator by inspecting string length automatically.
+ */
+void utf8_init(utf8_iter* iter, const char* ptr);
 
-const char* 	utf8_getchar		(utf8_iter* iter); // return current character in UFT8 - no same that iter.codepoint (not codepoint/unicode)
+/**
+ * @brief Initializes a UTF-8 iterator with an explicit custom boundary execution scope length.
+ */
+void utf8_initEx(utf8_iter* iter, const char* ptr, uint32_t length);
 
-// Utilities
-uint32_t 		utf8_strlen			(const char* string);
-uint32_t 		utf8_strnlen		(const char* string, uint32_t end);
-uint32_t		utf8_to_unicode		(const char* character); // UTF8 to Unicode.
-const char* 	unicode_to_utf8		(uint32_t codepoint); // Unicode to UTF8.
+/* --- Stream Navigation Routing Channels --- */
 
-// Internal use / Advanced use.
-uint8_t			utf8_charsize		(const char* character); // calculate the number of bytes a UTF8 character occupies in a string.
-uint8_t			unicode_charsize	(uint32_t codepoint); // calculates the number of bytes occupied by a Unicode character in UTF8.
+/**
+ * @brief Moves the iterator structure forward by one logical character sequence alignment.
+ * @return Returns 1 if another character is successfully parsed, 0 if bounds limit hit.
+ */
+uint8_t utf8_next(utf8_iter* iter);
 
-uint32_t 		utf8_converter		(const char* character, uint8_t size);
-const char* 	unicode_converter	(uint32_t codepoint, uint8_t size);
+/**
+ * @brief Steps the iterator backward by processing multi-byte header boundaries.
+ * @return Returns 1 if previous character layout resolved cleanly, 0 if baseline hit.
+ */
+uint8_t utf8_previous(utf8_iter* iter);
+
+/**
+ * @brief Resolves the pointer referencing the current active character offset window.
+ */
+const char* utf8_getchar(const utf8_iter* iter);
+
+/* --- General String Utilities --- */
+uint32_t utf8_strlen(const char* string);
+uint32_t utf8_strnlen(const char* string, uint32_t max_bytes);
+uint32_t utf8_to_unicode(const char* character);
+
+/**
+ * @brief Thread-safe conversion of a Unicode codepoint down to a multi-byte UTF-8 character string.
+ * @param[out] out_buffer Target character destination block array (Must be at least 5 bytes large).
+ * @return Returns the number of encoded bytes successfully written to the target destination layout.
+ */
+uint8_t unicode_to_utf8(uint32_t codepoint, char* out_buffer);
+
+/* --- Advanced Engine Internal Processing Hooks --- */
+uint8_t utf8_charsize(const char* character);
+uint8_t unicode_charsize(uint32_t codepoint);
+
+uint32_t utf8_converter(const char* character, uint8_t size);
+
+/**
+ * @brief Internal conversion execution step mapping codepoints down to native packed byte layouts safely.
+ */
+uint32_t unicode_converter(uint32_t codepoint, uint8_t size);
 
 #ifdef __cplusplus
-} // extern "C"
+} /* extern "C" */
 #endif
 
+#endif /* UTF8_ITER_H */
 
-#endif

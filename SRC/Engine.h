@@ -1,59 +1,78 @@
 #ifndef ENGINE_H_
 #define ENGINE_H_
 #pragma once
-#include <stdint.h>
-#include <string.h>
+
+#include <cstdint>
+#include <cstring>
+#include <memory>
+#include <new>
+#include <string>
+#include <type_traits>
 #include <vector>
 
 namespace Sral {
 
-enum KeyboardFlags { HANDLE_NONE = 0, HANDLE_INTERRUPT = 2, HANDLE_PAUSE_RESUME = 4 };
+enum KeyboardFlags : int { HANDLE_NONE = 0, HANDLE_INTERRUPT = 2, HANDLE_PAUSE_RESUME = 4 };
 
-class Engine {
+#if defined(__cpp_lib_hardware_interference_size) && __cpp_lib_hardware_interference_size >= 201907L
+    inline constexpr std::size_t destructive_alignment = std::hardware_destructive_interference_size;
+#else
+    inline constexpr std::size_t destructive_alignment = 64;
+#endif
+
+class alignas(destructive_alignment) Engine {
 public:
-	Engine();
-	virtual ~Engine();
-	virtual bool Speak(const char* text, bool interrupt);
-	virtual bool SpeakSsml(const char* ssml, bool interrupt);
+	Engine() noexcept = default;
+	virtual ~Engine() noexcept = default;
+
+	Engine(const Engine&) = delete;
+	Engine& operator=(const Engine&) = delete;
+	Engine(Engine&&) = delete;
+	Engine& operator=(Engine&&) = delete;
+
+	[[nodiscard]] virtual bool Speak(const char* text, bool interrupt) = 0;
+	[[nodiscard]] virtual bool SpeakSsml(const char* ssml, bool interrupt);
+
 	virtual void* SpeakToMemory(
 		const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample);
-	virtual bool Braille(const char* text);
-	virtual bool StopSpeech();
-	virtual bool PauseSpeech();
-	virtual bool ResumeSpeech();
-	virtual bool IsSpeaking();
-	virtual int GetNumber();
-	virtual int GetCategory();
-	virtual bool GetActive();
-	virtual int GetFeatures();
-	virtual bool Initialize();
-	virtual bool Uninitialize();
-	virtual int GetKeyFlags();
-	virtual bool SetParameter(int param, const void* value);
-	virtual bool GetParameter(int param, void* value);
 
-	bool paused;
+	[[nodiscard]] virtual bool Braille(const char* text);
+	[[nodiscard]] virtual bool StopSpeech() = 0;
+	[[nodiscard]] virtual bool PauseSpeech();
+	[[nodiscard]] virtual bool ResumeSpeech();
+	[[nodiscard]] virtual bool IsSpeaking() = 0;
+	[[nodiscard]] virtual int GetNumber() = 0;
+	[[nodiscard]] virtual int GetCategory() = 0;
+	[[nodiscard]] virtual bool GetActive() = 0;
+	[[nodiscard]] virtual int GetFeatures() = 0;
+	[[nodiscard]] virtual int GetKeyFlags();
+	[[nodiscard]] virtual bool SetParameter(int param, const void* value);
+	[[nodiscard]] virtual bool GetParameter(int param, void* value);
+	virtual bool Initialize() = 0;
+	virtual bool Uninitialize() = 0;
+
+	bool paused = false;
 
 protected:
-	std::vector<char*> m_strings;
+	std::vector<std::unique_ptr<char[]>> m_strings;
 
-	inline const char* AddString(const char* str) {
-		if (!str)
+	[[nodiscard]] const char* AddString(const char* str) {
+		if (!str) [[unlikely]] {
 			return nullptr;
-
-		size_t len = strlen(str) + 1;
-		char* cString = new char[len];
-		strcpy(cString, str);
-		m_strings.push_back(cString);
-		return cString;
-	}
-
-	inline void ReleaseAllStrings() {
-		for (auto str : m_strings) {
-			delete[] str;
 		}
-		m_strings.clear();
+
+		const size_t len = std::strlen(str) + 1;
+		auto cString = std::make_unique<char[]>(len);
+		std::memcpy(cString.get(), str, len);
+
+		const char* const raw_ptr = cString.get();
+		m_strings.push_back(std::move(cString));
+		return raw_ptr;
 	}
+
+	void ReleaseAllStrings() noexcept { m_strings.clear(); }
 };
+
 } // namespace Sral
-#endif
+
+#endif // ENGINE_H_

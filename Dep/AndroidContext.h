@@ -1,6 +1,8 @@
 #ifndef SRAL_ANDROID_CONTEXT_H_
 #define SRAL_ANDROID_CONTEXT_H_
 #pragma once
+
+#if defined(__ANDROID__)
 #include <jni.h>
 
 // Shared Android JNI context for SRAL engines.
@@ -17,26 +19,41 @@
 
 namespace Sral {
 
-// Captures the JavaVM* from the provided env. Returns false if env is null.
-bool SetAndroidJNIEnv(JNIEnv* env);
+/**
+ * @brief Captures the JavaVM* from the provided env.
+ * @param env The current JNI environment.
+ * @return True if the JavaVM handle was successfully isolated.
+ */
+bool SetAndroidJNIEnv(JNIEnv* env) noexcept;
 
-// Stores a global ref to activity. Requires SetAndroidJNIEnv to have been
-// called first. Returns false if the JavaVM is not yet set, activity is null,
-// or the global ref could not be created.
-bool SetAndroidActivity(jobject activity);
+/**
+ * @brief Stores a global ref to activity.
+ * Requires SetAndroidJNIEnv to have been called first.
+ * @param activity The jobject handle pointing to the Host Android Activity.
+ * @return True if the global reference was safely instantiated.
+ */
+bool SetAndroidActivity(jobject activity) noexcept;
 
-// Called by SRAL_Uninitialize. Releases the global ref to activity.
-void ClearAndroidContext();
+/**
+ * @brief Releases the global ref to activity and clears cached JVM bindings.
+ * Called by SRAL_Uninitialize. Completely thread-safe.
+ */
+void ClearAndroidContext() noexcept;
 
-// Returns a JNIEnv* valid on the calling thread, attaching the thread to
-// the JavaVM if necessary. Returns nullptr if SetAndroidJNIEnv has not
-// been called or if attach fails.
-JNIEnv* GetAndroidJNIEnv();
+/**
+ * @brief Returns a JNIEnv* valid on the calling thread, attaching it if necessary.
+ * @return A thread-local valid JNIEnv*, or nullptr on terminal lookup failure.
+ */
+[[nodiscard]] JNIEnv* GetAndroidJNIEnv() noexcept;
 
-// Returns the Activity global ref, or nullptr if SetAndroidActivity has
-// not been called.
-jobject GetAndroidActivity();
+/**
+ * @brief Returns the Activity global ref.
+ * @return The active global reference jobject, or nullptr if unassigned.
+ */
+[[nodiscard]] jobject GetAndroidActivity() noexcept;
 
 } // namespace Sral
 
-#endif
+#endif // defined(__ANDROID__)
+
+#endif // SRAL_ANDROID_CONTEXT_H_

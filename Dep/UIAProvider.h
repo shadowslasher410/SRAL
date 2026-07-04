@@ -14,32 +14,33 @@
  * PARTICULAR PURPOSE.
  *
  *************************************************************************************************/
+#pragma once
+
+#include <windows.h>
 #include <uiautomation.h>
 #include <uiautomationcore.h>
-class Provider : public IRawElementProviderSimple,
-	public IInvokeProvider
+
+class Provider final : public IRawElementProviderSimple, public IInvokeProvider
 {
 public:
-	Provider(HWND hwnd);
-
-	// IUnknown methods
-	IFACEMETHODIMP_(ULONG) AddRef();
-	IFACEMETHODIMP_(ULONG) Release();
-	IFACEMETHODIMP QueryInterface(REFIID riid, void**);
-
-	// IRawElementProviderSimple methods
-	IFACEMETHODIMP get_ProviderOptions(ProviderOptions* pRetVal);
-	IFACEMETHODIMP GetPatternProvider(PATTERNID patternId, IUnknown** pRetVal);
-	IFACEMETHODIMP GetPropertyValue(PROPERTYID propertyId, VARIANT* pRetVal);
-	IFACEMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** pRetVal);
-
-	// IInvokeProvider methods
-	IFACEMETHODIMP Invoke();
+    explicit Provider(HWND hwnd) noexcept;
+    IFACEMETHODIMP_(ULONG) AddRef() override;
+    IFACEMETHODIMP_(ULONG) Release() override;
+    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppvObject) override;
+    IFACEMETHODIMP get_ProviderOptions(ProviderOptions* pRetVal) override;
+    IFACEMETHODIMP GetPatternProvider(PATTERNID patternId, IUnknown** pRetVal) override;
+    IFACEMETHODIMP GetPropertyValue(PROPERTYID propertyId, VARIANT* pRetVal) override;
+    IFACEMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** pRetVal) override;
+    IFACEMETHODIMP Invoke() override;
 
 private:
-	virtual ~Provider();
-	// Ref Counter for this COM object
-	ULONG m_refCount;
+    ~Provider() = default;
 
-	HWND m_controlHWnd; // The HWND for the control.
+    Provider(const Provider&) = delete;
+    Provider& operator=(const Provider&) = delete;
+    Provider(Provider&&) = delete;
+    Provider& operator=(Provider&&) = delete;
+
+    volatile LONG m_refCount{ 1 };
+    HWND m_controlHWnd{ nullptr };
 };

@@ -1,0 +1,15 @@
+{
+  "name": "sral-node",
+  "version": "1.0.0",
+  "description": "Node.js Node-API bridge bindings for SRAL",
+  "main": "lib/SRAL.js",
+  "gypfile": true,
+  "scripts": {
+    "install": "node-gyp rebuild",
+    "compile": "node-gyp configure build",
+    "test": "node Example.js"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.0.0"
+  }
+}

@@ -1,0 +1,1 @@
+recursive-include sral *.dll *.so *.dylib

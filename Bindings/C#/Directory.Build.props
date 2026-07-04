@@ -1,0 +1,5 @@
+<Project>
+  <PropertyGroup>
+    <SKIP_MOBILE_WORKLOADS Condition="!Exists('$(MSBuildExtensionsPath)\Microsoft.Android.Sdk.Windows')">true</SKIP_MOBILE_WORKLOADS>
+  </PropertyGroup>
+</Project>

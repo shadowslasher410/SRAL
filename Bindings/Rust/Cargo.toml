@@ -1,0 +1,11 @@
+[package]
+name = "sral"
+version = "1.0.0"
+edition = "2026"
+
+[dependencies]
+libc = "0.2.186"
+
+[[bin]]
+name = "sral_demo"
+path = "src/main.rs"

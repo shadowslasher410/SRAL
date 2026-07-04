@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+
+        <TargetFrameworks Condition="'$(SKIP_MOBILE_WORKLOADS)' == 'true'">net10.0</TargetFrameworks>
+        <TargetFrameworks Condition="'$(SKIP_MOBILE_WORKLOADS)' != 'true'">net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    </PropertyGroup>
+
+    <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
+        <!-- Windows Desktop x64 -->
+        <None Include="..\..\out\build\SRAL.dll" Condition="Exists('..\..\out\build\SRAL.dll')">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+        <!-- Linux x64 -->
+        <None Include="..\..\out\build\libsral.so" Condition="Exists('..\..\out\build\libsral.so')">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+        <!-- macOS Desktop x64/Arm64 -->
+        <None Include="..\..\out\build\libsral.dylib" Condition="Exists('..\..\out\build\libsral.dylib')">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </None>
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(SKIP_MOBILE_WORKLOADS)' != 'true' AND '$(TargetFramework)' == 'net10.0-android'">
+        <AndroidNativeLibrary Include="..\Go\SRAL\libs\android\arm64-v8a\libsral.so">
+            <Link>lib\arm64-v8a\libsral.so</Link>
+            <Abi>arm64-v8a</Abi>
+        </AndroidNativeLibrary>
+        <AndroidNativeLibrary Include="..\Go\SRAL\libs\android\x86_64\libsral.so">
+            <Link>lib\x86_64\libsral.so</Link>
+            <Abi>x86_64</Abi>
+        </AndroidNativeLibrary>
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(SKIP_MOBILE_WORKLOADS)' != 'true' AND '$(TargetFramework)' == 'net10.0-ios'">
+        <NativeReference Include="..\Go\SRAL\libs\ios\libsral.a">
+            <Kind>Static</Kind>
+            <ForceLoad>True</ForceLoad>
+            <Frameworks>Foundation AVFoundation</Frameworks>
+        </NativeReference>
+    </ItemGroup>
+</Project>

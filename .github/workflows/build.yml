@@ -95,7 +95,7 @@ jobs:
           path: dist
           if-no-files-found: error
 
-  android:
+   android:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -111,6 +111,19 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
+      - name: Install Ninja Build System
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build
+
+      - name: Resolve Android NDK Path Fallback
+        run: |
+          if [ -n "${{ secrets.ANDROID_NDK_HOME }}" ]; then
+            echo "ANDROID_NDK_HOME=${{ secrets.ANDROID_NDK_HOME }}" >> $GITHUB_ENV
+          else
+            echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> $GITHUB_ENV
+          fi
+
       - name: Get CMake
         uses: lukka/get-cmake@ea83089aa35e08e459464341fe24ad024ee2466f # v4.3.1
 
@@ -125,7 +138,6 @@ jobs:
       - name: Run CMake via Presets
         uses: lukka/run-cmake@5d55ea7949e25f69f0ecb516d8d572297e03a956 # v10.9
         env:
-          ANDROID_NDK_HOME: ${{ secrets.ANDROID_NDK_HOME || '/usr/local/lib/android/sdk/ndk-bundle' }}
           SRAL_INJECTED_VER: ${{ inputs.release_version || github.ref_name || github.sha }}
         with:
           configurePreset: ${{ matrix.preset }}
@@ -188,21 +200,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-
-      - name: Select Xcode Version
-        run: |
-          XCODE_PATH="/Applications/Xcode_16.2.app/Contents/Developer"
-          if [ -d "$XCODE_PATH" ]; then
-            sudo xcode-select -s "$XCODE_PATH"
-            xcodebuild -version
-          else
-            echo "Critical Error: Mandated compilation toolchain environment path missing." >&2
-            exit 1
-          fi
-
+        
       - name: Get CMake
         uses: lukka/get-cmake@ea83089aa35e08e459464341fe24ad024ee2466f # v4.3.1
-
+        
       - name: Run CMake for iOS Device
         uses: lukka/run-cmake@5d55ea7949e25f69f0ecb516d8d572297e03a956 # v10.9
         env:

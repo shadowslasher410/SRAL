@@ -1,6 +1,8 @@
----
+Language: Cpp
 BasedOnStyle: LLVM
+Standard: Latest
 
+LineEnding: LF
 UseTab: Always
 IndentWidth: 4
 TabWidth: 4
@@ -24,7 +26,7 @@ BraceWrapping:
   IndentBraces: false
   SplitEmptyFunction: true
 
-AlignAfterOpenBracket: DontAlign 
+AlignAfterOpenBracket: DontAlign
 AlignOperands: DontAlign
 AlignConsecutiveAssignments: false
 AlignConsecutiveDeclarations: false
@@ -33,9 +35,28 @@ AllowShortFunctionsOnASingleLine: Inline
 AllowShortIfStatementsOnASingleLine: false
 AllowShortLoopsOnASingleLine: false
 
-SortIncludes: CaseSensitive
-IncludeBlocks: Regroup
-
 ColumnLimit: 120
 PointerAlignment: Left
 SpaceBeforeParens: ControlStatements
+
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+
+IncludeCategories:
+  - Regex: '^<(windows|Windows)\.h>'
+    Priority: 1
+    SortPriority: 1
+  - Regex: '^<(initguid|mmsystem|ole2|unknwn|uiautomation|uiautomationcore|comdef|comip|wrl/client|audioclient|audiopolicy|mmdeviceapi)\.h>'
+    Priority: 2
+    SortPriority: 2
+  - Regex: '^<[a-z0-9_./]+>'
+    Priority: 3
+    SortPriority: 3
+  - Regex: '^".*"'
+    Priority: 4
+    SortPriority: 4
+
+StatementMacros:
+  - EM_ASM
+  - EM_ASM_INT
+  - EM_JS

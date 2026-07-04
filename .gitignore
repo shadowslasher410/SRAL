@@ -1,40 +1,66 @@
-# Prerequisites
-*.d
-
-# Compiled Object files
-*.slo
-*.lo
+# Project Target Build, Staging & Generation Trees
+out/
+builddir/
+subprojects/
 *.o
 *.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Compiled Dynamic libraries
+*.a
+*.lib
 *.so
 *.dylib
 *.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
 *.exe
-*.out
-*.app
-# Other
+*.wasm
+
+# IDE Configurations and Toolchain Specifics
 .vs/
-out/
-build/
-Release/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln
+*.vcxproj
+*.filters
+
+# C# (.NET Managed Build Output Caches)
+Bindings/C\#/bin/
+Bindings/C\#/obj/
+
+# Go Module Caches and Toolchain Binaries
+Bindings/go/SRAL/SRAL
+Bindings/go/SRAL_example/SRAL_example
+
+# Node.js Ecosystem Modules and Gyp Engine Outputs
+node_modules/
+Bindings/Node.Js/node_modules/
+Bindings/Node.Js/build/
+package-lock.json
+
+# Python Environment Distributions & Bytecode
+__pycache__/
 *.pyc
+*.pyo
 *.pyd
-.*DS_Store
+.pytest_cache/
+Bindings/Python/__pycache__/
+Bindings/Python/build/
+Bindings/Python/dist/
+Bindings/Python/*.egg-info/
+
+# Rust Cargo Profiles and Workspaces compilation targets
+target/
+Bindings/Rust/target/
+Bindings/Rust/Cargo.lock
+
+# Dart Workspace Artifacts, Package Resolution Caches, and Locks
+.dart_tool/
+.packages
+pubspec.lock
+
+# Lua Intermediary Compiled Bytecode Output Payloads
+luac.out
+*.luac
+
+# OS Specific
+.DS_Store
+Thumbs.db

@@ -1,2 +1,28 @@
-* text=auto
+* text eol=lf
 
+\*.c text  
+\*.cpp text  
+\*.h text  
+\*.hpp text  
+\*.m text  
+\*.mm text  
+\*.java text  
+\*.go text  
+\*.cs text  
+\*.csproj text  
+\*.py text  
+\*.rs text  
+\*.js text  
+\*.dart text  
+\*.gyp text  
+\*.json text  
+\*.toml text  
+\*.yml text  
+\*.yaml text  
+\*.build text  
+\*.cmake text  
+\*.txt text  
+\*.md text  
+.clang-format text  
+.editorconfig text  
+LICENSE text

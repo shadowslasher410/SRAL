@@ -24,7 +24,7 @@ permissions: {}
 
 concurrency:
   group: build-${{ github.ref }}-${{ github.event.inputs.release_version || github.sha }}
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_call' }}
+  cancel-in-progress: "${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_call' }}"
 
 jobs:
   desktop:
@@ -47,6 +47,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Cache Build Pipeline Data
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.ccache
+            ${{ github.workspace }}/out/build/${{ matrix.preset }}/CMakeCache.txt
+          key: desktop-${{ matrix.name }}-${{ github.sha }}
+          restore-keys: desktop-${{ matrix.name }}-
 
       - name: Get CMake
         uses: lukka/get-cmake@ea83089aa35e08e459464341fe24ad024ee2466f # v4.3.1
@@ -95,7 +104,7 @@ jobs:
           path: dist
           if-no-files-found: error
 
-   android:
+  android:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -110,6 +119,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Cache Android Compiler Objects
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/out/build/${{ matrix.preset }}/CMakeCache.txt
+          key: android-${{ matrix.abi }}-${{ github.sha }}
+          restore-keys: android-${{ matrix.abi }}-
 
       - name: Install Ninja Build System
         run: |
@@ -132,9 +148,10 @@ jobs:
         with:
           distribution: 'jetbrains'
           java-version: '25'
+          cache: 'gradle'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-             
+
       - name: Run CMake via Presets
         uses: lukka/run-cmake@5d55ea7949e25f69f0ecb516d8d572297e03a956 # v10.9
         env:
@@ -170,6 +187,8 @@ jobs:
 
       - name: Setup Emscripten Toolchain
         uses: mymindstorm/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
+        with:
+          actions-cache-folder: 'emsdk-cache'
 
       - name: Get CMake
         uses: lukka/get-cmake@ea83089aa35e08e459464341fe24ad024ee2466f # v4.3.1
@@ -200,10 +219,19 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        
+
+      - name: Cache iOS Intermediate Build Structure
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ github.workspace }}/out/build/ios-device-release/CMakeCache.txt
+            ${{ github.workspace }}/out/build/ios-simulator-debug/CMakeCache.txt
+          key: ios-build-${{ github.sha }}
+          restore-keys: ios-build-
+
       - name: Get CMake
         uses: lukka/get-cmake@ea83089aa35e08e459464341fe24ad024ee2466f # v4.3.1
-        
+
       - name: Run CMake for iOS Device
         uses: lukka/run-cmake@5d55ea7949e25f69f0ecb516d8d572297e03a956 # v10.9
         env:
@@ -221,7 +249,6 @@ jobs:
           configurePreset: ios-simulator-debug
           buildPreset: ios-simulator-debug-build
           configurePresetAdditionalArgs: '["-DSRAL_DISABLE_NSSPEECH=ON", "-DBUILD_SRAL_TEST=OFF", "-DBUILD_SHARED_LIBS=OFF", "-DSRAL_VERSION=${{ env.SRAL_INJECTED_VER }}"]'
-
       - name: Assemble XCFramework
         run: |
           DEVICE_LIB=$(find out/build/ios-device-release -name 'libSRAL_static.a' | head -n1)
@@ -237,8 +264,8 @@ jobs:
           xcodebuild -create-xcframework \
             -library "$DEVICE_LIB" -headers headers-device \
             -library "$SIM_LIB" -headers headers-sim \
-            -output dist/SRAL.xcframework 
-
+            -output dist/SRAL.xcframework
+          
           cp Include/SRAL.h Include/Sral.hpp dist/SRAL.xcframework/
 
       - name: Archive iOS artifact

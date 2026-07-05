@@ -1,11 +1,17 @@
 cmake_minimum_required(VERSION 4.3.1)
 
 set(SRAL_IS_EMSCRIPTEN_BUILD FALSE)
-if(EMSCRIPTEN OR CMAKE_TOOLCHAIN_FILE MATCHES "Emscripten.cmake" OR CMAKE_SYSTEM_NAME STREQUAL "Emscripten")
+if(EMSCRIPTEN 
+   OR CMAKE_TOOLCHAIN_FILE MATCHES "Emscripten" 
+   OR CMAKE_SYSTEM_NAME STREQUAL "Emscripten"
+   OR DEFINED ENV{EMSDK} 
+   OR "${CMAKE_C_COMPILER}" MATCHES "emcc"
+   OR "${CMAKE_CXX_COMPILER}" MATCHES "em++")
     set(SRAL_IS_EMSCRIPTEN_BUILD TRUE)
 endif()
 
 if(SRAL_IS_EMSCRIPTEN_BUILD)
+    message(STATUS "[SRAL] WebAssembly / Emscripten compilation context successfully verified.")
     set(BUILD_SHARED_LIBS OFF CACHE BOOL "Forced static library route for WebAssembly target" FORCE)
 endif()
 

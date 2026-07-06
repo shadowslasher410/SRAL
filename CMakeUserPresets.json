@@ -1,0 +1,46 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 4,
+    "minor": 3,
+    "patch": 1
+  },
+  "include": ["CMakePresets.json"],
+  "configurePresets": [
+    {
+      "name": "custom-paths",
+      "hidden": true,
+      "cacheVariables": {
+        "PATH_NVDA_INSTALL": "C:/Dev/nvda_sdk",
+        "PATH_SPEECHD_INSTALL": "/usr/local/speechd",
+        "PATH_EMSDK_INSTALL": "/home/user/emsdk",
+        "PATH_PYTHON_INSTALL": "/usr/bin/python3",
+        "PATH_ANDROID_NDK": "/home/user/Android/Sdk/ndk/30.0.14904198"
+      }
+    },
+    {
+      "name": "desktop-release",
+      "inherits": [ "base-desktop-release", "custom-paths" ]
+    },
+    {
+      "name": "desktop-debug",
+      "inherits": [ "base-desktop-debug", "custom-paths" ]
+    },
+    {
+      "name": "chromevox-release",
+      "inherits": [ "base-chromevox-release", "custom-paths" ]
+    },
+    {
+      "name": "chromevox-debug",
+      "inherits": [ "base-chromevox-debug", "custom-paths" ]
+    },
+    {
+      "name": "android-release",
+      "inherits": [ "base-android-release", "custom-paths" ]
+    },
+    {
+      "name": "android-debug",
+      "inherits": [ "base-android-debug", "custom-paths" ]
+    }
+  ]
+}

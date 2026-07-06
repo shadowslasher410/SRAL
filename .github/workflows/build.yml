@@ -1,5 +1,4 @@
 name: Build
-
 on:
   push:
     branches:
@@ -20,10 +19,10 @@ on:
         type: string
         default: ''
 
-permissions: {}
+permissions: read-all
 
 concurrency:
-  group: build-${{ github.ref }}-${{ github.event.inputs.release_version || github.sha }}
+  group: build-${{ github.ref }}-${{ inputs.release_version || github.sha }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_call' }}
 
 jobs:
@@ -37,62 +36,57 @@ jobs:
         include:
           - os: ubuntu-latest
             name: linux-x64
-            preset: linux-gcc-release
           - os: windows-latest
             name: windows-x64
-            preset: msvc-x64-release
           - os: macos-latest
             name: macos-universal
-            preset: macos-release
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Get CMake
-        uses: lukka/get-cmake@ea83089aa35e08e459464341fe24ad024ee2466f # v4.3.1
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14.6'
+
+      - name: Install Meson and Ninja
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install --require-hashes meson==1.11.1 ninja==1.13.0 || pip install meson ninja
 
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
+        shell: bash
         run: |
           sudo apt-get update
-          DEPS="ninja-build"
-          CONFIG_FILE="CMake/SRALConfig.cmake"
-          
-          if [ -f "$CONFIG_FILE" ]; then
-            echo "Parsing safety validated dependencies configuration layout..."
-            MODULES=$(grep -oP '(?<=_SRAL_REQUIRED_MODULES ")[^"]+' "$CONFIG_FILE" || true)
-            for MODULE in $MODULES; do
-              case "$MODULE" in
-                "speech-dispatcher") DEPS="$DEPS libspeechd-dev" ;;
-                "dbus-1")            DEPS="$DEPS libdbus-1-dev" ;;
-                "atspi-2")           DEPS="$DEPS libatspi-dev" ;;
-                "brlapi"|"brltty")   DEPS="$DEPS brltty libbrlapi-dev" ;;
-                *) echo "Warning: Unknown dependency '$MODULE' passed via file parser module loop." ;;
-              esac
-            done
-          else
-            echo "Critical Fallback: Expected file missing. Using restrictive standard platform dependencies package set."
-            DEPS="$DEPS libspeechd-dev libx11-dev brltty libbrlapi-dev libatspi-dev"
-          fi
-          sudo apt-get install -y --no-install-recommends $DEPS
+          sudo apt-get install -y --no-install-recommends \
+            libspeechd-dev libdbus-1-dev libatspi-dev brltty libbrlapi-dev
 
-      - name: Run CMake via Presets
-        uses: lukka/run-cmake@2cb26ba7b74f07328bf3a07b7b12f6cd00db34ee # v10.9
-        env:
-          SRAL_INJECTED_VER: ${{ inputs.release_version || github.ref_name || github.sha }}
-        with:
-          configurePreset: ${{ matrix.preset }}
-          buildPreset: '${{ matrix.preset }}-build'
-          configurePresetAdditionalArgs: '["-BUILD_SHARED_LIBS=ON", "-DBUILD_SRAL_TEST=OFF", "-DSRAL_VERSION=${{ env.SRAL_INJECTED_VER }}"]'
+      - name: Configure Project (Meson)
+        shell: bash
+        run: |
+          meson setup builddir \
+            --buildtype=release \
+            --prefix="" \
+            -Ddefault_library=both \
+            -DBUILD_TESTS=false \
+            -DBUILD_BINDINGS=false
+
+      - name: Compile and Link Targets
+        shell: bash
+        run: meson compile -C builddir
 
       - name: Install into staging tree
-        run: cmake --install out/build/${{ matrix.preset }} --config Release --prefix dist
+        shell: bash
+        run: |
+          meson install -C builddir --destdir ../dist
 
       - name: Archive artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bundle-${{ matrix.name }}
-          path: dist
+          path: "${{ github.workspace }}/dist"
           if-no-files-found: error
 
   android:
@@ -104,48 +98,96 @@ jobs:
       matrix:
         include:
           - abi: arm64-v8a
-            preset: android-arm64-release
+            arch: aarch64
           - abi: x86_64
-            preset: android-x86_64-release
+            arch: x86_64
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Get CMake
-        uses: lukka/get-cmake@ea83089aa35e08e459464341fe24ad024ee2466f # v4.3.1
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14.6'
+
+      - name: Install Meson and Ninja
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install meson==1.11.1 ninja==1.13.0 || pip install meson ninja
 
       - name: Set up JetBrains Runtime JDK 25
         uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
         with:
           distribution: 'jetbrains'
           java-version: '25'
+
+      - name: Create Android Cross File Dynamically
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-             
-      - name: Run CMake via Presets
-        uses: lukka/run-cmake@2cb26ba7b74f07328bf3a07b7b12f6cd00db34ee # v10.9
-        env:
-          ANDROID_NDK_HOME: ${{ secrets.ANDROID_NDK_HOME || '/usr/local/lib/android/sdk/ndk-bundle' }}
-          SRAL_INJECTED_VER: ${{ inputs.release_version || github.ref_name || github.sha }}
-        with:
-          configurePreset: ${{ matrix.preset }}
-          buildPreset: '${{ matrix.preset }}-build'
-          configurePresetAdditionalArgs: '["-BUILD_SHARED_LIBS=ON", "-DBUILD_SRAL_TEST=OFF", "-DSRAL_VERSION=${{ env.SRAL_INJECTED_VER }}"]'
+          NDK: ${{ secrets.ANDROID_NDK_HOME || env.ANDROID_NDK_LATEST_HOME }}
+          ARCH: ${{ matrix.arch }}
+        shell: bash
+        run: |
+          if [ -z "$NDK" ]; then
+            echo "::error::Failed to locate an active Android NDK Toolchain Environment."
+            exit 1
+          fi
+          
+          cat <<EOF > android_cross.txt
+          [binaries]
+          c = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/$ARCH-linux-android24-clang'
+          cpp = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/$ARCH-linux-android24-clang++'
+          ar = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+          strip = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+
+          [host_machine]
+          system = 'android'
+          cpu_family = '$ARCH'
+          cpu = '$ARCH'
+          endian = 'little'
+          EOF
+
+      - name: Configure Android Target
+        shell: bash
+        run: |
+          meson setup builddir --cross-file android_cross.txt \
+            --buildtype=release \
+            -Ddefault_library=both \
+            -DBUILD_TESTS=false \
+            -DBUILD_BINDINGS=false
+
+      - name: Compile Target Shared Libraries
+        shell: bash
+        run: meson compile -C builddir
 
       - name: Install ABI targets into staging structure
+        env:
+          ABI: ${{ matrix.abi }}
+        shell: bash
         run: |
-          mkdir -p "dist-${{ matrix.abi }}/lib/${{ matrix.abi }}" "dist-${{ matrix.abi }}/include" "dist-${{ matrix.abi }}/java"
-          cmake --install "out/build/${{ matrix.preset }}" --config Release --prefix "dist-${{ matrix.abi }}/install"
+          STAGING_DIR="${{ github.workspace }}/dist-android-$ABI"
+          mkdir -p "$STAGING_DIR/lib/$ABI" "$STAGING_DIR/include" "$STAGING_DIR/java"
           
-          find "out/build/${{ matrix.preset }}" \( -name 'libSRAL.so' -o -name 'libSRAL_static.a' \) -exec cp {} "dist-${{ matrix.abi }}/lib/${{ matrix.abi }}/" \;
-          cp Include/SRAL.h Include/Sral.hpp "dist-${{ matrix.abi }}/include/"
-          cp Dep/AndroidTTSHelper.java Dep/AndroidAccessibilityManagerHelper.java "dist-${{ matrix.abi }}/java/"
+          find builddir \( -name 'libSRAL.so' -o -name 'libSRAL.a' \) -exec cp {} "$STAGING_DIR/lib/$ABI/" \;
+          
+          H_DIR="Include"
+          if [ ! -d "$H_DIR" ] && [ -d "include" ]; then
+            H_DIR="include"
+          fi
+          
+          if [ -d "$H_DIR" ]; then
+            cp "$H_DIR/SRAL.h" "$H_DIR/Sral.hpp" "$STAGING_DIR/include/"
+          fi
+          
+          if [ -f "Dep/AndroidTTSHelper.java" ]; then
+            cp Dep/AndroidTTSHelper.java Dep/AndroidAccessibilityManagerHelper.java "$STAGING_DIR/java/"
+          fi
 
       - name: Archive Android artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bundle-android-${{ matrix.abi }}
-          path: dist-${{ matrix.abi }}
+          path: "${{ github.workspace }}/dist-android-${{ matrix.abi }}"
           if-no-files-found: error
 
   webassembly:
@@ -157,92 +199,219 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Emscripten Toolchain
-        uses: mymindstorm/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
-
-      - name: Get CMake
-        uses: lukka/get-cmake@ea83089aa35e08e459464341fe24ad024ee2466f # v4.3.1
-
-      - name: Run CMake via WebAssembly Presets
-        uses: lukka/run-cmake@2cb26ba7b74f07328bf3a07b7b12f6cd00db34ee # v10.9
-        env:
-          SRAL_INJECTED_VER: ${{ inputs.release_version || github.ref_name || github.sha }}
+        uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
         with:
-          configurePreset: wasm-release
-          buildPreset: wasm-release-build
-          configurePresetAdditionalArgs: '["-BUILD_SHARED_LIBS=OFF", "-DBUILD_SRAL_TEST=OFF", "-DSRAL_VERSION=${{ env.SRAL_INJECTED_VER }}"]'
+          version: 6.0.2
+          no-node: false
 
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14.6'
+
+      - name: Install Meson and Ninja
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install meson==1.11.1 ninja==1.13.0 || pip install meson ninja
+
+      - name: Create WebAssembly Cross File
+        shell: bash
+        run: |
+          cat <<EOF > emscripten_cross.txt
+          [binaries]
+          c = 'emcc'
+          cpp = 'em++'
+          ar = 'emar'
+          strip = 'emstrip'
+
+          [host_machine]
+          system = 'emscripten'
+          cpu_family = 'wasm32'
+          cpu = 'wasm32'
+          endian = 'little'
+          EOF
+
+      - name: Configure WebAssembly Cross Compilation Pass
+        shell: bash
+        run: |
+          if [ -f "$EMSDK/emsdk_env.sh" ]; then
+            source "$EMSDK/emsdk_env.sh"
+          fi
+
+          meson setup builddir --cross-file emscripten_cross.txt \
+            --buildtype=release \
+            --prefix="" \
+            -Dwebassembly=true \
+            -DBUILD_TESTS=false \
+            -DBUILD_BINDINGS=false
+
+      - name: Compile Static Object Graph
+        shell: bash
+        run: |
+          if [ -f "$EMSDK/emsdk_env.sh" ]; then
+            source "$EMSDK/emsdk_env.sh"
+          fi
+          meson compile -C builddir
+  
       - name: Install into staging tree
-        run: cmake --install out/build/wasm-release --config Release --prefix dist
+        shell: bash
+        run: |
+          mkdir -p "${{ github.workspace }}/dist-wasm"
+          meson install -C builddir --destdir "${{ github.workspace }}/dist-wasm"
 
       - name: Archive WebAssembly artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bundle-wasm
-          path: dist
+          path: "${{ github.workspace }}/dist-wasm"
           if-no-files-found: error
 
   ios:
-    runs-on: macos-latest
+    runs-on: macos-15
     permissions:
       contents: read
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Select Xcode Version
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14.6'
+
+      - name: Install Meson and Ninja
+        shell: bash
         run: |
-          XCODE_PATH="/Applications/Xcode_16.2.app/Contents/Developer"
-          if [ -d "$XCODE_PATH" ]; then
-            sudo xcode-select -s "$XCODE_PATH"
-            xcodebuild -version
-          else
-            echo "Critical Error: Mandated compilation toolchain environment path missing." >&2
+          python -m pip install --upgrade pip
+          pip install meson==1.11.1 ninja==1.13.0 || pip install meson ninja
+
+      - name: Create iOS Hardware Device Cross File
+        shell: bash
+        run: |
+          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
+          cat <<EOF > ios_device_cross.txt
+          [binaries]
+          c = ['clang', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=15.0']
+          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=15.0']
+          ar = 'ar'
+          strip = 'strip'
+
+          [host_machine]
+          system = 'darwin'
+          cpu_family = 'aarch64'
+          cpu = 'arm64'
+          endian = 'little'
+          EOF
+
+      - name: Create iOS Simulator ARM64 Cross File
+        shell: bash
+        run: |
+          SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          cat <<EOF > ios_sim_arm64_cross.txt
+          [binaries]
+          c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios15.0-simulator']
+          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios15.0-simulator']
+          ar = 'ar'
+          strip = 'strip'
+
+          [host_machine]
+          system = 'darwin'
+          cpu_family = 'aarch64'
+          cpu = 'arm64'
+          endian = 'little'
+          EOF
+
+      - name: Create iOS Simulator X86_64 Cross File
+        shell: bash
+        run: |
+          SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
+          cat <<EOF > ios_sim_x86_64_cross.txt
+          [binaries]
+          c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios15.0-simulator']
+          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios15.0-simulator']
+          ar = 'ar'
+          strip = 'strip'
+
+          [host_machine]
+          system = 'darwin'
+          cpu_family = 'x86_64'
+          cpu = 'x86_64'
+          endian = 'little'
+          EOF
+
+      - name: Configure and Compile iOS Device Target
+        shell: bash
+        run: |
+          meson setup build-device --cross-file ios_device_cross.txt \
+            --buildtype=release \
+            -Ddefault_library=static \
+            -DTARGET_IOS=true \
+            -DSRAL_WITH_NSSPEECH=false \
+            -DBUILD_TESTS=false \
+            -DBUILD_BINDINGS=false
+          meson compile -C build-device
+
+      - name: Configure and Compile iOS Simulator Targets
+        shell: bash
+        run: |
+          meson setup build-sim-arm64 --cross-file ios_sim_arm64_cross.txt \
+            --buildtype=debug \
+            -Ddefault_library=static \
+            -DTARGET_IOS=true \
+            -DSRAL_WITH_NSSPEECH=false \
+            -DBUILD_TESTS=false \
+            -DBUILD_BINDINGS=false
+          meson compile -C build-sim-arm64
+
+          meson setup build-sim-x86_64 --cross-file ios_sim_x86_64_cross.txt \
+            --buildtype=debug \
+            -Ddefault_library=static \
+            -DTARGET_IOS=true \
+            -DSRAL_WITH_NSSPEECH=false \
+            -DBUILD_TESTS=false \
+            -DBUILD_BINDINGS=false
+          meson compile -C build-sim-x86_64
+
+      - name: Assemble Apple XCFramework Architecture Staging Bundle
+        shell: bash
+        run: |
+          DEVICE_LIB=$(find build-device -name 'libSRAL.a' | head -n1)
+          SIM_ARM64_LIB=$(find build-sim-arm64 -name 'libSRAL.a' | head -n1)
+          SIM_X86_64_LIB=$(find build-sim-x86_64 -name 'libSRAL.a' | head -n1)
+          
+          if [ -z "$DEVICE_LIB" ] || [ -z "$SIM_ARM64_LIB" ] || [ -z "$SIM_X86_64_LIB" ]; then
+            echo "Structural Compilation Failure: Required matrix build dependencies missing." >&2
             exit 1
           fi
-
-      - name: Get CMake
-        uses: lukka/get-cmake@ea83089aa35e08e459464341fe24ad024ee2466f # v4.3.1
-
-      - name: Run CMake for iOS Device
-        uses: lukka/run-cmake@2cb26ba7b74f07328bf3a07b7b12f6cd00db34ee # v10.9
-        env:
-          SRAL_INJECTED_VER: ${{ inputs.release_version || github.ref_name || github.sha }}
-        with:
-          configurePreset: ios-device-release
-          buildPreset: ios-device-release-build
-          configurePresetAdditionalArgs: '["-DSRAL_DISABLE_NSSPEECH=ON", "-DBUILD_SRAL_TEST=OFF", "-DBUILD_SHARED_LIBS=OFF", "-DSRAL_VERSION=${{ env.SRAL_INJECTED_VER }}"]'
-
-      - name: Run CMake for iOS Simulator
-        uses: lukka/run-cmake@2cb26ba7b74f07328bf3a07b7b12f6cd00db34ee # v10.9
-        env:
-          SRAL_INJECTED_VER: ${{ inputs.release_version || github.ref_name || github.sha }}
-        with:
-          configurePreset: ios-simulator-debug
-          buildPreset: ios-simulator-debug-build
-          configurePresetAdditionalArgs: '["-DSRAL_DISABLE_NSSPEECH=ON", "-DBUILD_SRAL_TEST=OFF", "-DBUILD_SHARED_LIBS=OFF", "-DSRAL_VERSION=${{ env.SRAL_INJECTED_VER }}"]'
-
-      - name: Assemble XCFramework
-        run: |
-          DEVICE_LIB=$(find out/build/ios-device-release -name 'libSRAL_static.a' | head -n1)
-          SIM_LIB=$(find out/build/ios-simulator-debug -name 'libSRAL_static.a' | head -n1)
-          if [ -z "$DEVICE_LIB" ] || [ -z "$SIM_LIB" ]; then
-            echo "Security / Structural Compilation Failure: Required compilation dependencies missing." >&2
-            exit 1
+          
+          # Match Android style by outputting directly into the dynamic layout path root
+          STAGING_DIR="${{ github.workspace }}/dist-ios-${{ inputs.release_version || 'raw' }}"
+          rm -rf "$STAGING_DIR"
+          mkdir -p "$STAGING_DIR/framework/headers-device" "$STAGING_DIR/framework/headers-sim" "$STAGING_DIR/framework/intermediate"
+          
+          lipo -create "$SIM_ARM64_LIB" "$SIM_X86_64_LIB" -output "$STAGING_DIR/framework/intermediate/libSRAL_sim.a"
+          
+          H_DIR="Include"
+          if [ ! -d "$H_DIR" ] && [ -d "include" ]; then
+            H_DIR="include"
           fi
-          mkdir -p headers-device headers-sim dist
-          cp Include/SRAL.h Include/Sral.hpp headers-device/
-          cp Include/SRAL.h Include/Sral.hpp headers-sim/
+          
+          cp "$H_DIR/SRAL.h" "$H_DIR/Sral.hpp" "$STAGING_DIR/framework/headers-device/"
+          cp "$H_DIR/SRAL.h" "$H_DIR/Sral.hpp" "$STAGING_DIR/framework/headers-sim/"
+          
+          find "$STAGING_DIR/framework/headers-device" "$STAGING_DIR/framework/headers-sim" -name ".*" -delete 2>/dev/null || true
           
           xcodebuild -create-xcframework \
-            -library "$DEVICE_LIB" -headers headers-device \
-            -library "$SIM_LIB" -headers headers-sim \
-            -output dist/SRAL.xcframework 
-
-          cp Include/SRAL.h Include/Sral.hpp dist/SRAL.xcframework/
+            -library "$DEVICE_LIB" -headers "$STAGING_DIR/framework/headers-device" \
+            -library "$STAGING_DIR/framework/intermediate/libSRAL_sim.a" -headers "$STAGING_DIR/framework/headers-sim" \
+            -output "$STAGING_DIR/SRAL.xcframework"
+            
+          rm -rf "$STAGING_DIR/framework"
 
       - name: Archive iOS artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bundle-ios
-          path: dist
+          path: "${{ github.workspace }}/dist-ios-${{ inputs.release_version || 'raw' }}"
           if-no-files-found: error

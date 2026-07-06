@@ -1,32 +1,68 @@
-# Core Library Options
-option('build_shared', type: 'boolean', value: true, description: 'Build shared library (.dll/.so/.dylib/.wasm)')
-option('build_tests', type: 'boolean', value: true, description: 'Build SRAL examples/tests')
-option('build_bindings', type: 'boolean', value: false, description: 'Enable compilation hooks for language bindings')
+# ==============================================================================
+# GLOBAL ORCHESTRATION & DISPATCH SWITCHES
+# ==============================================================================
+option('TARGET_IOS', type: 'boolean', value: false, 
+       description: 'Force and identify cross-compilation target environment maps for Apple iOS mobile devices')
 
-# Language Bindings Toggles
-option('binding_csharp', type: 'boolean', value: true, description: 'Compile C# bindings (.NET SDK required)')
-option('binding_rust', type: 'boolean', value: false, description: 'Compile Rust binding wrapper (Cargo required)')
-option('binding_node', type: 'boolean', value: false, description: 'Build Node.js native addon')
-option('binding_sources', type : 'boolean', value : true, description : 'Deploy raw source script files for wrapper engines into shared runtime destination paths')
+option('BUILD_TESTS', type: 'boolean', value: false, 
+       description: 'Compile local executable test validation harnesses and companion testing binaries')
 
-# Windows Backends
-option('with_nvda', type: 'boolean', value: true, description: 'Enable NVDA Screen Reader backend')
-option('with_jaws', type: 'boolean', value: true, description: 'Enable JAWS Screen Reader backend')
-option('with_zdsr', type: 'boolean', value: true, description: 'Enable ZDSR Screen Reader backend')
-option('with_sapi', type: 'boolean', value: true, description: 'Enable Microsoft SAPI backend')
-option('with_uia', type: 'boolean', value: true, description: 'Enable Microsoft UI Automation support')
+option('BUILD_BINDINGS', type: 'boolean', value: false, 
+       description: 'Generate internal hooks and trigger targets for wrapper non-C++ bridge language APIs')
 
-# Apple Backends
-option('with_voiceover', type: 'boolean', value: true, description: 'Enable VoiceOver accessibility channel target support')
-option('with_avspeech', type: 'boolean', value: true, description: 'Enable AVFoundation AVSpeechSynthesizer engine integration')
-option('with_nsspeech', type: 'boolean', value: true, description: 'Enable older legacy NSSpeechSynthesizer engine context (macOS-only)')
+option('SRAL_INSTALL_BINDING_SOURCES', type: 'boolean', value: true, 
+       description: 'Deploy raw wrapper script source assets into localized machine target staging locations during installation pass')
 
-# Android Backends
-option('with_android_tts', type: 'boolean', value: true, description: 'Enable native Android TextToSpeech engine wrappers')
-option('with_android_accessibility', type: 'boolean', value: true, description: 'Enable TalkBack framework AccessibilityManager triggers')
+# ==============================================================================
+# WIN32 SCREEN READER & RUNTIME AUDIO SUBSYSTEMS
+# ==============================================================================
+option('SRAL_WITH_NVDA', type: 'boolean', value: true, 
+       description: 'Incorporate internal tracking layers and driver logic bindings for NVDA screen reader environments')
 
-# Linux & Emscripten Backends
-option('with_speech_dispatcher', type: 'boolean', value: true, description: 'Enable standard open system Speech Dispatcher socket pipelines')
-option('with_orca', type: 'boolean', value: true, description: 'Enable Orca AT-SPI2 desktop bus messaging endpoints')
-option('with_brlapi', type: 'boolean', value: true, description: 'Enable BRLTTY hardware cell line braille device layers')
-option('with_chromevox', type: 'boolean', value: true, description: 'Enable ChromeVox engine interfaces')
+option('SRAL_WITH_JAWS', type: 'boolean', value: true, 
+       description: 'Incorporate internal tracking layers and driver logic bindings for Freedom Scientific JAWS API loops')
+
+option('SRAL_WITH_ZDSR', type: 'boolean', value: true, 
+       description: 'Incorporate internal tracking layers and driver logic bindings for Chinese ZDSR screen reader backends')
+
+option('SRAL_WITH_SAPI', type: 'boolean', value: true, 
+       description: 'Incorporate native Microsoft SAPI text-to-speech engine and audio channel allocation backends')
+
+option('SRAL_WITH_UIA', type: 'boolean', value: true, 
+       description: 'Incorporate custom accessibility notification mappings via native Microsoft UI Automation core engines')
+
+# ==============================================================================
+# APPLE DARWIN DESKTOP & MOBILE ACCESSIBILITY SUBSYSTEMS
+# ==============================================================================
+option('SRAL_WITH_VOICEOVER', type: 'boolean', value: true, 
+       description: 'Compile native screen reader interception hooks mapping against Apple VoiceOver assistive platforms')
+
+option('SRAL_WITH_AVSPEECH', type: 'boolean', value: true, 
+       description: 'Compile core audio stream processing wrappers driving Apple AVFoundation AVSpeechSynthesizer pipelines')
+
+option('SRAL_WITH_NSSPEECH', type: 'boolean', value: true, 
+       description: 'Compile legacy macOS-only text-to-speech fallback mechanisms utilizing legacy NSSpeechSynthesizer drivers')
+
+# ==============================================================================
+# ANDROID MOBILE RUNTIME NDK COMPILATION SUBSYSTEMS
+# ==============================================================================
+option('SRAL_WITH_ANDROID_TTS', type: 'boolean', value: true, 
+       description: 'Compile native mobile Java framework interface blocks calling Android core TextToSpeech layers via JNI')
+
+option('SRAL_WITH_ANDROID_ACCESSIBILITY', type: 'boolean', value: true, 
+       description: 'Compile automated notification handling targets linking to Android TalkBack via AccessibilityManager bridges')
+
+# ==============================================================================
+# LINUX DESKTOP & WEB INTERFACE ACCESSIBILITY SUBSYSTEMS
+# ==============================================================================
+option('SRAL_WITH_SPEECH_DISPATCHER', type: 'boolean', value: true, 
+       description: 'Compile open-source Unix client socket pipeline logic routing streams to the local Speech Dispatcher daemon')
+
+option('SRAL_WITH_ORCA', type: 'boolean', value: true, 
+       description: 'Compile AT-SPI2 accessibility architecture loops delivering structural bus definitions to the Orca module')
+
+option('SRAL_WITH_BRLAPI', type: 'boolean', value: true, 
+       description: 'Compile native low-level client links connecting directly to hardware cell lines via the BRLTTY framework')
+
+option('SRAL_WITH_CHROMEVOX', type: 'boolean', value: true, 
+       description: 'Compile extension runtime messaging interface bridges tracking the Google ChromeVox screen reader scope')

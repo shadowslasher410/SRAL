@@ -3,6 +3,13 @@ c = 'emcc'
 cpp = 'em++'
 ar = 'emar'
 
+[built-in options]
+c_args = ['-pthread']
+cpp_args = ['-pthread']
+c_link_args = ['-pthread', '-sWASM=1', '-sSIDE_MODULE=1']
+cpp_link_args = ['-pthread', '-sWASM=1', '-sSIDE_MODULE=1']
+default_library = 'static'
+
 [host_machine]
 system = 'emscripten'
 cpu_family = 'wasm32'

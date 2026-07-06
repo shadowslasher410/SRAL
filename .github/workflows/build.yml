@@ -61,14 +61,15 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            libspeechd-dev libdbus-1-dev libatspi-dev brltty libbrlapi-dev
+            libspeechd-dev libdbus-1-dev libatspi2-dev brltty libbrlapi-dev
+
 
       - name: Configure Project (Meson)
         shell: bash
         run: |
           meson setup builddir \
             --buildtype=release \
-            --prefix="" \
+            --prefix="/" \
             -Ddefault_library=both \
             -DBUILD_TESTS=false \
             -DBUILD_BINDINGS=false
@@ -124,21 +125,27 @@ jobs:
 
       - name: Create Android Cross File Dynamically
         env:
-          NDK: ${{ secrets.ANDROID_NDK_HOME || env.ANDROID_NDK_LATEST_HOME }}
+          NDK: ${{ secrets.ANDROID_NDK_HOME }}
           ARCH: ${{ matrix.arch }}
         shell: bash
         run: |
-          if [ -z "$NDK" ]; then
-            echo "::error::Failed to locate an active Android NDK Toolchain Environment."
+          # If the secret is blank, seamlessly resolve to the standard runner system variables
+          TARGET_NDK="${NDK:-$ANDROID_NDK_ROOT}"
+          TARGET_NDK="${TARGET_NDK:-$ANDROID_NDK_HOME}"
+          
+          if [ -z "$TARGET_NDK" ] || [ ! -d "$TARGET_NDK" ]; then
+            echo "::error::Failed to locate an active Android NDK Toolchain Environment directory context."
             exit 1
           fi
           
+          echo "Using Android NDK Toolchain located at: $TARGET_NDK"
+          
           cat <<EOF > android_cross.txt
           [binaries]
-          c = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/$ARCH-linux-android24-clang'
-          cpp = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/$ARCH-linux-android24-clang++'
-          ar = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
-          strip = '$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+          c = '$TARGET_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/$ARCH-linux-android24-clang'
+          cpp = '$TARGET_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/$ARCH-linux-android24-clang++'
+          ar = '$TARGET_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
+          strip = '$TARGET_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
 
           [host_machine]
           system = 'android'
@@ -146,6 +153,7 @@ jobs:
           cpu = '$ARCH'
           endian = 'little'
           EOF
+
 
       - name: Configure Android Target
         shell: bash

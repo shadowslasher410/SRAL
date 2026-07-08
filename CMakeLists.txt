@@ -1,5 +1,31 @@
 cmake_minimum_required(VERSION 4.3.1)
-project(SRAL_Orchestrator NONE)
+
+set(CMAKE_WARN_ON_ABSOLUTE_INSTALL_DESTINATION ON)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+set(CMAKE_DIRECTORY_LABELS "SRAL_Root_Orchestrator")
+
+project(SRAL_Orchestrator LANGUAGES NONE)
+
+cmake_policy(SET CMP0077 NEW) # option() strictly respects normal scope over cache
+cmake_policy(SET CMP0114 NEW) # ExternalProject step targets use modern concurrent hooks
+cmake_policy(SET CMP0126 NEW) # set(CACHE) does not silently strip local scope variables
+cmake_policy(SET CMP0139 NEW) # Enforce strict system validation loops on processing steps
+
+if(NOT DEFINED CMAKE_BINARY_DIR OR "${CMAKE_BINARY_DIR}" STREQUAL "")
+    message(FATAL_ERROR "[SRAL SECURITY REJECTION] Build framework destination is unmapped. Aborting execution.")
+endif()
+
+if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR)
+    message(FATAL_ERROR 
+        "\n===============================================================================\n"
+        "[SRAL CRITICAL ALERT] In-source builds are structurally prohibited!\n"
+        "Compiling inside your source tree risks local repository metadata corruption.\n"
+        "Please delete 'CMakeCache.txt' and 'CMakeFiles/' from your root repository folder,\n"
+        "generate an independent build directory, and execute the configuration from there.\n"
+        "===============================================================================\n"
+    )
+endif()
 
 option(TARGET_DESKTOP   "Build native desktop workspace library" ON)
 option(TARGET_CHROMEVOX "Build WebAssembly ChromeVox wrapper" OFF)
@@ -15,151 +41,136 @@ set(VERSION_TARGET_WINDOWS "10.0" CACHE STRING "Minimum Windows Target Version B
 set(VERSION_TARGET_ANDROID "21"   CACHE STRING "Minimum Android API Level Baseline")
 set(VERSION_TARGET_IOS     "15.0" CACHE STRING "Minimum iOS Deployment Version Baseline")
 
-set(PATH_NVDA_INSTALL    "" CACHE PATH "Custom installation path for NVDA Screen Reader. Only required for Windows builds. If left empty, CMake will attempt to locate a compatible NVDA installation in the system PATH.")
-set(PATH_SPEECHD_INSTALL "" CACHE PATH "Custom directory path to speech-dispatcher binary. Only required for Linux builds. If left empty, CMake will attempt to locate a compatible speech-dispatcher installation in the system PATH.")
-set(PATH_PYTHON_INSTALL      "" CACHE FILEPATH "Custom absolute path to a Python 3.8+ interpretation. Only required for ChromeVox builds. If left empty, CMake will attempt to locate a compatible Python interpreter in the system PATH.")
-set(PATH_EMSDK_INSTALL   "" CACHE PATH "Custom local path to pre-installed Emscripten SDK package. Only required for ChromeVox builds. If left empty, CMake will attempt to locate a compatible Emscripten installation in the system PATH.")
-set(PATH_ANDROID_NDK     "" CACHE PATH "Custom local path to pre-installed Android NDK package. Only required for Android builds. If left empty, CMake will attempt to locate a compatible Android NDK installation in the system PATH.")
+set(SRAL_WITH_NVDA      OFF CACHE BOOL "Enable NVDA Screen Reader layer" FORCE)
+set(SRAL_WITH_SPEECHD   OFF CACHE BOOL "Enable Speech Dispatcher layer" FORCE)
+set(SRAL_WITH_CHROMEVOX OFF CACHE BOOL "Enable ChromeVox WebAssembly layer" FORCE)
 
-if(NOT CMAKE_BUILD_TYPE)
+set(PATH_NVDA_INSTALL    "" CACHE PATH "Custom installation path for NVDA Screen Reader SDK.")
+set(PATH_SPEECHD_INSTALL "" CACHE PATH "Custom directory path to speech-dispatcher binary.")
+set(PATH_PYTHON_INSTALL  "" CACHE FILEPATH "Custom absolute path to a Python 3.8+ interpreter.")
+set(PATH_EMSDK_INSTALL   "" CACHE PATH "Custom local path to pre-installed Emscripten SDK.")
+set(PATH_ANDROID_NDK     "" CACHE PATH "Custom local path to pre-installed Android NDK.")
+
+if(NOT DEFINED CMAKE_BUILD_TYPE OR "${CMAKE_BUILD_TYPE}" STREQUAL "")
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose build variant" FORCE)
+    set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
 endif()
 
-include(ExternalProject)
 
+set(GLOBAL_HARDENING_ARGS
+    -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+    -DCMAKE_CXX_VISIBILITY_PRESET=hidden
+    -DCMAKE_VISIBILITY_INLINES_HIDDEN=ON
+    -DCMAKE_CXX_STANDARD=20
+    -DCMAKE_CXX_STANDARD_REQUIRED=ON
+    -DCMAKE_CXX_EXTENSIONS=OFF
+    -DCMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE=ON
+    -DCMAKE_CXX_FLAGS_RELEASE=-D_FORTIFY_SOURCE=3
+)
+
+include(ExternalProject)
 if(TARGET_DESKTOP)
     set(DESKTOP_EXTRA_ARGS "")
 
-    if(WIN32)
+    if(CMAKE_HOST_WIN32 AND SRAL_WITH_NVDA)
         if(NOT EXISTS "${PATH_NVDA_INSTALL}" AND NOT DEFINED ENV{NVDA_DIR} AND NOT EXISTS "C:/Program Files (x86)/NVDA")
-            message(FATAL_ERROR 
-                "\n===============================================================================\n"
-                "[SRAL Build Error] NVDA Screen Reader installation could not be found!\n"
-                "Download the SDK package manually from: https://download.nvaccess.org/releases/stable/\n"
-                "Update your custom installation path inside your CMakeUserPresets.json file, or pass manually via CLI: -DPATH_NVDA_INSTALL=\"C:/path/to/NVDA\"\n"
-                "===============================================================================\n"
-            )
+            message(FATAL_ERROR "\n[SRAL Build Error] NVDA Screen Reader installation path validation failed!")
         endif()
 
-         if(EXISTS "${PATH_NVDA_INSTALL}")
-            set(FINAL_NVDA_DIR "${PATH_NVDA_INSTALL}")
-        elseif(DEFINED ENV{NVDA_DIR})
-            set(FINAL_NVDA_DIR "$ENV{NVDA_DIR}")
+        if(EXISTS "${PATH_NVDA_INSTALL}")
+            cmake_path(SET FINAL_NVDA_DIR NORMALIZE "${PATH_NVDA_INSTALL}")
+        elseif(DEFINED ENV{NVDA_DIR} AND EXISTS "$ENV{NVDA_DIR}")
+            cmake_path(SET FINAL_NVDA_DIR NORMALIZE "$ENV{NVDA_DIR}")
         else()
             set(FINAL_NVDA_DIR "C:/Program Files (x86)/NVDA")
         endif()
         list(APPEND DESKTOP_EXTRA_ARGS "-DSRAL_NVDA_SDK_INCLUDE_DIR=${FINAL_NVDA_DIR}/include")
     endif()
         
-    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
-      if(NOT EXISTS "${PATH_SPEECHD_INSTALL}" AND NOT EXISTS "/usr/include/speech-dispatcher")
-         message(FATAL_ERROR 
-                "\n===============================================================================\n"
-                "[SRAL Build Error] Speech Dispatcher development headers could not be found!\n"
-                "Install it via your system package manager (e.g., 'sudo apt install libspeechd-dev'), or download and build the source manually from: https://github.com/brailcom/speechd/releases/latest\n"
-                "Update your custom installation path inside your CMakeUserPresets.json file, or pass manually via CLI: -DPATH_SPEECHD_INSTALL=\"/path/to/speechd/installation/root\"\n"
-                "===============================================================================\n"
-            )
-      endif()
+    if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND SRAL_WITH_SPEECHD)
+        if(NOT EXISTS "${PATH_SPEECHD_INSTALL}" AND NOT EXISTS "/usr/include/speech-dispatcher")
+            message(FATAL_ERROR "\n[SRAL Build Error] Speech Dispatcher development headers path validation failed!")
+        endif()
 
-      if(EXISTS "${PATH_SPEECHD_INSTALL}")
-        list(APPEND DESKTOP_EXTRA_ARGS "-DSRAL_SPEECHD_INCLUDE_DIR=${PATH_SPEECHD_INSTALL}/include")
-      else()
-          list(APPEND DESKTOP_EXTRA_ARGS "-DSRAL_SPEECHD_INCLUDE_DIR=/usr/include/speech-dispatcher")
-      endif()
+        if(EXISTS "${PATH_SPEECHD_INSTALL}")
+            cmake_path(SET FINAL_SPEECHD_DIR NORMALIZE "${PATH_SPEECHD_INSTALL}")
+            list(APPEND DESKTOP_EXTRA_ARGS "-DSRAL_SPEECHD_INCLUDE_DIR=${FINAL_SPEECHD_DIR}/include")
+        else()
+            list(APPEND DESKTOP_EXTRA_ARGS "-DSRAL_SPEECHD_INCLUDE_DIR=/usr/include/speech-dispatcher")
+        endif()
     endif()
 
     ExternalProject_Add(sral_desktop_sandbox
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/SRC"
         BINARY_DIR "${CMAKE_BINARY_DIR}/sandbox-desktop-build"
         CMAKE_ARGS
+            ${GLOBAL_HARDENING_ARGS}
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
             -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
             -DBUILD_TESTS=${BUILD_TESTS}
             -DBUILD_BINDINGS=${BUILD_BINDINGS}
             -DCMAKE_OSX_DEPLOYMENT_TARGET=${VERSION_TARGET_MACOS}
             -DCMAKE_SYSTEM_VERSION=${VERSION_TARGET_WINDOWS}
+            -DSRAL_WITH_NVDA=${SRAL_WITH_NVDA}
+            -DSRAL_WITH_SPEECHD=${SRAL_WITH_SPEECHD}
             ${DESKTOP_EXTRA_ARGS}
         INSTALL_COMMAND ""
     )
+    unset(DESKTOP_EXTRA_ARGS)
 endif()
-
 if(TARGET_CHROMEVOX)
     if(EXISTS "${PATH_PYTHON_INSTALL}")
-        set(Python3_EXECUTABLE "${PATH_PYTHON_INSTALL}" CACHE FILEPATH "Validated Python Overwrite" FORCE)
+        cmake_path(SET Python3_EXECUTABLE NORMALIZE "${PATH_PYTHON_INSTALL}")
+        set(Python3_EXECUTABLE "${Python3_EXECUTABLE}" CACHE FILEPATH "Validated Python Overwrite" FORCE)
     endif()
 
     find_package(Python3 3.8 REQUIRED COMPONENTS Interpreter)
-    message(STATUS "Found compatible Python interpreter: ${Python3_EXECUTABLE} (Version: ${Python3_VERSION})")
 
-    set(EMSDK_LOCAL_DIR "${CMAKE_BINARY_DIR}/sandbox-emsdk")
-    set(EMSDK_TOOLCHAIN "${PATH_EMSDK_INSTALL}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake")
+    cmake_path(SET EMSDK_ROOT NORMALIZE "${PATH_EMSDK_INSTALL}")
+    set(EMSDK_TOOLCHAIN "${EMSDK_ROOT}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake")
 
     if(NOT EXISTS "${PATH_EMSDK_INSTALL}" OR NOT EXISTS "${EMSDK_TOOLCHAIN}")
-        message(FATAL_ERROR 
-            "\n===============================================================================\n"
-            "[SRAL Build Error] Emscripten SDK Toolchain could not be found!\n"
-            "Please download and install the standard EMSDK manually from: https://github.com/emscripten-core/emsdk/tags\n"
-            "And activate it using the Python commands:\n"
-            "   '${Python3_EXECUTABLE} emsdk.py install latest'\n"
-            "   '${Python3_EXECUTABLE} emsdk.py activate latest'\n"
-            "Or provide a custom installation directory via CLI: -DPATH_EMSDK_INSTALL=\"/path/to/emsdk\"\n"
-            "===============================================================================\n"
-        )
+        message(FATAL_ERROR "\n[SRAL Build Error] Emscripten SDK Toolchain path tracing failed!")
     endif()
 
     ExternalProject_Add(sral_chromevox_sandbox
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/SRC"
         BINARY_DIR "${CMAKE_BINARY_DIR}/sandbox-chromevox-build"
         CMAKE_ARGS
+            ${GLOBAL_HARDENING_ARGS}
             -DCMAKE_TOOLCHAIN_FILE=${EMSDK_TOOLCHAIN}
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-            -DBUILD_SHARED_LIBS=OFF
+            -DBUILD_SHARED_LIBS=OFF 
             -DBUILD_TESTS=${BUILD_TESTS}
             -DBUILD_BINDINGS=${BUILD_BINDINGS}
             -DSRAL_COMPILE_AS_WASM=ON
         INSTALL_COMMAND ""
     )
 endif()
-
 if(TARGET_ANDROID)
+    set(NDK_VER "r25c")
+    
     if(NOT EXISTS "${PATH_ANDROID_NDK}" AND NOT DEFINED ENV{ANDROID_NDK_HOME})
-        set(NDK_VER "r25c")
-        
-        if(WIN32)
-          set(NDK_PLATFORM_URL "https://dl.google.com/android/repository/android-ndk-${NDK_VER}-windows.zip")
-        elseif(APPLE)
-          set(NDK_PLATFORM_URL "https://dl.google.com/android/repository/android-ndk-${NDK_VER}-darwin.dmg")
-        else()
-          set(NDK_PLATFORM_URL "https://dl.google.com/android/repository/android-ndk-${NDK_VER}-linux.zip")
-        endif()
-
-        message(FATAL_ERROR 
-            "\n===============================================================================\n"
-            "[SRAL Build Error] Android NDK installation could not be found!\n"
-            "NOTE: A minimum Android NDK version of ${NDK_VER} or higher is required!\n"
-            "Download the standalone NDK archive manually from Google: ${NDK_PLATFORM_URL}\n"
-            "Extract it, and define your path using your CMakeUserPresets.json file or via CLI: -DPATH_ANDROID_NDK=\"/path/to/android-ndk-${NDK_VER}\"\n"
-            "===============================================================================\n"
-        )
+        message(FATAL_ERROR "\n[SRAL Build Error] Android NDK structural paths could not be matched!")
     endif()
       
     if(EXISTS "${PATH_ANDROID_NDK}")
-        set(REAL_NDK_PATH "${PATH_ANDROID_NDK}")
+        cmake_path(SET REAL_NDK_PATH NORMALIZE "${PATH_ANDROID_NDK}")
     else()
-        set(REAL_NDK_PATH "$ENV{ANDROID_NDK_HOME}")
+        cmake_path(SET REAL_NDK_PATH NORMALIZE "$ENV{ANDROID_NDK_HOME}")
     endif()
     
     set(NDK_TOOLCHAIN_FILE "${REAL_NDK_PATH}/build/cmake/android.toolchain.cmake")
 
     if(NOT EXISTS "${NDK_TOOLCHAIN_FILE}")
-        message(FATAL_ERROR "[SRAL Build Error] The target matches NDK paths but lacks 'build/cmake/android.toolchain.cmake'!")
+        message(FATAL_ERROR "[SRAL Build Error] Target path maps NDK folders but lacks build/cmake/android.toolchain.cmake!")
     endif()
 
     ExternalProject_Add(sral_android_sandbox
         SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/SRC"
         BINARY_DIR "${CMAKE_BINARY_DIR}/sandbox-android-build"
         CMAKE_ARGS
+            ${GLOBAL_HARDENING_ARGS}
             -DCMAKE_TOOLCHAIN_FILE=${NDK_TOOLCHAIN_FILE}
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
             -DCMAKE_SYSTEM_NAME=Android
@@ -171,29 +182,30 @@ if(TARGET_ANDROID)
         INSTALL_COMMAND ""
     )
 endif()
-
 if(TARGET_IOS)
     if(NOT APPLE)
-        message(FATAL_ERROR "[SRAL Sandbox] Apple iOS builds require a macOS host environment running Xcode.")
+        message(FATAL_ERROR "[SRAL Sandbox Error] Cross-compilation framework strictly requires a macOS host executing Xcode properties.")
     endif()
     
     if(NOT DEFINED CMAKE_OSX_SYSROOT)
-      set(CMAKE_OSX_SYSROOT "iphoneos")
+        set(CMAKE_OSX_SYSROOT "iphoneos")
     endif()
+    
     if(NOT DEFINED CMAKE_OSX_ARCHITECTURES)
-      set(CMAKE_OSX_ARCHITECTURES "arm64")
+        set(CMAKE_OSX_ARCHITECTURES "arm64")
     endif()
 
     ExternalProject_Add(sral_ios_sandbox
         SOURCE_DIR        "${CMAKE_CURRENT_SOURCE_DIR}/SRC"
         BINARY_DIR        "${CMAKE_BINARY_DIR}/sandbox-ios-build"
         CMAKE_ARGS
+            ${GLOBAL_HARDENING_ARGS}
             -DCMAKE_SYSTEM_NAME=iOS
             -DCMAKE_OSX_SYSROOT=${CMAKE_OSX_SYSROOT}
             -DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES}
             -DCMAKE_OSX_DEPLOYMENT_TARGET=${VERSION_TARGET_IOS}
             -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-            -DBUILD_SHARED_LIBS=OFF
+            -DBUILD_SHARED_LIBS=OFF 
             -DBUILD_TESTS=${BUILD_TESTS}
             -DBUILD_BINDINGS=${BUILD_BINDINGS}
             -DSRAL_COMPILE_AS_IOS=ON

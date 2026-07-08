@@ -11,6 +11,7 @@ subprojects/
 *.dll
 *.exe
 *.wasm
+CMakeUserPresets.json
 
 # IDE Configurations and Toolchain Specifics
 .vs/

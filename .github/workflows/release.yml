@@ -12,7 +12,7 @@ on:
         required: true
         type: string
 
-permissions: read-all
+permissions: {}
 
 concurrency:
   group: release-${{ github.ref_name }}-${{ github.sha }}
@@ -27,34 +27,38 @@ jobs:
       version: ${{ steps.resolve.outputs.version }}
     steps:
       - name: Assert Authorized Branch Context
+        shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$REF_NAME" != "main" ]; then
+          set -euo pipefail
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ] && [ "${REF_NAME}" != "main" ]; then
             echo "::error::Security Violation: Manual releases are only permitted from the 'main' branch."
             exit 1
           fi
 
       - name: Resolve and Sanitize Version String
         id: resolve
+        shell: bash
         env:
           INPUT_VERSION: ${{ github.event.inputs.version }}
           REF_NAME: ${{ github.ref_name }}
           EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
-            TARGET_VERSION="$INPUT_VERSION"
+          set -euo pipefail
+          if [ "${EVENT_NAME}" = "workflow_dispatch" ]; then
+            TARGET_VERSION="${INPUT_VERSION}"
           else
-            TARGET_VERSION="$REF_NAME"
+            TARGET_VERSION="${REF_NAME}"
           fi
 
-          if [[ ! "$TARGET_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(Stable|RC|Beta)$ ]]; then
-            echo "::error::Security Violation: Input version string '$TARGET_VERSION' failed safety schema check."
+          if [[ ! "${TARGET_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(Stable|RC|Beta)$ ]]; then
+            echo "::error::Security Violation: Input version string format validation failed."
             exit 1
           fi
 
-          echo "version=$TARGET_VERSION" >> "$GITHUB_OUTPUT"
+          echo "version=${TARGET_VERSION}" >> "$GITHUB_OUTPUT"
 
   run-build:
     needs: setup
@@ -68,12 +72,19 @@ jobs:
     permissions:
       contents: write
       id-token: write
+      attestations: write
     steps:
       - name: Checkout Repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
 
       - name: Install Zip Utility
-        run: sudo apt-get update && sudo apt-get install -y zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends zip
 
       - name: Download all compiled Meson matrix bundles
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -84,36 +95,43 @@ jobs:
 
       - name: Determine if pre-release
         id: check-tag
+        shell: bash
         env:
           VERSION: ${{ needs.setup.outputs.version }}
         run: |
-          if [[ "$VERSION" == *-Beta || "$VERSION" == *-RC ]]; then
+          set -euo pipefail
+          if [[ "${VERSION}" == *-Beta || "${VERSION}" == *-RC ]]; then
             echo "is_prerelease=true" >> "$GITHUB_OUTPUT"
-            echo "Flagging release as a Pre-release."
           else
             echo "is_prerelease=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Package release assets and generate checksums
         id: packager
+        shell: bash
         env:
           VERSION: ${{ needs.setup.outputs.version }}
+          WS_ROOT: ${{ github.workspace }}
         run: |
+          set -euo pipefail
           mkdir -p assets
           shopt -s nullglob
 
           for dir in bundles/bundle-*; do
-            if [ -d "$dir" ]; then
+            if [ -d "${dir}" ]; then
               platform="${dir#bundles/bundle-}"
               TARGET_ZIP="assets/SRAL-${VERSION}-${platform}.zip"
-              (cd "$dir" && zip -q -r -y "$GITHUB_WORKSPACE/$TARGET_ZIP" .)
+              (cd "${dir}" && zip -q -r -y "${WS_ROOT}/${TARGET_ZIP}" .)
             fi
           done
           
           cd assets
           sha256sum *.zip > checksums.txt
-          echo "--- GENERATED VERIFIED CHECKSUMS ---"
-          cat checksums.txt
+
+      - name: Generate Cryptographic Build Attestation
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: 'assets/*.zip'
 
       - name: Publish production binaries to GitHub Release
         uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1

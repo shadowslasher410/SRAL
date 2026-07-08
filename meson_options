@@ -22,6 +22,12 @@ option('TARGET_IOS',
 # ==============================================================================
 #  PLATFORM-SPECIFIC ENGINE FEATURES
 # ==============================================================================
+option('SRAL_WITH_CHROMEVOX', 
+  type: 'boolean', 
+  value: false, 
+  description: 'Explicitly compile and map ChromeVox screen reader accessibility hooks'
+)
+
 option('SRAL_WITH_UIA', 
   type: 'boolean', 
   value: false, 
@@ -38,6 +44,48 @@ option('SRAL_WITH_NVDA',
   type: 'boolean', 
   value: false, 
   description: 'Enable unmanaged external thread injection channels via NVDA Controller'
+)
+
+option('SRAL_WITH_JAWS', 
+  type: 'boolean', 
+  value: false, 
+  description: 'Enable Freedom Scientific JAWS API screen reader hooks'
+)
+
+option('SRAL_WITH_ZDSR', 
+  type: 'boolean', 
+  value: false, 
+  description: 'Enable Chinese ZDSR screen reader integration hooks'
+)
+
+option('SRAL_WITH_SAPI', 
+  type: 'boolean', 
+  value: false, 
+  description: 'Enable Microsoft SAPI5 engine runtime compilation'
+)
+
+option('SRAL_WITH_VOICEOVER', 
+  type: 'boolean', 
+  value: false, 
+  description: 'Enable native macOS VoiceOver scripting targets'
+)
+
+option('SRAL_WITH_AVSPEECH', 
+  type: 'boolean', 
+  value: false, 
+  description: 'Enable modern Apple AVSpeechSynthesizer engine hooks'
+)
+
+option('SRAL_WITH_ANDROID_TTS', 
+  type: 'boolean', 
+  value: false, 
+  description: 'Enable Android TextToSpeech subsystem engine mapping'
+)
+
+option('SRAL_WITH_ANDROID_ACCESSIBILITY', 
+  type: 'boolean', 
+  value: false, 
+  description: 'Enable Android AccessibilityManager binding communication paths'
 )
 
 option('SRAL_WITH_SPEECH_DISPATCHER', 

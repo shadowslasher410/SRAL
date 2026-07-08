@@ -4,7 +4,7 @@ project('SRAL_Core', 'c', 'cpp',
     'c_std=c17',
     'cpp_std=c++20',
     'default_library=both',
-    'b_pie=true',                  # Enforce Position Independent Executables [1]
+    'b_pie=true',                  # Enforce Position Independent Executables
     'b_staticpic=true',            # Force PIC inside static libraries to support global ASLR
     'b_lto=true',                  # Global LTO lets compilers track cross-file safety paths
     'b_lundef=true',               # Hard crash linker if unexpected undefined symbols exist
@@ -17,6 +17,20 @@ project('SRAL_Core', 'c', 'cpp',
 
 cc = meson.get_compiler('c')
 cpp = meson.get_compiler('cpp')
+
+is_emscripten = (meson.is_cross_build() and host_machine.system() == 'emscripten')
+is_windows    = (host_machine.system() == 'windows' and not is_emscripten)
+is_apple      = (host_machine.system() == 'darwin'  and not is_emscripten)
+is_android    = (host_machine.system() == 'android' and not is_emscripten)
+is_linux      = (host_machine.system() == 'linux'   and not is_windows and not is_apple and not is_android and not is_emscripten)
+is_ios = false
+if is_apple
+  is_ios = get_option('TARGET_IOS')
+endif
+
+if is_apple
+  add_languages('objc', 'objcpp', native: false)
+endif
 
 if cpp.get_id() == 'msvc'
   msvc_args = [
@@ -38,22 +52,6 @@ if cpp.get_id() == 'msvc'
   ]
   add_project_link_arguments(cpp.get_supported_link_arguments(msvc_link_args), language: ['c', 'cpp'])
 endif
-
-is_emscripten = (meson.is_cross_build() and host_machine.system() == 'emscripten')
-is_windows    = (host_machine.system() == 'windows' and not is_emscripten)
-is_apple      = (host_machine.system() == 'darwin'  and not is_emscripten)
-is_android    = (host_machine.system() == 'android' and not is_emscripten)
-is_linux      = (host_machine.system() == 'linux'   and not is_windows and not is_apple and not is_android and not is_emscripten)
-is_ios        = (is_apple and get_option('TARGET_IOS'))
-
-inc_dir = include_directories('Include')
-build_tests = get_option('BUILD_TESTS')
-build_bindings = get_option('BUILD_BINDINGS')
-
-public_headers = files(
-  'Include/SRAL.h',
-  'Include/Sral.hpp'
-)
 
 global_defense_args = [
   '-D_FORTIFY_SOURCE=3',             # Deep static and runtime buffer sizing evaluation
@@ -79,10 +77,25 @@ add_project_arguments(supported_global_defenses, language: ['c', 'cpp'])
 cpp_defense_args = [
   '-D_GLIBCXX_ASSERTIONS',           # Strict bounds checking for GNU libstdc++ containers
   '-D_LIBCPP_ENABLE_ASSERTIONS=1',   # Bounds checking for legacy LLVM libc++
-  '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE' # Modern, highly robust LLVM/Clang STL hardening profile
+  '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE' # Modern LLVM/Clang STL hardening profile
 ]
 supported_cpp_defenses = cpp.get_supported_arguments(cpp_defense_args)
 add_project_arguments(supported_cpp_defenses, language: 'cpp')
+
+if get_option('SRAL_WITH_CHROMEVOX')
+  add_project_arguments('-DSRAL_WITH_CHROMEVOX', language: ['c', 'cpp'])
+else
+  add_project_arguments('-DSRAL_NO_CHROMEVOX', language: ['c', 'cpp'])
+endif
+
+inc_dir = include_directories('Include')
+build_tests = get_option('BUILD_TESTS')
+build_bindings = get_option('BUILD_BINDINGS')
+
+public_headers = files(
+  'Include/SRAL.h',
+  'Include/Sral.hpp'
+)
 
 sral_dependencies = []
 
@@ -94,18 +107,12 @@ if is_windows
   ]
 
 elif is_apple
-  add_languages('objc', 'objcpp', native: false)
-  
-  # Inject hard memory canary controls alongside strict Objective-C ARC memory constraints
   apple_flags = ['-fobjc-arc', '-fstack-protector-all']
-  
-  # Restrict runtime method swizzling vectors by forcing method hiding where possible
   if cc.has_argument('-fobjc-direct-methods')
     apple_flags += '-fobjc-direct-methods'
   endif
   
   add_project_arguments(apple_flags, language: ['objc', 'objcpp'])
-  add_project_arguments('-DSRAL_NO_CHROMEVOX', language: ['c', 'cpp'])
   
   sral_dependencies += dependency('appleframeworks', modules: ['Foundation', 'AVFoundation'])
   if not is_ios and get_option('SRAL_WITH_NSSPEECH')
@@ -113,19 +120,17 @@ elif is_apple
   endif
 
 elif is_android
-  add_project_arguments('-DSRAL_NO_CHROMEVOX', language: ['c', 'cpp'])
   sral_dependencies += cc.find_library('log')
 
 elif is_emscripten
   if cc.has_link_argument('-pthread')
-    # Force strict thread-stack layout separation under web assembly environments
     em_args = ['-pthread', '-sSTACK_SIZE=65536', '-sWASM_BIGINT']
     add_project_link_arguments(em_args, language: ['c', 'cpp'])
     add_project_arguments('-pthread', language: ['c', 'cpp'])
   endif
 
 else
-  add_project_arguments(['-DSRAL_NO_CHROMEVOX', '-DSRAL_SPEECHD_REQUIRE_UTF8'], language: ['c', 'cpp'])
+  add_project_arguments('-DSRAL_SPEECHD_REQUIRE_UTF8', language: ['c', 'cpp'])
   
   if get_option('SRAL_WITH_SPEECH_DISPATCHER')
     sral_dependencies += dependency('speech-dispatcher', required: true)
@@ -236,8 +241,8 @@ if build_bindings
       current_dir: bindings_dir / 'Dart'
     )
   endif
-
-    lua_exe = find_program('lua', 'luajit', required: false)
+  
+  lua_exe = find_program('lua', 'luajit', required: false)
   if get_option('SRAL_BINDING_LUA')
     lua_cmd = lua_exe.found() ? [lua_exe, 'example.lua'] : ['echo', 'Lua binding environment validated.']
     run_target('sral_lua_binding',

@@ -11,7 +11,7 @@
 
 namespace Sral {
 
-class alignas(hardware_destructive_interference_size) ChromeVox final : public Engine {
+class alignas(std::hardware_destructive_interference_size) ChromeVox final : public Engine {
 public:
 	ChromeVox();
 	~ChromeVox() noexcept override;

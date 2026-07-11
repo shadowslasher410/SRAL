@@ -26,6 +26,10 @@
 #include <windows.h>
 #include <utility>
 #include <atomic>
+#include <mutex>
+#include <thread>
+#include <condition_variable>
+#include <memory>
 
 _COM_SMARTPTR_TYPEDEF(IMMDevice, __uuidof(IMMDevice));
 _COM_SMARTPTR_TYPEDEF(IMMDeviceCollection, __uuidof(IMMDeviceCollection));
@@ -34,12 +38,9 @@ _COM_SMARTPTR_TYPEDEF(IAudioClient, __uuidof(IAudioClient));
 _COM_SMARTPTR_TYPEDEF(IAudioRenderClient, __uuidof(IAudioRenderClient));
 _COM_SMARTPTR_TYPEDEF(IAudioClock, __uuidof(IAudioClock));
 _COM_SMARTPTR_TYPEDEF(IAudioStreamVolume, __uuidof(IAudioStreamVolume));
+_COM_SMARTPTR_TYPEDEF(ISimpleAudioVolume, __uuidof(ISimpleAudioVolume));
 _COM_SMARTPTR_TYPEDEF(IPropertyStore, __uuidof(IPropertyStore));
 
-/**
- * @class AutoHandle
- * @brief Modern, exception-safe RAII wrapper for system HANDLE structures.
- */
 class AutoHandle final {
 public:
 	constexpr AutoHandle() noexcept : handle(nullptr) {}
@@ -100,10 +101,6 @@ private:
 	HANDLE handle = nullptr;
 };
 
-/**
- * @class NotificationClient
- * @brief Direct IMMNotificationClient implementation for capturing audio hardware events.
- */
 class NotificationClient final : public IMMNotificationClient {
 public:
 	NotificationClient() noexcept : refCount(1), defaultDeviceChangeCount(0), deviceStateChangeCount(0) {}
@@ -188,21 +185,16 @@ private:
 
 _COM_SMARTPTR_TYPEDEF(IMMNotificationClient, __uuidof(IMMNotificationClient));
 
-/**
- * @class WasapiPlayer
- * @brief High-performance core audio stream mixer rendering runtime engine wrapper.
- */
 class WASAPI_API WasapiPlayer final {
 public:
 	using ChunkCompletedCallback = void(*)(WasapiPlayer* player, unsigned int id);
 
 	WasapiPlayer(std::wstring_view targetDeviceName, const WAVEFORMATEX& audioFormat, ChunkCompletedCallback endChunkCallback);
-	~WasapiPlayer() = default;
-
+	~WasapiPlayer();
 	WasapiPlayer(const WasapiPlayer&) = delete;
 	WasapiPlayer& operator=(const WasapiPlayer&) = delete;
-	WasapiPlayer(WasapiPlayer&&) noexcept = default;
-	WasapiPlayer& operator=(WasapiPlayer&&) noexcept = default;
+	WasapiPlayer(WasapiPlayer&&) = delete;
+	WasapiPlayer& operator=(WasapiPlayer&&) = delete;
 
 	[[nodiscard]] HRESULT open(bool force = false);
 	[[nodiscard]] HRESULT feed(const unsigned char* data, unsigned int size, unsigned int* id);
@@ -211,30 +203,50 @@ public:
 	[[nodiscard]] HRESULT idle();
 	[[nodiscard]] HRESULT pause();
 	[[nodiscard]] HRESULT resume();
+	[[nodiscard]] HRESULT setVolume(float volume); // For basic UI mixer utility if exposed upstream
 	[[nodiscard]] HRESULT setChannelVolume(unsigned int channel, float level);
 
 	WAVEFORMATEX format;
 
 private:
+	void processAudioLoop();
+	HRESULT writeFramesToWasapi(const unsigned char* data, UINT32 totalFrames, unsigned int chunkId);
+
 	void maybeFireCallback();
+	void maybeFireCallbackInternal();
 	void completeStop();
 
-	[[nodiscard]] inline UINT64 framesToMs(UINT32 frames) const noexcept {
+	[[nodiscard]] inline UINT64 framesToMs(UINT64 frames) const noexcept {
 		if (format.nSamplesPerSec == 0) [[unlikely]] return 0;
-		return (static_cast<UINT64>(frames) * 1000) / format.nSamplesPerSec;
+		return (frames * 1000) / format.nSamplesPerSec;
 	}
 
 	[[nodiscard]] UINT64 getPlayPos();
+	[[nodiscard]] UINT64 getPlayPosInternal();
 	void waitUntilNeeded(UINT64 maxWait = INFINITE);
 	[[nodiscard]] HRESULT getPreferredDevice(IMMDevicePtr& preferredDevice);
 	[[nodiscard]] bool didPreferredDeviceBecomeAvailable();
+	[[nodiscard]] size_t getAvailableWriteSpace() const;
+	[[nodiscard]] size_t getAvailableReadSpace() const;
+
+	void writeToRingBuffer(size_t& tail, const unsigned char* src, size_t len);
+	void readFromRingBuffer(size_t& head, unsigned char* dest, size_t len);
 
 	enum class PlayState {
 		stopped,
 		playing,
+		paused,
 		stopping,
 	};
 
+	size_t                           ringBufferCapacity = 0;
+	std::unique_ptr<unsigned char[]> ringBuffer;
+	std::atomic<size_t>              rbHead{ 0 };
+	std::atomic<size_t>              rbTail{ 0 };
+	std::thread               workerThread;
+	std::mutex                queueMutex;
+	std::condition_variable   queueCV;
+	std::atomic<bool>         isRunning{ false };
 	IAudioClientPtr       client{ nullptr };
 	IAudioRenderClientPtr render{ nullptr };
 	IAudioClockPtr        clock{ nullptr };
@@ -244,12 +256,13 @@ private:
 	PlayState             playState = PlayState::stopped;
 	std::vector<std::pair<unsigned int, UINT64>> feedEnds;
 	UINT64                clockFreq = 0;
-	UINT32                sentFrames = 0;
+	UINT64                baseDevicePos = 0;
+	UINT64                sentFrames = 0; 
 	unsigned int          nextFeedId = 0;
-	AutoHandle            wakeEvent;
 	unsigned int          defaultDeviceChangeCount = 0;
 	unsigned int          deviceStateChangeCount = 0;
 	bool                  isUsingPreferredDevice = false;
+	AutoHandle            audioEvent; 
 };
 
-#endif // WASAPI_H_
+#endif

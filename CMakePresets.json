@@ -9,74 +9,195 @@
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "BUILD_BINDINGS": "OFF",
-        "BUILD_TESTS": "ON"
+        "BUILD_BINDINGS": "ON",
+        "BUILD_TESTS": "ON",
+        "TARGET_DESKTOP": "ON",
+        "TARGET_CHROMEVOX": "OFF",
+        "TARGET_ANDROID": "OFF",
+        "TARGET_IOS": "OFF"
+      }
+    },
+    {
+      "name": "base-desktop-debug",
+      "displayName": "Base Desktop Debug Template",
+      "hidden": true,
+      "inherits": "base-desktop",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "base-chromevox-release",
+      "displayName": "Base ChromeVox Release Template",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "environment": {
+        "EMSDK": ""
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PATH_EMSDK_INSTALL": "",
+        "TARGET_DESKTOP": "OFF",
+        "TARGET_CHROMEVOX": "ON",
+        "TARGET_ANDROID": "OFF",
+        "TARGET_IOS": "OFF"
+      }
+    },
+    {
+      "name": "base-chromevox-debug",
+      "displayName": "Base ChromeVox Debug Template",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "environment": {
+        "EMSDK": ""
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PATH_EMSDK_INSTALL": "",
+        "TARGET_DESKTOP": "OFF",
+        "TARGET_CHROMEVOX": "ON",
+        "TARGET_ANDROID": "OFF",
+        "TARGET_IOS": "OFF"
+      }
+    },
+    {
+      "name": "base-android-release",
+      "displayName": "Base Android Release Template",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "environment": {
+        "ANDROID_NDK_HOME": ""
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "PATH_ANDROID_NDK": "",
+        "TARGET_DESKTOP": "OFF",
+        "TARGET_CHROMEVOX": "OFF",
+        "TARGET_ANDROID": "ON",
+        "TARGET_IOS": "OFF"
+      }
+    },
+    {
+      "name": "base-android-debug",
+      "displayName": "Base Android Debug Template",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "environment": {
+        "ANDROID_NDK_HOME": ""
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "PATH_ANDROID_NDK": "",
+        "TARGET_DESKTOP": "OFF",
+        "TARGET_CHROMEVOX": "OFF",
+        "TARGET_ANDROID": "ON",
+        "TARGET_IOS": "OFF"
+      }
+    },
+    {
+      "name": "base-ios",
+      "displayName": "Base iOS Environment Template",
+      "hidden": true,
+      "generator": "Xcode",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "TARGET_DESKTOP": "OFF",
+        "TARGET_CHROMEVOX": "OFF",
+        "TARGET_ANDROID": "OFF",
+        "TARGET_IOS": "ON",
+        "CMAKE_SYSTEM_NAME": "iOS",
+        "CMAKE_OSX_SYSROOT": "iphoneos",
+        "BUILD_SHARED_LIBS": "OFF"
       }
     },
     {
       "name": "desktop-release",
       "displayName": "Desktop Release",
-      "description": "Absolute hardened production profile with multi-compiler fallback mitigations",
+      "description": "Hardened production profile with cross-platform compiler optimizations",
       "inherits": "base-desktop",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "BUILD_SHARED_LIBS": "ON",
         "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
         "CMAKE_LINK_WARNING_AS_ERROR": "ON",
-        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
         "CMAKE_OPTIMIZE_DEPENDENCIES": "ON",
         "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON",
-        "CMAKE_C_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -fstack-clash-protection -fcf-protection=full -fPIE -ftrivial-auto-var-init=pattern -Wall -Wextra -Wconversion -Wformat-security",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -fstack-clash-protection -fcf-protection=full -fPIE -ftrivial-auto-var-init=pattern -Wall -Wextra -Wconversion -Wformat-security",
-        "CMAKE_EXE_LINKER_FLAGS_RELEASE": "-pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack -Wl,-z,nodlopen",
-        "CMAKE_C_FLAGS_RELEASE_INIT": "/O2 /GS /guard:cf /sdl",
-        "CMAKE_CXX_FLAGS_RELEASE_INIT": "/O2 /GS /guard:cf /sdl",
-        "CMAKE_EXE_LINKER_FLAGS_RELEASE_INIT": "/NXCOMPAT /DYNAMICBASE /HIGHENTROPYVA /GUARD:CF /DEPENDENTLOADFLAG:0x2000"
+        "CMAKE_C_FLAGS_RELEASE": "/O2 /GS /guard:cf /sdl /W4 /WX",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /GS /guard:cf /sdl /W4 /WX",
+        "CMAKE_EXE_LINKER_FLAGS_RELEASE": "/NXCOMPAT /DYNAMICBASE /HIGHENTROPYVA /GUARD:CF /DEPENDENTLOADFLAG:0x2000"
       }
     },
     {
-      "name": "desktop-static-debug",
-      "displayName": "Desktop Static Debug",
-      "description": "Static library layout containing debug symbols for local testing",
-      "inherits": "base-desktop",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "BUILD_SHARED_LIBS": "OFF"
-      }
-    },
-    {
-      "name": "desktop-sanitizers",
-      "displayName": "Desktop Sanitizers (Debug)",
-      "description": "Strict runtime testing environment for catching memory safety violations",
+      "name": "desktop-debug",
+      "displayName": "Desktop Debug",
+      "description": "Static library layout containing debug symbols with windows-safe address sanitizers.",
       "inherits": "base-desktop",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "BUILD_SHARED_LIBS": "OFF",
-        "CMAKE_C_FLAGS_DEBUG": "-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer",
-        "CMAKE_CXX_FLAGS_DEBUG": "-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer"
+        "CMAKE_C_FLAGS_DEBUG": "-g -O1 -fsanitize=address -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -O1 -fsanitize=address -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS_DEBUG": "-fsanitize=address",
+        "CMAKE_SHARED_LINKER_FLAGS_DEBUG": "-fsanitize=address"
+      }
+    },
+    {
+      "name": "ios-release",
+      "displayName": "iOS ARM64 Release",
+      "description": "Hardened optimization profile targeting production physical iOS devices",
+      "inherits": "base-ios",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_OSX_ARCHITECTURES": "arm64",
+        "CMAKE_C_FLAGS_RELEASE": "-O3 -D_FORTIFY_SOURCE=3 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -fstack-clash-protection -fPIE -Wall -Wextra -Wconversion",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O3 -D_FORTIFY_SOURCE=3 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -fstack-clash-protection -fPIE -Wall -Wextra -Wconversion"
+      }
+    },
+    {
+      "name": "ios-debug",
+      "displayName": "iOS Simulator Debug",
+      "description": "Local debugging configuration for the x86_64/ARM64 macOS iOS Simulators containing address sanitizers",
+      "inherits": "base-ios",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_OSX_SYSROOT": "iphonesimulator",
+        "CMAKE_C_FLAGS_DEBUG": "-g -O1 -fsanitize=address -fno-omit-frame-pointer -Wall -Wextra",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -O1 -fsanitize=address -fno-omit-frame-pointer -Wall -Wextra"
       }
     },
     {
       "name": "wasm-release",
       "displayName": "Emscripten WebAssembly Release",
       "description": "Hardened static WebAssembly build configuration leveraging Emscripten toolchain",
-      "generator": "Ninja",
+      "inherits": "base-chromevox-release",
       "binaryDir": "${sourceDir}/build/wasm-release",
-      "toolchainFile": "${hostEnv:EMSCRIPTEN}/cmake/Modules/Platform/Emscripten.cmake",
-      "condition": {
-        "type": "notEquals",
-        "lhs": "${hostEnv:EMSCRIPTEN}",
-        "rhs": ""
-      },
+      "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
         "SRAL_COMPILE_AS_WASM": "ON",
         "BUILD_SHARED_LIBS": "OFF",
-        "CMAKE_OPTIMIZE_DEPENDENCIES": "ON",
-        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "PATH_EMSDK_INSTALL": "$env{EMSDK}",
         "CMAKE_C_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -ftrivial-auto-var-init=pattern -Wall -Wextra -Wformat-security",
         "CMAKE_CXX_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -ftrivial-auto-var-init=pattern -Wall -Wextra -Wformat-security"
+      }
+    },
+    {
+      "name": "wasm-debug",
+      "displayName": "Emscripten WebAssembly Debug",
+      "description": "WebAssembly tracking compilation containing explicit DWARF source mapping structures for browser inspection engines",
+      "inherits": "base-chromevox-debug",
+      "binaryDir": "${sourceDir}/build/wasm-debug",
+      "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "cacheVariables": {
+        "SRAL_COMPILE_AS_WASM": "ON",
+        "BUILD_SHARED_LIBS": "OFF",
+        "PATH_EMSDK_INSTALL": "$env{EMSDK}",
+        "CMAKE_C_FLAGS_DEBUG": "-g3 -O0 -gsource-map -Wall -Wextra",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g3 -O0 -gsource-map -Wall -Wextra",
+        "CMAKE_CROSSCOMPILING_EMULATOR": "node"
       }
     },
     {
@@ -84,69 +205,87 @@
       "displayName": "Android ARM64 Release",
       "description": "Hardened cross-compilation preset targeting AArch64 Android platforms",
       "generator": "Ninja",
+      "inherits": "base-android-release",
       "binaryDir": "${sourceDir}/build/android-arm64",
-      "toolchainFile": "${hostEnv:ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
-      "condition": {
-        "type": "notEquals",
-        "lhs": "${hostEnv:ANDROID_NDK_HOME}",
-        "rhs": ""
-      },
+      "toolchainFile": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
+        "TARGET_DESKTOP": "OFF",
+        "TARGET_CHROMEVOX": "OFF",
+        "TARGET_ANDROID": "ON",
+        "TARGET_IOS": "OFF",
         "ANDROID_ABI": "arm64-v8a",
-        "ANDROID_PLATFORM": "android-26",
+        "ANDROID_PLATFORM": "android-21",
         "BUILD_SHARED_LIBS": "ON",
-        "CMAKE_OPTIMIZE_DEPENDENCIES": "ON",
         "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
-        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
+        "PATH_ANDROID_NDK": "$env{ANDROID_NDK_HOME}",
         "CMAKE_C_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong -fstack-clash-protection -mbranch-protection=standard -fPIE -ftrivial-auto-var-init=pattern -Wall -Wextra -Wconversion -Wformat-security",
         "CMAKE_CXX_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong -fstack-clash-protection -mbranch-protection=standard -fPIE -ftrivial-auto-var-init=pattern -Wall -Wextra -Wconversion -Wformat-security",
         "CMAKE_EXE_LINKER_FLAGS_RELEASE": "-pie -Wl,-z,relro -Wl,-z,now -Wl,-z,nodlopen"
       }
+    },
+    {
+      "name": "android-arm64-debug",
+      "displayName": "Android ARM64 Debug",
+      "description": "Android diagnostics deployment compilation loaded with memory safety tracking sanitizers",
+      "generator": "Ninja",
+      "inherits": "base-android-debug",
+      "binaryDir": "${sourceDir}/build/android-arm64-debug",
+      "toolchainFile": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
+      "cacheVariables": {
+        "TARGET_DESKTOP": "OFF",
+        "TARGET_CHROMEVOX": "OFF",
+        "TARGET_ANDROID": "ON",
+        "TARGET_IOS": "OFF",
+        "ANDROID_ABI": "arm64-v8a",
+        "ANDROID_PLATFORM": "android-21",
+        "BUILD_SHARED_LIBS": "ON",
+        "PATH_ANDROID_NDK": "$env{ANDROID_NDK_HOME}",
+        "CMAKE_C_FLAGS_DEBUG": "-g -O1 -fsanitize=address -fno-omit-frame-pointer -Wall -Wextra",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -O1 -fsanitize=address -fno-omit-frame-pointer -Wall -Wextra"
+      }
     }
   ],
   "buildPresets": [
-    {
-      "name": "desktop-release",
-      "configurePreset": "desktop-release"
-    },
-    {
-      "name": "desktop-sanitizers",
-      "configurePreset": "desktop-sanitizers"
-    },
-    {
-      "name": "wasm-release",
-      "configurePreset": "wasm-release"
-    },
-    {
-      "name": "android-arm64-release",
-      "configurePreset": "android-arm64-release"
-    }
+    { "name": "desktop-release", "configurePreset": "desktop-release" },
+    { "name": "desktop-debug", "configurePreset": "desktop-debug" },
+    { "name": "ios-release", "configurePreset": "ios-release" },
+    { "name": "ios-debug", "configurePreset": "ios-debug" },
+    { "name": "wasm-release", "configurePreset": "wasm-release" },
+    { "name": "wasm-debug", "configurePreset": "wasm-debug" },
+    { "name": "android-arm64-release", "configurePreset": "android-arm64-release" },
+    { "name": "android-arm64-debug", "configurePreset": "android-arm64-debug" }
   ],
   "testPresets": [
     {
       "name": "desktop-tests",
       "configurePreset": "desktop-release",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "stopOnFailure": false,
-        "jobs": 0
-      }
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
     },
     {
-      "name": "sanitizer-tests",
-      "configurePreset": "desktop-sanitizers",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "stopOnFailure": true,
-        "jobs": 0
-      }
+      "name": "debug-tests",
+      "configurePreset": "desktop-debug",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": true }
+    },
+    {
+      "name": "ios-tests",
+      "configurePreset": "ios-debug",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "ignore", "stopOnFailure": false },
+      "filter": { "include": { "name": ".*Test.*" } }
+    },
+    {
+      "name": "wasm-tests",
+      "configurePreset": "wasm-debug",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+    },
+    {
+      "name": "android-tests",
+      "configurePreset": "android-arm64-debug",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "ignore", "stopOnFailure": false }
     }
   ]
 }

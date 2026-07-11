@@ -10,13 +10,14 @@ class SralEngine {
   static const int uia = 1 << 5;
   static const int sapi = 1 << 6;
   static const int speechDispatcher = 1 << 7;
-  static const int voiceOver = 1 << 8;
-  static const int nsSpeech = 1 << 9;
-  static const int avSpeech = 1 << 10;
-  static const int androidAccessibilityManager = 1 << 11;
-  static const int androidTextToSpeech = 1 << 12;
-  static const int chromeVox = 1 << 13;
-  static const int orca = 1 << 14;
+  static const int orca = 1 << 8;
+  static const int voiceOver = 1 << 9;
+  static const int nsSpeech = 1 << 10;
+  static const int avSpeech = 1 << 11;
+  static const int androidAccessibilityManager = 1 << 12;
+  static const int androidTextToSpeech = 1 << 13;
+  static const int chromeVox = 1 << 14;
+  static const int accessKit = 1 << 15;
   static const int current = -1;
   static const int noSpecified = -255;
 }
@@ -51,8 +52,9 @@ class SralParam {
   static const int enableSpelling = 7;
   static const int useCharacterDescriptions = 8;
   static const int nvdaIsControlEx = 9;
-  static const int androidJniEnv = 10;
-  static const int androidActivity = 11;
+  static const int engineIsPaused = 10
+  static const int androidJniEnv = 11;
+  static const int androidActivity = 12;
 }
 
 sealed class CSralVoiceInfo extends Struct {

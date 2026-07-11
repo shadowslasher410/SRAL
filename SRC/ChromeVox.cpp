@@ -1,13 +1,15 @@
 #include "ChromeVox.h"
-
 #include <atomic>
 #include <mutex>
 #include <string_view>
-
+#include <algorithm>
 #include "../Include/SRAL.h"
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>
+#else
+#define MAIN_THREAD_EM_ASM_INT(...) 0
+#define MAIN_THREAD_EM_ASM(...) ((void)0)
 #endif
 
 namespace Sral {
@@ -30,12 +32,8 @@ bool ChromeVox::Initialize() {
 
 #if defined(__EMSCRIPTEN__)
 	int detected_mode = 0;
-#if defined(__INTELLISENSE__) && !defined(__EMSCRIPTEN__)
-	detected_mode = 0;
-#else
-	// clang-format off
+	
 	detected_mode = MAIN_THREAD_EM_ASM_INT({
-		
 		if (typeof window !== 'undefined' && (window.cvox || typeof cvox !== 'undefined')) {
 			return 1;
 		}
@@ -44,8 +42,6 @@ bool ChromeVox::Initialize() {
 		}
 		return 0;
 	});
-	// clang-format on
-#endif
 
 	if (detected_mode == 0) {
 		return false;
@@ -117,37 +113,32 @@ bool ChromeVox::Uninitialize() {
 bool ChromeVox::GetActive() {
 	return is_active.load(std::memory_order_acquire);
 }
-
-bool ChromeVox::Speak(const char* text, bool interrupt) {
-	if (!text || !is_active.load(std::memory_order_acquire)) [[unlikely]] {
+bool ChromeVox::Speak(const char* speech_text, bool interrupt) {
+	if (!speech_text || !is_active.load(std::memory_order_acquire)) [[unlikely]] {
 		return false;
 	}
 
-	std::string_view text_view(text);
-	if (text_view.empty())
+	if (speech_text[0] == '\0') [[unlikely]] {
 		return false;
+	}
 
 	const int current_mode = _mode.load(std::memory_order_acquire);
 
 #if defined(__EMSCRIPTEN__)
-	const char* str_ptr = text_view.data();
-	const int str_len = static_cast<int>(text_view.size());
-
 	if (current_mode == 1) {
 		MAIN_THREAD_EM_ASM(
 			{
 				try {
 					var target = window.cvox || cvox;
 					if (target && target.Api) {
-						var textStr = UTF8ArrayToString(HEAPU8, $0, $1);
-						target.Api.speak(textStr, $2, {});
+						var textStr = UTF8ToString($0);
+						target.Api.speak(textStr, $1, {});
 					}
 				}
 				catch (e) {
 				}
 			},
-			str_ptr,
-			str_len,
+			speech_text,
 			interrupt ? 0 : 1);
 		return true;
 	}
@@ -158,9 +149,9 @@ bool ChromeVox::Speak(const char* text, bool interrupt) {
 				var container = document.getElementById('sral-chromevox-container');
 				var r = document.getElementById('sral-chromevox-region');
 				if (container && r) {
-					var textStr = UTF8ArrayToString(HEAPU8, $0, $1);
+					var textStr = UTF8ToString($0);
 
-					if ($2) {
+					if ($1) {
 						r.remove();
 						r = document.createElement('div');
 						r.id = 'sral-chromevox-region';
@@ -175,11 +166,12 @@ bool ChromeVox::Speak(const char* text, bool interrupt) {
 					}
 				}
 			},
-			str_ptr,
-			str_len,
+			speech_text,
 			interrupt ? 1 : 0);
 		return true;
 	}
+#else
+	(void)speech_text; (void)interrupt; (void)current_mode;
 #endif
 
 	return false;
@@ -194,9 +186,9 @@ bool ChromeVox::Braille(const char* text) {
 		return false;
 	}
 
-	std::string_view text_view(text);
-	if (text_view.empty())
+	if (text[0] == '\0') [[unlikely]] {
 		return false;
+	}
 
 	const int current_mode = _mode.load(std::memory_order_acquire);
 
@@ -207,15 +199,14 @@ bool ChromeVox::Braille(const char* text) {
 				try {
 					var target = window.cvox || cvox;
 					if (target && target.Api) {
-						var textStr = UTF8ArrayToString(HEAPU8, $0, $1);
+						var textStr = UTF8ToString($0);
 						target.Api.braille(textStr, {});
 					}
 				}
 				catch (e) {
 				}
 			},
-			text_view.data(),
-			static_cast<int>(text_view.size()));
+			text);
 		return true;
 #endif
 	}
@@ -260,6 +251,8 @@ bool ChromeVox::StopSpeech() {
 		});
 		return true;
 	}
+#else
+	(void)current_mode;
 #endif
 
 	return false;
@@ -268,16 +261,22 @@ bool ChromeVox::StopSpeech() {
 bool ChromeVox::PauseSpeech() {
 	return false;
 }
+
 bool ChromeVox::ResumeSpeech() {
 	return false;
 }
+
 bool ChromeVox::IsSpeaking() {
 	return false;
 }
-bool ChromeVox::SetParameter(int, const void*) {
+
+bool ChromeVox::SetParameter(int param, const void* value) {
+	(void)param; (void)value;
 	return false;
 }
-bool ChromeVox::GetParameter(int, void*) {
+
+bool ChromeVox::GetParameter(int param, void* value) {
+	(void)param; (void)value;
 	return false;
 }
 
@@ -287,6 +286,18 @@ int ChromeVox::GetFeatures() {
 		return SRAL_SUPPORTS_SPEECH | SRAL_SUPPORTS_BRAILLE;
 	}
 	return SRAL_SUPPORTS_SPEECH;
+}
+
+int ChromeVox::GetNumber() { 
+	return SRAL_ENGINE_CHROMEVOX; 
+}
+
+int ChromeVox::GetCategory() { 
+	return SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE; 
+}
+
+int ChromeVox::GetKeyFlags() { 
+	return HANDLE_NONE; 
 }
 
 } // namespace Sral

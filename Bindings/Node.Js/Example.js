@@ -1,10 +1,14 @@
+const fs = require('fs');
+const path = require('path');
+const readline = require('readline');
 const {
 	SRAL,
 	SRALEngine,
 	SRALEngineCategory,
 	SRALFeature,
 	SRALParam,
-	SRALVoiceInfo
+	SRALVoiceInfo,
+	SRALSymbolLevel
 } = require('./lib/sral');
 
 function testSection(name) {
@@ -21,9 +25,17 @@ function checkSRAL(cond, desc) {
 	console.log(cond ? `[SUCCESS] ${desc}` : `[FAILURE] ${desc}`);
 }
 
-function flagStatus(fl) { return fl ? "Enabled" : "Disabled"; }
+function promptUserAsync(msg) {
+	return new Promise((resolve) => {
+		const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+		rl.question(`\n[PROMPT] ${msg} (Press Enter to continue)... `, () => {
+			rl.close();
+			resolve();
+		});
+	});
+}
 
-function main() {
+async function main() {
 	const sral = new SRAL();
 	console.log("SRAL Node.js Comprehensive Tester\n-------------------------");
 
@@ -31,7 +43,7 @@ function main() {
 	check(!sral.isInitialized(), "isInitialized accurately returns false before init.", "isInitialized returned true before init!");
 
 	testSection("SRAL_Initialize");
-	let originalEnginesToExclude = SRALEngine.UIA;
+	let originalEnginesToExclude = SRALEngine.UIA; 
 	console.log(`Attempting to initialize SRAL, excluding engines mask: 0x${originalEnginesToExclude.toString(16).toUpperCase()}`);
 
 	if (sral.initialize(originalEnginesToExclude)) {
@@ -53,7 +65,7 @@ function main() {
 	let currentEngineId = sral.getCurrentEngine();
 	console.log(`Current Active Default Engine ID: ${currentEngineId} (${sral.getEngineName(currentEngineId)})`);
 
-	console.log("\nNames of all available SRALEngine enum members:");
+	console.log("\nNames of all available SRALEngines enum members:");
 	for (let key in SRALEngine) {
 		let val = SRALEngine[key];
 		if (val > 0 && val !== SRALEngine.CURRENT && (availableEngines & val) !== 0) {
@@ -84,7 +96,6 @@ function main() {
 	} else {
 		console.log("\nNo alternative explicit engines found active for distinct Ex verification execution paths.");
 	}
-
 	testSection("Global Intercept Keyboard Hooks");
 	if (sral.registerKeyboardHooks()) {
 		console.log("[SUCCESS] registerKeyboardHooks successfully engaged. Ctrl=Interrupt, Shift=Pause/Resume.");
@@ -155,21 +166,42 @@ function main() {
 		}
 	}
 
+	testSection("Voice Parameters & Management");
+	let voices = sral.getVoices(currentEngineId);
+	let voiceCount = voices.length;
+	if (voiceCount > 0) {
+		console.log(`Voice count detected: ${voiceCount}`);
+		voices.forEach((v, i) => {
+			console.log(`  Voice ${i + 1}: ${v[SRALVoiceInfo.NAME]} [${v[SRALVoiceInfo.LANGUAGE]}] (${v[SRALVoiceInfo.GENDER]})`);
+		});
+	} else {
+		console.log("No voices retrieved or parameter unsupported on this platform configuration.");
+	}
+
+	testSection("SSML Support");
+	if ((currentEngineFeatures & SRALFeature.SSML) !== 0) {
+		let ssmlTest = "<speak>Testing <prosody pitch='150%'>SSML</prosody> text syntax markup parsing inside Node.</speak>";
+		checkSRAL(sral.speakSsml(ssmlTest, true), "speakSsml");
+		sral.delay(3000);
+	} else {
+		console.log("SSML not supported by current default engine environment.");
+	}
+
 	testSection("Generic SetIntParameter / GetIntParameter Execution Channels");
-	let originalSymbolLevel = sral.getIntParameter(currentEngineId, SRALParam.SYMBOL_LEVEL);
+	let originalSymbolLevel = sral.getEngineParameter(currentEngineId, SRALParam.SYMBOL_LEVEL);
 	if (originalSymbolLevel !== -1) {
 		console.log(`Current engine baseline punctuation symbol level setting: ${originalSymbolLevel}`);
 		let targetSymbolLevel = SRALSymbolLevel.ALL;
 
 		console.log(`Attempting to adjust symbol level channel value to: ${targetSymbolLevel} (ALL)`);
-		if (sral.setIntParameter(currentEngineId, SRALParam.SYMBOL_LEVEL, targetSymbolLevel)) {
-			let fetchedSymbolLevel = sral.getIntParameter(currentEngineId, SRALParam.SYMBOL_LEVEL);
+		if (sral.setEngineParameter(currentEngineId, SRALParam.SYMBOL_LEVEL, targetSymbolLevel)) {
+			let fetchedSymbolLevel = sral.getEngineParameter(currentEngineId, SRALParam.SYMBOL_LEVEL);
 			console.log(`New symbol level confirmed by get channel wrapper: ${fetchedSymbolLevel}`);
 			check(fetchedSymbolLevel === targetSymbolLevel, "Symbol level set and get channels match perfectly.", "Symbol level channel validation mismatch!");
 
 			sral.speak("Testing symbol level parameter modification using special characters: at symbol @ hash tag # punctuation check.", true);
 			sral.delay(4000);
-			sral.setIntParameter(currentEngineId, SRALParam.SYMBOL_LEVEL, originalSymbolLevel);
+			sral.setEngineParameter(currentEngineId, SRALParam.SYMBOL_LEVEL, originalSymbolLevel);
 		} else {
 			console.log("Failed to override default symbol level configuration on this specific driver.");
 		}
@@ -178,26 +210,25 @@ function main() {
 	}
 
 	testSection("Advanced Character Spelling Modes Tuning");
-	let originalSpellingState = sral.getIntParameter(currentEngineId, SRALParam.ENABLE_SPELLING);
+	let originalSpellingState = sral.getEngineParameter(currentEngineId, SRALParam.ENABLE_SPELLING);
 	if (originalSpellingState !== -1) {
 		console.log(`Current engine spelling configuration baseline flag: ${originalSpellingState}`);
 		let targetSpellingState = 1;
 
 		console.log("Enabling character spelling mode parameter layer...");
-		if (sral.setIntParameter(currentEngineId, SRALParam.ENABLE_SPELLING, targetSpellingState)) {
-			let confirmedSpellingState = sral.getIntParameter(currentEngineId, SRALParam.ENABLE_SPELLING);
+		if (sral.setEngineParameter(currentEngineId, SRALParam.ENABLE_SPELLING, targetSpellingState)) {
+			let confirmedSpellingState = sral.getEngineParameter(currentEngineId, SRALParam.ENABLE_SPELLING);
 			console.log(`New character spelling flag status confirmed: ${confirmedSpellingState}`);
 
 			sral.speak("SRAL", true);
 			sral.delay(3000);
 
-			sral.setIntParameter(currentEngineId, SRALParam.ENABLE_SPELLING, originalSpellingState);
+			sral.setEngineParameter(currentEngineId, SRALParam.ENABLE_SPELLING, originalSpellingState);
 			console.log("Character spelling configuration flag restored.");
 		}
 	} else {
 		console.log("ENABLE_SPELLING configuration channel is unsupported by the current active accessibility profile.");
 	}
-
 	testSection("Explicit Subsystem Engine Invocations (Ex Methods Matrix)");
 	let engineTargets = [SRALEngine.NVDA, SRALEngine.JAWS, SRALEngine.SAPI];
 	engineTargets.forEach((engineId) => {
@@ -209,23 +240,18 @@ function main() {
 			if ((featEx & SRALFeature.SPEECH) !== 0) {
 				checkSRAL(sral.speakEx(engineId, `Hello from the explicitly targeted ${name} accessibility layer profile interface.`, true), `speakEx routing target for ${name}`);
 				sral.delay(2500);
-
 				console.log(`  - ${name} is actively speaking verification query status: ${sral.isSpeakingEx(engineId)}`);
-
 				checkSRAL(sral.stopSpeechEx(engineId), `stopSpeechEx instance execution command for ${name}`);
 				sral.delay(500);
 			}
-
 			if ((featEx & SRALFeature.SSML) !== 0) {
-				let explicitSsmlText = "<speak>Testing explicit subsystem engine routing <break time=\"400ms\"/> text.</speak>";
+				let explicitSsmlText = 'Testing explicit subsystem engine routing <break time="400ms"/> text.';
 				checkSRAL(sral.speakSsmlEx(engineId, explicitSsmlText, true), `speakSsmlEx instance routing target for ${name}`);
 				sral.delay(3000);
 			}
-
 			if ((featEx & SRALFeature.BRAILLE) !== 0) {
 				checkSRAL(sral.brailleEx(engineId, "EX MODE ACTIVE"), `brailleEx instance layout pinning for ${name}`);
 			}
-
 			checkSRAL(sral.outputEx(engineId, `Combined distribution routing target output payload for explicit instance context: ${name}`, true), `outputEx routine handle for ${name}`);
 			sral.delay(2000);
 		}
@@ -235,21 +261,18 @@ function main() {
 	if ((currentEngineFeatures & SRALFeature.SPEAK_TO_MEMORY) !== 0) {
 		console.log("Synthesizing raw string values into unmanaged memory blocks (Default Engine)...");
 		let pcmData = sral.speakToMemory("This is a comprehensive serialization check of raw speech conversion buffers.");
-
 		if (pcmData && pcmData.buffer) {
 			console.log("[SUCCESS] speakToMemory successfully returned unmanaged audio array parameters.");
 			console.log(`  - Buffer Frame Volume: ${pcmData.buffer.length} bytes serialized.`);
-			console.log(`  - Format Layout Met: Channels=${pcmData.channels} | Rate=${pcmPdata.sampleRate} Hz | Depth=${pcmData.bitsPerSample}-bit depth layout.`);
+			console.log(`  - Format Layout Met: Channels=${pcmData.channels} | Rate=${pcmData.sampleRate} Hz | Depth=${pcmData.bitsPerSample}-bit depth layout.`);
 		} else {
 			console.log("[FAILURE] speakToMemory execution returned empty boundary handles.");
 		}
-
 		if (specificEngineForExTests !== SRALEngine.NONE) {
 			let featEx = sral.getEngineFeatures(specificEngineForExTests);
 			if ((featEx & SRALFeature.SPEAK_TO_MEMORY) !== 0) {
 				let nameEx = sral.getEngineName(specificEngineForExTests);
 				console.log(`Synthesizing raw string values into unmanaged memory blocks explicitly targeting: ${nameEx}...`);
-
 				let pcmDataEx = sral.speakToMemoryEx(specificEngineForExTests, "Targeted instance memory synthesis.");
 				if (pcmDataEx && pcmDataEx.buffer) {
 					console.log(`[SUCCESS] speakToMemoryEx executed successfully for targeted driver node profile: ${nameEx}.`);
@@ -263,7 +286,22 @@ function main() {
 		console.log("SPEAK_TO_MEMORY buffer synthesis capabilities are unsupported by the current active driver layer.");
 	}
 
-	testSection("Unified System Categories and Active Diagnostics Loops");
+	testSection("Braille and Combined Outputs");
+	if ((currentEngineFeatures & SRALFeature.BRAILLE) !== 0) {
+		checkSRAL(sral.braille("Testing SRAL Braille output."), "braille");
+	}
+	checkSRAL(sral.output("Testing combined output paths distribution.", true), "output (combined)");
+	sral.delay(2000);
+
+	testSection("Asynchronous Threaded Delay Queue Output");
+	if ((currentEngineFeatures & SRALFeature.SPEECH) !== 0) {
+		console.log("Dispatching speech items onto asynchronous background delay processing thread pipelines...");
+		checkSRAL(sral.delayOutput(0, "Staged delay message number one.", true), "delayOutput 1 (Immediate Queueing)");
+		checkSRAL(sral.delayOutput(1500, "Staged delay message number two.", false), "delayOutput 2 (Staged Enqueueing)");
+		sral.delay(3500);
+	}
+
+	testSection("SRAL Platform Engine Telemetry & Exclusions");
 	let failedEnginesBitmask = sral.getFailedEngines();
 	if (failedEnginesBitmask !== SRALEngine.NONE) {
 		console.log(`Bitmask warning array of platform modules failing constructor setup pipelines: 0x${failedEnginesBitmask.toString(16).toUpperCase()}`);
@@ -279,13 +317,11 @@ function main() {
 			if (engineName !== "Unknown Engine") {
 				let categoryType = sral.getEngineCategory(val);
 				let isActiveOnHost = sral.isEngineActive(val);
-
 				let categoryDisplayStr = "Unknown Type";
 				if (categoryType === SRALEngineCategory.SCREEN_READER) categoryDisplayStr = "Screen Reader";
 				else if (categoryType === SRALEngineCategory.TEXT_TO_SPEECH_ENGINE) categoryDisplayStr = "Text to Speech Engine";
 				else if (categoryType === SRALEngineCategory.ACCESSIBILITY_PROVIDER) categoryDisplayStr = "Accessibility Provider";
-
-				console.log(`  - Profile Name: ${engineName, -26} | Category Type Mapped: ${categoryDisplayStr, -24} | System Runtime Active: ${isActiveOnHost}`);
+				console.log(`  - Profile Name: ${engineName.padEnd(26)} | Category Type Mapped: ${categoryDisplayStr.padEnd(24)} | System Runtime Active: ${isActiveOnHost}`);
 			}
 		}
 	}
@@ -299,10 +335,10 @@ function main() {
 	testSection("Asynchronous Threaded Queue Loops (DelayOutput Methods Matrix)");
 	if ((currentEngineFeatures & SRALFeature.SPEECH) !== 0) {
 		console.log("Staging text configurations onto asynchronous background processing queue workers (Default Engine)...");
-		checkSRAL(sral.delayOutput("Staged asynchronous queue sequence element one.", 0, true, true, false, false), "delayOutput 1 (Flushing Queue Context Instantly)");
-		checkSRAL(sral.delayOutput("Staged asynchronous queue sequence element two.", 1500, false, true, false, false), "delayOutput 2 (Staged Timing Enqueueing step)");
+		checkSRAL(sral.delayOutput(0, "Staged asynchronous queue sequence element one.", true), "delayOutput 1 (Flushing Queue Context Instantly)");
+		checkSRAL(sral.delayOutput(1500, "Staged asynchronous queue sequence element two.", false), "delayOutput 2 (Staged Timing Enqueueing step)");
 
-		console.log("Halting JavaScript main application execution context to give background processing loop worker threads room to deplete...");
+		console.log("Halting JavaScript main application execution context to give background processing loop worker threads room to deplete... ");
 		sral.delay(3500);
 
 		if (specificEngineForExTests !== SRALEngine.NONE) {
@@ -311,8 +347,8 @@ function main() {
 				let nameEx = sral.getEngineName(specificEngineForExTests);
 				console.log(`Staging text configurations onto async background queue workers targeting specific engine: ${nameEx}...`);
 
-				checkSRAL(sral.delayOutputEx(specificEngineForExTests, "Explicitly targeted background queue message step one.", 0, true, true, false, false), "delayOutputEx 1 (Flushing Explicit Target Instance)");
-				checkSRAL(sral.delayOutputEx(specificEngineForExTests, "Explicitly targeted background queue message step two.", 1500, false, true, false, false), "delayOutputEx 2 (Staged Explicit Target Instance Timing Enqueueing)");
+				checkSRAL(sral.delayOutputEx(specificEngineForExTests, 0, "Explicitly targeted background queue message step one.", true), "delayOutputEx 1 (Flushing Explicit Target Instance)");
+				checkSRAL(sral.delayOutputEx(specificEngineForExTests, 1500, "Explicitly targeted background queue message step two.", false), "delayOutputEx 2 (Staged Explicit Target Instance Timing Enqueueing)");
 
 				console.log(`Halting host script context execution frame to allow the explicit driver loop context (${nameEx}) to deplete thread stacks...`);
 				sral.delay(3500);
@@ -323,7 +359,7 @@ function main() {
 	}
 
 	testSection("Dynamic Engine Exclusion List Adjustment Modifications");
-	console.log(`Current global exclusion tracking filter profile bitmask: 0x${originalEnginesToExclude.toString(16).toUpperCase()}`);
+	console.log(`Current global exclusion tracking filter profile bitmask: 0x${originalExcludeMask.toString(16).toUpperCase()}`);
 
 	let experimentalExclusionMask = SRALEngine.SAPI | SRALEngine.NARRATOR;
 	console.log(`Updating system filter bitmask parameters to: 0x${experimentalExclusionMask.toString(16).toUpperCase()}`);
@@ -341,11 +377,11 @@ function main() {
 	testSection("Global Access Keyboard Hook Cleanup Deconstruction");
 	sral.unregisterKeyboardHooks();
 	console.log("unregisterKeyboardHooks executed. Monitoring listener threads severed.");
-	promptUser("Keyboard hooks severed. Verify system transparency by typing Ctrl/Shift inputs with upcoming speech outputs.");
+	await promptUserAsync("Keyboard hooks severed. Verify system transparency by typing Ctrl/Shift inputs with upcoming speech outputs.");
 	sral.speak("Verifying systemic transparency after unregistering background keyboard listener thread contexts.", true);
 	sral.delay(3000);
 
-	testSection("Core Library Uninitialization Framework Teardown (SRAL_Uninitialize)");
+		testSection("Core Library Uninitialization Framework Teardown (SRAL_Uninitialize)");
 	sral.uninitialize();
 	console.log("uninitialize function handle called. Releasing references.");
 	check(!sral.isInitialized(), "isInitialized accurately returns false following uninitialization.", "Teardown error tracking validation boundary failure!");
@@ -357,7 +393,7 @@ function main() {
 		console.log("[INFO] speak wrapper evaluated accurately and returned false inside uninitialized boundary bounds.");
 	}
 
-	promptUser("All Node.js integration verification suites executed completely. Press Enter to terminate process context.");
+	await promptUserAsync("All Node.js integration verification suites executed completely.");
 }
 
 function errorHandlingDemo() {
@@ -372,10 +408,10 @@ function errorHandlingDemo() {
 	}
 }
 
-try {
-	main();
-} catch (globalException) {
-	console.log(`Demo test application loop crashed with unexpected error conditions: ${globalException.message}`);
-}
-
-errorHandlingDemo();
+main()
+	.then(() => {
+		errorHandlingDemo();
+	})
+	.catch((globalException) => {
+		console.log(`Demo test application loop crashed with unexpected error conditions: ${globalException.message}`);
+	});

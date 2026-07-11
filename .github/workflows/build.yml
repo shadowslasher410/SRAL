@@ -116,7 +116,7 @@ jobs:
           name: bundle-${{ matrix.name }}
           path: "${{ github.workspace }}/dist"
           if-no-files-found: error
-
+          
   android:
     runs-on: ubuntu-latest
     permissions:
@@ -127,8 +127,10 @@ jobs:
         include:
           - abi: arm64-v8a
             arch: aarch64
+            meson_cpu: aarch64
           - abi: x86_64
             arch: x86_64
+            meson_cpu: x86_64
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -158,16 +160,36 @@ jobs:
         with:
           distribution: 'jetbrains'
           java-version: '25'
+      
+      - name: Set up Base Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Set up Native Linux Android NDK (r25)
+        uses: nttld/setup-ndk@v1.5.0
+        id: setup-ndk
+        with:
+          ndk-version: r25c
+          link-to-sdk: true
 
       - name: Create Android Cross File Dynamically
         env:
-          NDK: ${{ secrets.ANDROID_NDK_HOME }}
+          SECRET_NDK: ${{ secrets.ANDROID_NDK_HOME }}
           ARCH: ${{ matrix.arch }}
+          MESON_CPU: ${{ matrix.meson_cpu }}
         shell: bash
         run: |
           set -euo pipefail
-          TARGET_NDK="${NDK:-$ANDROID_NDK_ROOT}"
-          TARGET_NDK="${TARGET_NDK:-$ANDROID_NDK_HOME}"
+          
+          TARGET_NDK="${SECRET_NDK:-${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-}}}"
+          
+          if [ -z "$TARGET_NDK" ]; then
+            if [ -d "/usr/local/lib/android/sdk/ndk-bundle" ]; then
+              TARGET_NDK="/usr/local/lib/android/sdk/ndk-bundle"
+            else
+              FOUND_NDK=$(find /usr/local/lib/android/sdk/ndk -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -n 1 || true)
+              TARGET_NDK="${FOUND_NDK:-}"
+            fi
+          fi
           
           if [ -z "$TARGET_NDK" ] || [ ! -d "$TARGET_NDK" ]; then
             echo "::error::Failed to locate an active Android NDK Toolchain Environment directory context."
@@ -175,32 +197,48 @@ jobs:
           fi
           
           echo "Using Android NDK Toolchain located at: $TARGET_NDK"
-          cat << 'EOF' > android_cross.txt
+          
+          if [ -d "$TARGET_NDK/toolchains/llvm/prebuilt/windows-x86_64" ]; then
+            HOST_PLATFORM="windows-x86_64"
+          else
+            HOST_PLATFORM="linux-x86_64"
+          fi
+          
+          echo "Detected NDK Host Sub-Architecture Layout: $HOST_PLATFORM"
+          
+          if [ "$ARCH" = "aarch64" ]; then
+            CLANG_TRIPLE="aarch64-linux-android24"
+          else
+            CLANG_TRIPLE="x86_64-linux-android24"
+          fi
+
+          cat << EOF > android_cross.txt
           [binaries]
-          c = '@TARGET_NDK@/toolchains/llvm/prebuilt/linux-x86_64/bin/@ARCH@-linux-android24-clang'
-          cpp = '@TARGET_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/@ARCH@-linux-android24-clang++'
-          ar = '@TARGET_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar'
-          strip = '@TARGET_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip'
+          c     = '$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin/clang'
+          cpp   = '$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin/clang++'
+          ar    = '$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin/llvm-ar'
+          strip = '$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin/llvm-strip'
+
+          [built-in options]
+          c_args   = ['-target', '$CLANG_TRIPLE']
+          cpp_args = ['-target', '$CLANG_TRIPLE']
 
           [host_machine]
-          system = 'android'
-          cpu_family = '@ARCH@'
-          cpu = '@ARCH@'
-          endian = 'little'
+          system     = 'android'
+          cpu_family = '$MESON_CPU'
+          cpu        = '$ARCH'
+          endian     = 'little'
           EOF
-
-          sed -i "s|@TARGET_NDK@|${TARGET_NDK}|g" android_cross.txt
-          sed -i "s|@ARCH@|${ARCH}|g" android_cross.txt
 
       - name: Configure Android Target
         shell: bash
         run: |
           set -euo pipefail
+          rm -rf builddir
+          # Fixed the trailing backslash syntax error
           meson setup builddir --cross-file android_cross.txt \
             --buildtype=release \
-            -Ddefault_library=both \
-            -DBUILD_TESTS=false \
-            -DBUILD_BINDINGS=false
+            -Ddefault_library=both
 
       - name: Compile Target Shared Libraries
         shell: bash

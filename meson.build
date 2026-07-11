@@ -1,96 +1,142 @@
-project('SRAL_Core', 'c', 'cpp',
+project(
+  'SRAL_Orchestrator',
+  ['c', 'cpp'],
   version: '1.0.0',
+  meson_version: '>=1.11.1',
   default_options: [
     'c_std=c17',
     'cpp_std=c++20',
     'default_library=both',
-    'b_pie=true',                  # Enforce Position Independent Executables
-    'b_staticpic=true',            # Force PIC inside static libraries to support global ASLR
-    'b_lto=true',                  # Global LTO lets compilers track cross-file safety paths
-    'b_lundef=true',               # Hard crash linker if unexpected undefined symbols exist
-    'b_asneeded=true',             # Strip out unnecessary downstream dependency references
-    'b_pgo=off',                   # Block Profile Guided Optimization timing side-channels
-    'werror=true'                  # Treat all build-system setup warnings as fatal errors
+    'warning_level=3',
+    'b_pie=true',                   # Enforce Position Independent Executables
+    'gnu_symbol_visibility=hidden', # Prevent code from leaking internal functions
+    'b_staticpic=true',             # Force PIC inside static libraries to support global ASLR
+    'b_lto=true',                   # Global LTO lets compilers track cross-file safety paths
+    'b_lundef=true',                # Hard crash linker if unexpected undefined symbols exist
+    'b_asneeded=true',              # Strip out unnecessary downstream dependency references
+    'b_pgo=off',                    # Block Profile Guided Optimization timing side-channels
+    'werror=true'                   # Treat all build-system setup warnings as fatal errors
   ],
-  meson_version: '>= 1.11.1'
 )
 
-cc = meson.get_compiler('c')
-cpp = meson.get_compiler('cpp')
+fs = import('fs')
+host_system = host_machine.system()
+c_compiler = meson.get_compiler('c')
+cpp_compiler = meson.get_compiler('cpp')
 
-is_emscripten = (meson.is_cross_build() and host_machine.system() == 'emscripten')
-is_windows    = (host_machine.system() == 'windows' and not is_emscripten)
-is_apple      = (host_machine.system() == 'darwin'  and not is_emscripten)
-is_android    = (host_machine.system() == 'android' and not is_emscripten)
-is_linux      = (host_machine.system() == 'linux'   and not is_windows and not is_apple and not is_android and not is_emscripten)
+build_variant = get_option('buildtype')
+c_id = c_compiler.get_id()
+
+is_windows   = (host_system == 'windows')
+is_apple     = (host_system == 'darwin')
+is_android   = (host_system == 'android')
+is_emscripten = (host_system == 'emscripten')
+
+target_desktop  = get_option('TARGET_DESKTOP')
+target_chromevox = get_option('TARGET_CHROMEVOX')
+target_android  = get_option('TARGET_ANDROID')
+target_ios      = get_option('TARGET_IOS')
+
+build_shared_libs = get_option('BUILD_SHARED_LIBS')
+build_tests       = get_option('BUILD_TESTS')
+build_bindings    = get_option('BUILD_BINDINGS')
+
+version_mintarget_macos   = get_option('VERSION_MINTARGET_MACOS')
+version_mintarget_windows = get_option('VERSION_MINTARGET_WINDOWS')
+version_mintarget_android = get_option('VERSION_MINTARGET_ANDROID')
+version_mintarget_ios     = get_option('VERSION_MINTARGET_IOS')
+
+path_nvda_install      = get_option('PATH_NVDA_INSTALL')
+path_speechd_install   = get_option('PATH_SPEECHD_INSTALL')
+path_python_install    = get_option('PATH_PYTHON_INSTALL')
+path_emsdk_install     = get_option('PATH_EMSDK_INSTALL')
+path_android_ndk       = get_option('PATH_ANDROID_NDK')
+path_accesskit_install = get_option('PATH_ACCESSKIT_INSTALL')
+path_jdk_install       = get_option('PATH_JDK_INSTALL')
+
+active_sandboxes = []
+
+if c_id == 'gcc' or c_id == 'clang'
+  add_project_arguments('-fno-extensions', language: ['c', 'cpp'])
+elif c_id == 'msvc'
+  add_project_arguments(['/permissive-', '/Zc:__cplusplus'], language: ['c', 'cpp'])
+endif
+
+opt_chromevox         = get_option('SRAL_WITH_CHROMEVOX')
+opt_uia               = get_option('SRAL_WITH_UIA')
+opt_nsspeech          = get_option('SRAL_WITH_NSSPEECH')
+opt_nvda              = get_option('SRAL_WITH_NVDA')
+opt_speech_dispatcher = get_option('SRAL_WITH_SPEECH_DISPATCHER')
+opt_orca              = get_option('SRAL_WITH_ORCA')
+opt_brlapi            = get_option('SRAL_WITH_BRLAPI')
+opt_target_ios        = get_option('TARGET_IOS')
+
 is_ios = false
 if is_apple
-  is_ios = get_option('TARGET_IOS')
+  is_ios = opt_target_ios
 endif
 
 if is_apple
   add_languages('objc', 'objcpp', native: false)
 endif
 
-if cpp.get_id() == 'msvc'
+if c_id == 'msvc'
   msvc_args = [
     '-D_CRT_SECURE_NO_WARNINGS',
     '/GS',                         # MSVC Buffer Security Check
     '/sdl',                        # Enable Security Development Lifecycle Checks
     '/guard:cf',                   # MSVC Control Flow Guard
-    '/Qspectre',                   # Mitigate speculative execution side-channel attacks (Spectre variant 1)
-    '/volatile:iso',               # Force ISO-compliant volatile semantics to prevent dangerous memory optimizations
-    '/w14928'                      # Force fatal handling for unsafe implicit copy-initialization conversions
+    '/Qspectre',                   # Mitigate speculative execution attacks (Spectre v1)
+    '/volatile:iso',               # Force ISO-compliant volatile semantics
+    '/w14928'                      # Fatal handling for unsafe copy-initializations
   ]
-  add_project_arguments(cpp.get_supported_arguments(msvc_args), language: ['c', 'cpp'])
+  add_project_arguments(cpp_compiler.get_supported_arguments(msvc_args), language: ['c', 'cpp'])
   
   msvc_link_args = [
-    '/GUARD:CF',                   # Control Flow Guard enforcement at link time
-    '/DYNAMICBASE',                # Explicitly force modern ASLR layout shifting
-    '/NXCOMPAT',                   # Explicitly force Data Execution Prevention (DEP)
-    '/HIGHENTROPYVA'               # Enable 64-bit ASLR for maximum randomized memory variance
+    '/GUARD:CF',                   # Control Flow Guard at link time
+    '/DYNAMICBASE',                # Force modern ASLR layout shifting
+    '/NXCOMPAT',                   # Force DEP execution blocking
+    '/HIGHENTROPYVA'               # Enable 64-bit ASLR address space variance
   ]
-  add_project_link_arguments(cpp.get_supported_link_arguments(msvc_link_args), language: ['c', 'cpp'])
+  add_project_link_arguments(cpp_compiler.get_supported_link_arguments(msvc_link_args), language: ['c', 'cpp'])
 endif
 
 global_defense_args = [
-  '-D_FORTIFY_SOURCE=3',             # Deep static and runtime buffer sizing evaluation
-  '-fstack-protector-all',           # Stack canaries on every single function frame
-  '-fstack-clash-protection',        # Mitigate stack allocation page jumping vulnerabilities
-  '-fno-delete-null-pointer-checks', # Halt the optimizer from deleting explicit NULL safety traps
-  '-fwrapv',                         # Strict signed wrapping math to bypass overflow optimization exploits
-  '-fno-strict-overflow',            # Disallow assumptions regarding overflow Undefined Behavior
-  '-fno-common',                     # Ban implicit structural collision of duplicate variables
-  '-ftrivial-auto-var-init=zero',    # Automatic zero-initialization of uninitialized stack bytes
+  '-D_FORTIFY_SOURCE=3',             # Static and runtime buffer sizing evaluation
+  '-fstack-protector-all',           # Stack canaries on every function frame
+  '-fstack-clash-protection',        # Mitigate stack allocation page jumping
+  '-fno-delete-null-pointer-checks', # Prevent optimizer from stripping out NULL traps
+  '-fwrapv',                         # Strict signed wrapping math
+  '-fno-strict-overflow',            # Disallow assumptions regarding overflow UB
+  '-fno-common',                     # Ban implicit collision of duplicate variables
+  '-ftrivial-auto-var-init=zero',    # Auto-initialize stack bytes to zero
 ]
 
-if cc.has_argument('-fcf-protection=full')
+if c_compiler.has_argument('-fcf-protection=full')
   global_defense_args += '-fcf-protection=full'        # Intel CET / AMD Shadow Stack
 endif
-if cc.has_argument('-mbranch-protection=all')
+if c_compiler.has_argument('-mbranch-protection=all')
   global_defense_args += '-mbranch-protection=all'     # ARM PAC/BTI mitigations
 endif
 
-supported_global_defenses = cc.get_supported_arguments(global_defense_args)
+supported_global_defenses = c_compiler.get_supported_arguments(global_defense_args)
 add_project_arguments(supported_global_defenses, language: ['c', 'cpp'])
 
 cpp_defense_args = [
-  '-D_GLIBCXX_ASSERTIONS',           # Strict bounds checking for GNU libstdc++ containers
+  '-D_GLIBCXX_ASSERTIONS',           # Strict bounds checking for GNU libstdc++
   '-D_LIBCPP_ENABLE_ASSERTIONS=1',   # Bounds checking for legacy LLVM libc++
-  '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE' # Modern LLVM/Clang STL hardening profile
+  '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE' # Clang STL hardening
 ]
-supported_cpp_defenses = cpp.get_supported_arguments(cpp_defense_args)
+supported_cpp_defenses = cpp_compiler.get_supported_arguments(cpp_defense_args)
 add_project_arguments(supported_cpp_defenses, language: 'cpp')
 
-if get_option('SRAL_WITH_CHROMEVOX')
+if opt_chromevox
   add_project_arguments('-DSRAL_WITH_CHROMEVOX', language: ['c', 'cpp'])
 else
   add_project_arguments('-DSRAL_NO_CHROMEVOX', language: ['c', 'cpp'])
 endif
 
 inc_dir = include_directories('Include')
-build_tests = get_option('BUILD_TESTS')
-build_bindings = get_option('BUILD_BINDINGS')
 
 public_headers = files(
   'Include/SRAL.h',
@@ -101,29 +147,28 @@ sral_dependencies = []
 
 if is_windows
   sral_dependencies += [
-    cc.find_library('ole32'),
-    cc.find_library('user32'),
-    cc.find_library('uiautomationcore', required: get_option('SRAL_WITH_UIA'))
+    c_compiler.find_library('ole32'),
+    c_compiler.find_library('user32'),
+    c_compiler.find_library('uiautomationcore', required: opt_uia)
   ]
 
 elif is_apple
   apple_flags = ['-fobjc-arc', '-fstack-protector-all']
-  if cc.has_argument('-fobjc-direct-methods')
+  if c_compiler.has_argument('-fobjc-direct-methods')
     apple_flags += '-fobjc-direct-methods'
   endif
-  
   add_project_arguments(apple_flags, language: ['objc', 'objcpp'])
   
   sral_dependencies += dependency('appleframeworks', modules: ['Foundation', 'AVFoundation'])
-  if not is_ios and get_option('SRAL_WITH_NSSPEECH')
+  if not is_ios and opt_nsspeech
     sral_dependencies += dependency('appleframeworks', modules: ['AppKit'])
   endif
 
 elif is_android
-  sral_dependencies += cc.find_library('log')
+  sral_dependencies += c_compiler.find_library('log')
 
 elif is_emscripten
-  if cc.has_link_argument('-pthread')
+  if c_compiler.has_link_argument('-pthread')
     em_args = ['-pthread', '-sSTACK_SIZE=65536', '-sWASM_BIGINT']
     add_project_link_arguments(em_args, language: ['c', 'cpp'])
     add_project_arguments('-pthread', language: ['c', 'cpp'])
@@ -132,20 +177,20 @@ elif is_emscripten
 else
   add_project_arguments('-DSRAL_SPEECHD_REQUIRE_UTF8', language: ['c', 'cpp'])
   
-  if get_option('SRAL_WITH_SPEECH_DISPATCHER')
+  if opt_speech_dispatcher
     sral_dependencies += dependency('speech-dispatcher', required: true)
   else
     add_project_arguments('-DSRAL_NO_SPEECH_DISPATCHER', language: ['c', 'cpp'])
   endif
   
-  if get_option('SRAL_WITH_ORCA')
+  if opt_orca
     sral_dependencies += [dependency('dbus-1', required: true), dependency('atspi-2', required: true)]
   else
     add_project_arguments('-DSRAL_NO_ORCA', language: ['c', 'cpp'])
   endif
   
-  if get_option('SRAL_WITH_BRLAPI')
-    sral_dependencies += cc.find_library('brlapi', required: true)
+  if opt_brlapi
+    sral_dependencies += c_compiler.find_library('brlapi', required: true)
   else
     add_project_arguments('-DSRAL_NO_BRLAPI', language: ['c', 'cpp'])
   endif
@@ -164,8 +209,8 @@ sral_dep = declare_dependency(
 )
 
 test_link_args = []
-if cc.get_id() != 'msvc'
-  test_link_args += cc.get_supported_link_arguments(['-Wl,-z,relro', '-Wl,-z,now', '-Wl,-z,noexecstack'])
+if c_id != 'msvc'
+  test_link_args += c_compiler.get_supported_link_arguments(['-Wl,-z,relro', '-Wl,-z,now', '-Wl,-z,noexecstack'])
 endif
 
 if build_tests and not is_emscripten and not is_android
@@ -177,7 +222,7 @@ if build_tests and not is_emscripten and not is_android
     install: false
   )
   
-  if is_windows and get_option('SRAL_WITH_NVDA')
+  if is_windows and opt_nvda
     executable('SRAL_NVDAControlExConsole',
       files('Examples/C/NVDAControlExConsole.c'),
       include_directories: inc_dir,

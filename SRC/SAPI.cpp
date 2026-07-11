@@ -1,6 +1,6 @@
 /* 
  * ==============================================================================
- * NOTICE OF ALTERATION (In compliance with Original Software License Terms)
+ * NOTICE OF MODIFICATION
  * ==============================================================================
  * This file is an ALTERED, MODIFIED, and HARDENED version of the original software.
  * In compliance with the software license terms, changes are plainly marked below:
@@ -26,7 +26,6 @@
  * ==============================================================================
  */
 
-
 #ifdef _WIN32
 #include "SAPI.h"
 
@@ -42,6 +41,7 @@
 #include <concepts>
 #include <cmath>
 #include <cstring>
+#include <memory>
 
 extern "C" {
 #include "../Dep/blastspeak.h"
@@ -52,6 +52,91 @@ extern "C" {
 }
 
 static std::shared_ptr<WasapiPlayer> g_player{ nullptr };
+
+class AudioRingBuffer {
+private:
+    std::unique_ptr<unsigned char[]> buffer;
+    size_t capacity;
+    std::atomic<size_t> head{ 0 };
+    std::atomic<size_t> tail{ 0 };
+
+public:
+    void Init(size_t totalBytes) {
+        capacity = totalBytes;
+        buffer = std::make_unique<unsigned char[]>(capacity);
+        head.store(0, std::memory_order_relaxed);
+        tail.store(0, std::memory_order_relaxed);
+    }
+
+    size_t GetAvailableWriteSpace() const {
+        size_t h = head.load(std::memory_order_acquire);
+        size_t t = tail.load(std::memory_order_relaxed);
+        if (t >= h) {
+            return capacity - (t - h) - 1; 
+        }
+        return h - t - 1;
+    }
+
+    size_t GetAvailableReadSpace() const {
+        size_t h = head.load(std::memory_order_relaxed);
+        size_t t = tail.load(std::memory_order_acquire);
+        if (t >= h) return t - h;
+        return capacity - h + t;
+    }
+
+    bool Write(const unsigned char* src, size_t bytes) {
+		if (bytes == 0 || GetAvailableWriteSpace() < bytes) {
+			return false; 
+		}
+
+		size_t t = tail.load(std::memory_order_relaxed);
+		size_t bytesToEnd = capacity - t;
+
+		unsigned char* bufPtr = buffer.get();
+
+		if (bytes <= bytesToEnd) {
+			std::memcpy(&bufPtr[t], src, bytes);
+			tail.store((t + bytes) % capacity, std::memory_order_release);
+		} else {
+			std::memcpy(&bufPtr[t], src, bytesToEnd);
+			std::memcpy(&bufPtr[0], src + bytesToEnd, bytes - bytesToEnd);
+			tail.store(bytes - bytesToEnd, std::memory_order_release);
+		}
+		return true;
+	}
+
+
+    size_t Read(unsigned char* dest, size_t maxBytes) {
+        size_t available = GetAvailableReadSpace();
+        size_t bytesToRead = (available < maxBytes) ? available : maxBytes;
+        if (bytesToRead == 0) return 0;
+
+        size_t h = head.load(std::memory_order_relaxed);
+        size_t bytesToEnd = capacity - h;
+
+        if (bytesToRead <= bytesToEnd) {
+            std::memcpy(dest, &buffer[h], bytesToRead);
+            head.store((h + bytesToRead) % capacity, std::memory_order_release);
+        } else {
+            std::memcpy(dest, &buffer[h], bytesToEnd);
+            std::memcpy(dest + bytesToEnd, &buffer, bytesToRead - bytesToEnd);
+            head.store(bytesToRead - bytesToEnd, std::memory_order_release);
+        }
+        return bytesToRead;
+    }
+
+    void Clear() {
+        head.store(tail.load(std::memory_order_relaxed), std::memory_order_release);
+    }
+};
+
+constexpr size_t RING_BUFFER_SIZE = 2 * 1024 * 1024;
+static AudioRingBuffer g_ringBuffer;
+
+static std::mutex g_sleepMutex;
+static std::condition_variable g_sleepCv;
+static std::atomic<bool> g_threadStarted{ false };
+static std::atomic<bool> g_isSpeaking{ false };
 
 template <typename T, typename Func, typename... Args> 
 inline void safeCall(T* obj, Func func, Args&&... args) {
@@ -132,76 +217,55 @@ static char* trim(char* data, unsigned long* size, const WAVEFORMATEX* wfx, int 
 	return trimmedData;
 }
 
-struct PCMData {
-	unsigned char* data = nullptr;
-	unsigned long size = 0;
-};
-
-static std::deque<PCMData> g_dataQueue;
-static std::mutex g_dataQueueMutex;
-static std::condition_variable g_dataQueueCv;
-static std::atomic<bool> g_threadStarted{ false };
-static std::atomic<bool> g_isSpeaking{ false };
-
-static void sapi_thread(std::stop_token stopToken) {
+static void BackgroundWorkerLoop(std::stop_token stopToken) {
 	if (g_player == nullptr) {
 		g_threadStarted.store(false, std::memory_order_release);
 		g_isSpeaking.store(false, std::memory_order_release);
 		return;
 	}
 
+	constexpr size_t CHUNK_SIZE = 16384;
+	auto localBlock = std::make_unique<unsigned char[]>(CHUNK_SIZE);
+
 	while (g_threadStarted.load(std::memory_order_acquire) && !stopToken.stop_requested()) {
-		PCMData current_data;
-		{
-			std::unique_lock<std::mutex> lock(g_dataQueueMutex);
-			g_dataQueueCv.wait(lock, [&] { 
-				return !g_dataQueue.empty() || !g_threadStarted.load(std::memory_order_acquire) || stopToken.stop_requested(); 
+		size_t readableBytes = g_ringBuffer.GetAvailableReadSpace();
+		
+		if (readableBytes == 0) {
+			g_isSpeaking.store(false, std::memory_order_release);
+			
+			std::unique_lock<std::mutex> lock(g_sleepMutex);
+			g_sleepCv.wait(lock, [&] {
+				return g_ringBuffer.GetAvailableReadSpace() > 0 || 
+				       !g_threadStarted.load(std::memory_order_acquire) || 
+				       stopToken.stop_requested();
 			});
 
-			if ((!g_threadStarted.load(std::memory_order_acquire) || stopToken.stop_requested()) && g_dataQueue.empty()) {
+			if (!g_threadStarted.load(std::memory_order_acquire) || stopToken.stop_requested()) {
 				break;
 			}
-			if (g_dataQueue.empty()) {
-				continue;
-			}
-
-			current_data = g_dataQueue.front();
-			g_dataQueue.pop_front();
+			continue;
 		}
-		
+
 		g_isSpeaking.store(true, std::memory_order_release);
 
-		if (current_data.data) {
+		size_t readCount = g_ringBuffer.Read(localBlock.get(), CHUNK_SIZE);
+		
+		if (readCount > 0) {
 			auto result = safeCallVal<WasapiPlayer, HRESULT>(
-				g_player.get(), &WasapiPlayer::feed, current_data.data, current_data.size, nullptr);
-			
-			free(current_data.data);
+				g_player.get(), &WasapiPlayer::feed, localBlock.get(), static_cast<unsigned long>(readCount), nullptr);
 
 			if (result.has_value() && SUCCEEDED(*result)) {
 				(void)safeCallVal<WasapiPlayer, HRESULT>(g_player.get(), &WasapiPlayer::sync);
 			}
 		}
-
-		{
-			std::unique_lock<std::mutex> lock(g_dataQueueMutex);
-			if (g_dataQueue.empty()) {
-				g_isSpeaking.store(false, std::memory_order_release);
-			}
-		}
 	}
 
-	std::unique_lock<std::mutex> lock(g_dataQueueMutex);
-	for (PCMData& data : g_dataQueue) {
-		if (data.data) {
-			free(data.data);
-			data.data = nullptr;
-		}
-	}
-	g_dataQueue.clear();
+	g_ringBuffer.Clear();
 	g_isSpeaking.store(false, std::memory_order_release);
 }
 
 namespace Sral {
+
 bool Sapi::Initialize() {
 	if (instance) {
 		instance.reset();
@@ -209,7 +273,7 @@ bool Sapi::Initialize() {
 	this->voiceIndex = 0;
 	
 	g_threadStarted.store(false, std::memory_order_release);
-	g_dataQueueCv.notify_all();
+	g_sleepCv.notify_all();
 
 	if (g_player) {
 		static_cast<void>(g_player->stop());
@@ -243,8 +307,10 @@ bool Sapi::Initialize() {
 		return false;
 	}
 
+	g_ringBuffer.Init(RING_BUFFER_SIZE);
+
 	g_threadStarted.store(true, std::memory_order_release);
-	speechThread = std::jthread(sapi_thread);
+	speechThread = std::jthread(BackgroundWorkerLoop);
 	return true;
 }
 
@@ -259,7 +325,7 @@ bool Sapi::Uninitialize() {
 	instance.reset();
 
 	speechThread.request_stop();
-	g_dataQueueCv.notify_all();
+	g_sleepCv.notify_all();
 	if (speechThread.joinable()) {
 		speechThread.join();
 	}
@@ -296,7 +362,7 @@ bool Sapi::Speak(const char* text, bool interrupt) {
 		
 		g_threadStarted.store(false, std::memory_order_release);
 		speechThread.request_stop();
-		g_dataQueueCv.notify_all();
+		g_sleepCv.notify_all();
 		if (speechThread.joinable()) {
 			speechThread.join();
 		}
@@ -313,10 +379,11 @@ bool Sapi::Speak(const char* text, bool interrupt) {
 		}
 		
 		playerLock = g_player;
+		g_ringBuffer.Init(RING_BUFFER_SIZE);
 		
 		g_threadStarted.store(true, std::memory_order_release);
 		g_isSpeaking.store(false, std::memory_order_release);
-		speechThread = std::jthread(sapi_thread);
+		speechThread = std::jthread(BackgroundWorkerLoop);
 	}
 
 	uint64_t buffer_size = 0;
@@ -325,9 +392,13 @@ bool Sapi::Speak(const char* text, bool interrupt) {
 		return false;
 	}
 
-	PCMData dat;
-	dat.data = reinterpret_cast<unsigned char*>(data);
-	dat.size = static_cast<unsigned long>(buffer_size);
+	bool success = g_ringBuffer.Write(reinterpret_cast<const unsigned char*>(data), buffer_size);
+	
+	delete[] data; 
+
+	if (!success) {
+		return false; 
+	}
 
 	if (this->paused) {
 		this->paused = false;
@@ -336,13 +407,8 @@ bool Sapi::Speak(const char* text, bool interrupt) {
 		}
 	}
 
-	{
-		std::unique_lock<std::mutex> lock(g_dataQueueMutex);
-		g_dataQueue.push_back(dat);
-	}
-	
 	g_isSpeaking.store(true, std::memory_order_release);
-	g_dataQueueCv.notify_all();
+	g_sleepCv.notify_all();
 	return true;
 }
 
@@ -357,6 +423,7 @@ void* Sapi::SpeakToMemory(
 	if (audio_ptr == nullptr)
 		return nullptr;
 
+	std::lock_guard<std::mutex> lock(this->instanceMutex);
 	char* final_ptr = trim(audio_ptr, &bytes, &wfx, this->trimThreshold);
 	
 	free(audio_ptr); 
@@ -377,45 +444,58 @@ bool Sapi::IsSpeaking() {
 }
 
 bool Sapi::SetParameter(int param, const void* value) {
-	if (instance == nullptr || !value) [[unlikely]]
-		return false;
+    if (!value) [[unlikely]]
+        return false;
 
-	switch (param) {
-	case SRAL_PARAM_SAPI_TRIM_THRESHOLD:
-		this->trimThreshold = *reinterpret_cast<const int*>(value);
-		break;
-	case SRAL_PARAM_SPEECH_RATE:
-		return blastspeak_set_voice_rate(&*instance, *reinterpret_cast<const long*>(value)) != 0;
-	case SRAL_PARAM_SPEECH_VOLUME:
-		return blastspeak_set_voice_volume(&*instance, *reinterpret_cast<const long*>(value)) != 0;
-	case SRAL_PARAM_VOICE_INDEX: {
-		int result = blastspeak_set_voice(&*instance, *reinterpret_cast<const int*>(value));
-		if (result) {
-			this->voiceIndex = *reinterpret_cast<const int*>(value);
-			return true;
-		}
-		return false;
-	}
-	default:
-		return false;
-	}
-	return true;
+    std::lock_guard<std::mutex> lock(this->instanceMutex);
+    if (instance == nullptr) return false;
+
+    switch (param) {
+    case SRAL_PARAM_SAPI_TRIM_THRESHOLD:
+        this->trimThreshold = *reinterpret_cast<const int*>(value);
+        break;
+    case SRAL_PARAM_SPEECH_RATE:
+        return blastspeak_set_voice_rate(&*instance, *reinterpret_cast<const long*>(value)) != 0;
+    case SRAL_PARAM_SPEECH_VOLUME: {
+        long rawVolume = *reinterpret_cast<const long*>(value);
+        bool status = blastspeak_set_voice_volume(&*instance, rawVolume) != 0;
+        auto playerLock = g_player;
+        if (playerLock) {
+            float volumeFloat = static_cast<float>(rawVolume) / 100.0f;
+            static_cast<void>(playerLock->setVolume(volumeFloat));
+        }
+        return status;
+    }
+    case SRAL_PARAM_VOICE_INDEX: {
+        int result = blastspeak_set_voice(&*instance, *reinterpret_cast<const int*>(value));
+        if (result) {
+            this->voiceIndex = *reinterpret_cast<const int*>(value);
+            return true;
+        }
+        return false;
+    }
+    default:
+        return false;
+    }
+    return true;
 }
 
+
 bool Sapi::GetParameter(int param, void* value) {
-	if (instance == nullptr || !value) [[unlikely]]
+	if (!value) [[unlikely]]
 		return false;
+
+	std::lock_guard<std::mutex> lock(this->instanceMutex);
+	if (instance == nullptr) return false;
 
 	switch (param) {
 	case SRAL_PARAM_SAPI_TRIM_THRESHOLD:
 		*reinterpret_cast<int*>(value) = this->trimThreshold;
 		return true;
-	case SRAL_PARAM_SPEECH_RATE: {
+	case SRAL_PARAM_SPEECH_RATE:
 		return blastspeak_get_voice_rate(&*instance, reinterpret_cast<long*>(value)) != 0;
-	}
-	case SRAL_PARAM_SPEECH_VOLUME: {
+	case SRAL_PARAM_SPEECH_VOLUME:
 		return blastspeak_get_voice_volume(&*instance, reinterpret_cast<long*>(value)) != 0;
-	}
 	case SRAL_PARAM_VOICE_PROPERTIES: {
 		ReleaseAllStrings();
 		SRAL_VoiceInfo* voiceProperties = reinterpret_cast<SRAL_VoiceInfo*>(value);
@@ -443,7 +523,6 @@ bool Sapi::GetParameter(int param, void* value) {
 		}
 		return true;
 	}
-
 	case SRAL_PARAM_VOICE_COUNT:
 		*reinterpret_cast<int*>(value) = (int)instance->voice_count;
 		return true;
@@ -460,16 +539,7 @@ bool Sapi::StopSpeech() {
 	if (playerLock == nullptr) [[unlikely]]
 		return false;
 		
-	{
-		std::unique_lock<std::mutex> lock(g_dataQueueMutex);
-		for (PCMData& data : g_dataQueue) {
-			if (data.data) {
-				free(data.data);
-				data.data = nullptr;
-			}
-		}
-		g_dataQueue.clear();
-	}
+	g_ringBuffer.Clear(); 
 	
 	(void)playerLock->stop();
 	this->paused = false;
@@ -488,11 +558,8 @@ bool Sapi::ResumeSpeech() {
 	auto playerLock = g_player;
 	if (playerLock == nullptr) [[unlikely]] return false;
 	paused = false;
-	{
-		std::unique_lock<std::mutex> lock(g_dataQueueMutex);
-		if (!g_dataQueue.empty()) {
-			g_isSpeaking.store(true, std::memory_order_release);
-		}
+	if (g_ringBuffer.GetAvailableReadSpace() > 0) {
+		g_isSpeaking.store(true, std::memory_order_release);
 	}
 	return SUCCEEDED(playerLock->resume());
 }

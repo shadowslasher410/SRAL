@@ -12,13 +12,19 @@
 
 namespace Sral {
 
+#ifdef __cpp_lib_hardware_interference_size
+    using std::hardware_destructive_interference_size;
+#else
+    constexpr size_t hardware_destructive_interference_size = 64;
+#endif
+
 typedef error_status_t(__stdcall* NVDAController_speakText)(const wchar_t*);
 typedef error_status_t(__stdcall* NVDAController_brailleMessage)(const wchar_t*);
 typedef error_status_t(__stdcall* NVDAController_cancelSpeech)(void);
 typedef error_status_t(__stdcall* NVDAController_testIfRunning)(void);
 typedef error_status_t(__stdcall* NVDAController_speakSsml)(const wchar_t*, int, int, int);
 
-class alignas(destructive_alignment) Nvda final : public Engine {
+class alignas(hardware_destructive_interference_size) Nvda final : public Engine {
 public:
 	Nvda();
 	~Nvda() override;
@@ -63,24 +69,13 @@ public:
 	[[nodiscard]] bool Uninitialize() override;
 
 private:
-	bool InitializeInternal() noexcept;
-	void UninitializeInternal() noexcept;
+	// Mutex guarding user parameter writes (such as symbolLevel/enable_spelling)
+	alignas(hardware_destructive_interference_size) std::mutex m_mutex;
 
-	alignas(destructive_alignment) std::mutex m_mutex;
-	alignas(destructive_alignment) HINSTANCE lib = nullptr;
-
-	NVDAController_speakText nvdaController_speakText = nullptr;
-	NVDAController_brailleMessage nvdaController_brailleMessage = nullptr;
-	NVDAController_cancelSpeech nvdaController_cancelSpeech = nullptr;
-	NVDAController_testIfRunning nvdaController_testIfRunning = nullptr;
-	NVDAController_speakSsml nvdaController_speakSsml = nullptr;
-
+	// Instance local parameter states read by caller threads before pushing to the SPSC pipe
 	int symbolLevel = -1;
-	bool extended = false;
 	bool enable_spelling = false;
 	bool use_character_descriptions = false;
-
-	alignas(destructive_alignment) ULONGLONG m_lastConnCheckTime = 0;
 };
 } // namespace Sral
 #endif

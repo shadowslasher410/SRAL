@@ -21,6 +21,8 @@ const (
 	SAPIEngine
 	// SpeechDispatcherEngine — Speech Dispatcher, a common daemon for Linux systems.
 	SpeechDispatcherEngine
+	// Orca - a popular screen reader for Linux.
+	OrcaEngine
 	// VoiceOverEngine — Apple VoiceOver, the built-in screen reader on Apple platforms.
 	VoiceOverEngine
 	// NSSpeechEngine — Apple NSSpeechSynthesizer.
@@ -31,8 +33,12 @@ const (
 	AndroidAccessibilityManagerEngine
 	// AndroidTextToSpeechEngine — Android TextToSpeech synthesizer.
 	AndroidTextToSpeechEngine
+	// ChromeVox web extension and ChromeOS speech reader.
+	ChromeVoxEngine
+	// Multiplatform Accessilibilty Provider (for Android, iOS, MacOS, Linux, Windows).
+	AccessKitEngine
 	// AllEngines is a bitmask of all supported engines.
-	AllEngines Engine = NVDAEngine | JAWSEngine | ZDSREngine | NarratorEngine | UIAEngine | SAPIEngine | SpeechDispatcherEngine | NSSpeechEngine | VoiceOverEngine | AVSpeechEngine | AndroidAccessibilityManagerEngine | AndroidTextToSpeechEngine
+	AllEngines Engine = NVDAEngine | JAWSEngine | ZDSREngine | NarratorEngine | UIAEngine | SAPIEngine | SpeechDispatcherEngine | OrcaEngine | NSSpeechEngine | VoiceOverEngine | AVSpeechEngine | AndroidAccessibilityManagerEngine | AndroidTextToSpeechEngine | ChromeVoxEngine | AccessKitEngine
 	// InvalidEngine represents an error or uninitialized engine state.
 	InvalidEngine Engine = -1
 	// NoSpecifiedEngine is used for auto-selection of the engine.
@@ -114,6 +120,12 @@ const (
 	UseCharacterDescriptionsParam
 	// NVDAIsControlExParam — specific parameter for NVDA control.
 	NVDAIsControlExParam
+	// EngineIsPausedParam - whether the engine is in a paused state.
+	EngineIsPausedParam
+	// AndroidJniEnvParam - used to set the JNIENV* for Android.
+	AndroidJniEnvParam
+	// AndroidActivityParam - used to set the Activity (jobject) for Android.
+	AndroidActivityParam
 )
 
 // VoiceInfo contains information about a specific synthesizer voice.

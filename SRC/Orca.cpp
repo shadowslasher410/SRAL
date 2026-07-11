@@ -8,6 +8,7 @@
 
 #if defined(__linux__) && !defined(__ANDROID__)
 #include <cstdlib>
+#include <cstring>
 #include <dbus/dbus.h>
 #endif
 
@@ -15,9 +16,10 @@ namespace Sral {
 
 std::atomic<bool> Orca::is_active{false};
 std::mutex Orca::orca_mutex;
-void* Orca::_dbus_connection{nullptr};
 
 #if defined(__linux__) && !defined(__ANDROID__)
+DBusConnection* Orca::_dbus_connection{nullptr};
+
 struct DBusMessageDeleter {
 	void operator()(DBusMessage* msg) const noexcept {
 		if (msg) {
@@ -39,6 +41,10 @@ bool Orca::Initialize() {
 		return false;
 	}
 
+	if (!dbus_threads_init_default()) {
+		return false;
+	}
+
 	DBusError error;
 	dbus_error_init(&error);
 
@@ -53,7 +59,9 @@ bool Orca::Initialize() {
 		return false;
 	}
 
-	_dbus_connection = static_cast<void*>(conn);
+	dbus_connection_set_exit_on_disconnect(conn, FALSE);
+
+	_dbus_connection = conn;
 	is_active.store(true, std::memory_order_release);
 	return true;
 #else
@@ -69,9 +77,8 @@ bool Orca::Uninitialize() noexcept {
 
 #if defined(__linux__) && !defined(__ANDROID__)
 	if (_dbus_connection) {
-		DBusConnection* conn = static_cast<DBusConnection*>(_dbus_connection);
-		dbus_connection_close(conn);
-		dbus_connection_unref(conn);
+		dbus_connection_close(_dbus_connection);
+		dbus_connection_unref(_dbus_connection);
 		_dbus_connection = nullptr;
 	}
 #endif
@@ -92,7 +99,7 @@ bool Orca::Speak(std::string_view text, bool interrupt) {
 	std::lock_guard lock(orca_mutex);
 
 #if defined(__linux__) && !defined(__ANDROID__)
-	DBusConnection* conn = static_cast<DBusConnection*>(_dbus_connection);
+	DBusConnection* conn = _dbus_connection;
 	if (!conn) {
 		return false;
 	}
@@ -101,6 +108,22 @@ bool Orca::Speak(std::string_view text, bool interrupt) {
 		UniqueDBusMessage stop_msg(
 			dbus_message_new_signal("/org/a11y/atspi/registry", "org.a11y.atspi.Event.Document", "Reload"));
 		if (stop_msg) {
+			DBusMessageIter stop_iter;
+			dbus_message_iter_init_append(stop_msg.get(), &stop_iter);
+			
+			const char* stop_detail = "";
+			dbus_int32_t stop_int = 0;
+			const char* stop_variant_val = "";
+			
+			dbus_message_iter_append_basic(&stop_iter, DBUS_TYPE_STRING, &stop_detail);
+			dbus_message_iter_append_basic(&stop_iter, DBUS_TYPE_INT32, &stop_int);
+			dbus_message_iter_append_basic(&stop_iter, DBUS_TYPE_INT32, &stop_int);
+			
+			DBusMessageIter stop_var_iter;
+			dbus_message_iter_open_container(&stop_iter, DBUS_TYPE_VARIANT, DBUS_TYPE_STRING_AS_STRING, &stop_var_iter);
+			dbus_message_iter_append_basic(&stop_var_iter, DBUS_TYPE_STRING, &stop_variant_val);
+			dbus_message_iter_close_container(&stop_iter, &stop_var_iter);
+
 			dbus_connection_send(conn, stop_msg.get(), nullptr);
 		}
 	}
@@ -117,17 +140,28 @@ bool Orca::Speak(std::string_view text, bool interrupt) {
 	const char* detail = "announcement";
 	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &detail);
 
-	std::string null_terminated_text(text);
-	const char* raw_text = null_terminated_text.c_str();
-	dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &raw_text);
+	dbus_int32_t detail1 = 0;
+	dbus_int32_t detail2 = 0;
+	dbus_message_iter_append_basic(&iter, DBUS_TYPE_INT32, &detail1);
+	dbus_message_iter_append_basic(&iter, DBUS_TYPE_INT32, &detail2);
+
+	std::string safe_string_copy(text);
+	const char* raw_text = safe_string_copy.c_str();
+
+	DBusMessageIter variant_iter;
+	dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT, DBUS_TYPE_STRING_AS_STRING, &variant_iter);
+	dbus_message_iter_append_basic(&variant_iter, DBUS_TYPE_STRING, &raw_text);
+	dbus_message_iter_close_container(&iter, &variant_iter);
 
 	dbus_connection_send(conn, msg.get(), nullptr);
+	dbus_connection_flush(conn);
 	return true;
 #else
 	return false;
 #endif
 }
 
+// cppcheck-suppress functionStatic
 bool Orca::Speak(std::nullptr_t, bool) noexcept {
 	return false;
 }
@@ -136,14 +170,16 @@ bool Orca::SpeakSsml(std::string_view ssml, bool interrupt) {
 	return Speak(ssml, interrupt);
 }
 
+// cppcheck-suppress functionStatic
 bool Orca::SpeakSsml(std::nullptr_t, bool) noexcept {
 	return false;
 }
 
-bool Orca::Braille(std::string_view) {
+bool Orca::Braille(std::string_view text) {
 	return false;
 }
 
+// cppcheck-suppress functionStatic
 bool Orca::Braille(std::nullptr_t) noexcept {
 	return false;
 }
@@ -156,7 +192,7 @@ bool Orca::StopSpeech() {
 	std::lock_guard lock(orca_mutex);
 
 #if defined(__linux__) && !defined(__ANDROID__)
-	DBusConnection* conn = static_cast<DBusConnection*>(_dbus_connection);
+	DBusConnection* conn = _dbus_connection;
 	if (!conn) {
 		return false;
 	}
@@ -164,7 +200,24 @@ bool Orca::StopSpeech() {
 	UniqueDBusMessage msg(
 		dbus_message_new_signal("/org/a11y/atspi/registry", "org.a11y.atspi.Event.Document", "Reload"));
 	if (msg) {
+		DBusMessageIter iter;
+		dbus_message_iter_init_append(msg.get(), &iter);
+
+		const char* detail = "";
+		dbus_int32_t dummy_int = 0;
+		const char* dummy_str = "";
+
+		dbus_message_iter_append_basic(&iter, DBUS_TYPE_STRING, &detail);
+		dbus_message_iter_append_basic(&iter, DBUS_TYPE_INT32, &dummy_int);
+		dbus_message_iter_append_basic(&iter, DBUS_TYPE_INT32, &dummy_int);
+
+		DBusMessageIter variant_iter;
+		dbus_message_iter_open_container(&iter, DBUS_TYPE_VARIANT, DBUS_TYPE_STRING_AS_STRING, &variant_iter);
+		dbus_message_iter_append_basic(&variant_iter, DBUS_TYPE_STRING, &dummy_str);
+		dbus_message_iter_close_container(&iter, &variant_iter);
+
 		dbus_connection_send(conn, msg.get(), nullptr);
+		dbus_connection_flush(conn);
 		return true;
 	}
 #endif

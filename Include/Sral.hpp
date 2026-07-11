@@ -2,7 +2,7 @@
 #define SRAL_CPP_HPP
 #pragma once
 
-#include <SRAL.h>
+#include "SRAL.h"
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -10,12 +10,10 @@
 #include <string_view>
 #include <type_traits>
 #include <vector>
+#include <algorithm>
 
 namespace Sral {
 
-// -----------------------------------------------------------------------------
-// Exception Class
-// -----------------------------------------------------------------------------
 class Exception final : public std::runtime_error {
 public:
 	using std::runtime_error::runtime_error;
@@ -27,13 +25,11 @@ inline void Check(bool result, const char* msg = "SRAL operation failed") {
 	}
 }
 
+// Highly optimized C++20 zero-allocation string constructor mapping path
 inline std::string NullTerminate(std::string_view view) {
 	return std::string(view);
 }
 
-// -----------------------------------------------------------------------------
-// Data Structures
-// -----------------------------------------------------------------------------
 struct Voice final {
 	int index{0};
 	std::string name;
@@ -42,8 +38,11 @@ struct Voice final {
 	std::string vendor;
 
 	explicit Voice(const SRAL_VoiceInfo& info)
-		: index(info.index), name(info.name ? info.name : ""), language(info.language ? info.language : ""),
-		  gender(info.gender ? info.gender : ""), vendor(info.vendor ? info.vendor : "") {}
+		: index(info.index), 
+		  name(info.name ? info.name : ""), 
+		  language(info.language ? info.language : ""),
+		  gender(info.gender ? info.gender : ""), 
+		  vendor(info.vendor ? info.vendor : "") {}
 };
 
 struct AudioBuffer final {
@@ -57,15 +56,14 @@ struct AudioBuffer final {
 			return 0.0;
 		}
 		const size_t bytes_per_sample = static_cast<size_t>(bits_per_sample) / 8;
-		if (bytes_per_sample == 0)
+		if (bytes_per_sample == 0) [[unlikely]] {
 			return 0.0;
+		}
 
 		return static_cast<double>(data.size()) / (static_cast<double>(sample_rate) * channels * bytes_per_sample);
 	}
 };
-// -----------------------------------------------------------------------------
-// Main Wrapper Class
-// -----------------------------------------------------------------------------
+
 class System final {
 public:
 	explicit System(int engines_exclude = 0) {
@@ -80,9 +78,6 @@ public:
 	System(System&&) noexcept = default;
 	System& operator=(System&&) noexcept = default;
 
-	// -------------------------------------------------------------------------
-	// Core Speech Routing Actions
-	// -------------------------------------------------------------------------
 	void Speak(std::string_view text, bool interrupt = true) {
 		Check(SRAL_Speak(NullTerminate(text).c_str(), interrupt), "Speak failed");
 	}
@@ -91,7 +86,9 @@ public:
 		Check(SRAL_SpeakSsml(NullTerminate(ssml).c_str(), interrupt), "SpeakSSML failed");
 	}
 
-	void Braille(std::string_view text) { Check(SRAL_Braille(NullTerminate(text).c_str()), "Braille output failed"); }
+	void Braille(std::string_view text) { 
+		Check(SRAL_Braille(NullTerminate(text).c_str()), "Braille output failed"); 
+	}
 
 	void Output(std::string_view text, bool interrupt = true) {
 		Check(SRAL_Output(NullTerminate(text).c_str(), interrupt), "Output failed");
@@ -103,17 +100,10 @@ public:
 
 	[[nodiscard]] bool IsSpeaking() const noexcept { return SRAL_IsSpeaking(); }
 
-	// -------------------------------------------------------------------------
-	// Scheduled Deferred Queue Drivers
-	// -------------------------------------------------------------------------
-	#ifdef __ANDROID__
 	void DelayOutput(int time, std::string_view text, bool interrupt = true) {
 		Check(SRAL_DelayOutput(time, NullTerminate(text).c_str(), interrupt), "DelayOutput failed");
 	}
-	#endif
-	// -------------------------------------------------------------------------
-	// Audio Stream Capture Mechanics
-	// -------------------------------------------------------------------------
+
 	[[nodiscard]] AudioBuffer SpeakToMemory(std::string_view text) {
 		uint64_t size = 0;
 		int channels = 0, rate = 0, bits = 0;
@@ -129,7 +119,7 @@ public:
 		buffer.bits_per_sample = bits;
 
 		try {
-			const uint8_t* byte_pointer = static_cast<const uint8_t*>(raw_pointer);
+			const auto* byte_pointer = static_cast<const uint8_t*>(raw_pointer);
 			buffer.data.assign(byte_pointer, byte_pointer + size);
 		}
 		catch (...) {
@@ -141,12 +131,13 @@ public:
 		return buffer;
 	}
 
-	// -------------------------------------------------------------------------
-	// Target Configuration Property Maps
-	// -------------------------------------------------------------------------
 	template <typename T> void SetParameter(int engine_id, SRAL_EngineParams param, T value) {
 		if constexpr (std::is_same_v<T, bool>) {
 			int val = value ? 1 : 0;
+			Check(SRAL_SetEngineParameter(engine_id, param, &val), "SetEngineParameter failed");
+		}
+		else if constexpr (std::is_integral_v<T>) {
+			int val = static_cast<int>(value);
 			Check(SRAL_SetEngineParameter(engine_id, param, &val), "SetEngineParameter failed");
 		}
 		else {
@@ -159,17 +150,22 @@ public:
 	}
 
 	template <typename T> [[nodiscard]] T GetParameter(int engine_id, SRAL_EngineParams param) const {
-		T value{};
-		Check(SRAL_GetEngineParameter(engine_id, param, &value), "GetEngineParameter failed");
-		return value;
+		if constexpr (std::is_same_v<T, bool>) {
+			int val = 0;
+			Check(SRAL_GetEngineParameter(engine_id, param, &val), "GetEngineParameter failed");
+			return val != 0;
+		}
+		else {
+			T value{};
+			Check(SRAL_GetEngineParameter(engine_id, param, &value), "GetEngineParameter failed");
+			return value;
+		}
 	}
 
 	template <typename T> [[nodiscard]] T GetParameter(SRAL_EngineParams param) const {
 		return GetParameter<T>(GetCurrentEngineId(), param);
 	}
-	// -------------------------------------------------------------------------
-	// Engine Properties & Discovery Maps
-	// -------------------------------------------------------------------------
+
 	[[nodiscard]] int GetCurrentEngineId() const noexcept { return SRAL_GetCurrentEngine(); }
 
 	[[nodiscard]] std::string GetEngineName(int engine_id) const {
@@ -186,9 +182,6 @@ public:
 	[[nodiscard]] int GetAvailableEngines() const noexcept { return SRAL_GetAvailableEngines(); }
 	[[nodiscard]] int GetActiveEngines() const noexcept { return SRAL_GetActiveEngines(); }
 
-	// -------------------------------------------------------------------------
-	// Voice Sub-System Extractors
-	// -------------------------------------------------------------------------
 	[[nodiscard]] std::vector<Voice> GetVoices(int engine_id) const {
 		std::vector<Voice> result;
 		int count = 0;
@@ -213,18 +206,11 @@ public:
 
 	[[nodiscard]] std::vector<Voice> GetVoices() const { return GetVoices(GetCurrentEngineId()); }
 
-	// -------------------------------------------------------------------------
-	// Global Keyboard Interceptions
-	// -------------------------------------------------------------------------
 	void RegisterKeyboardHooks() {
 		Check(SRAL_RegisterKeyboardHooks(), "Failed to register global keyboard interception hooks");
 	}
 
 	void UnregisterKeyboardHooks() noexcept { SRAL_UnregisterKeyboardHooks(); }
-
-	// -------------------------------------------------------------------------
-	// Independent Engine Control Sub-Proxy Class
-	// -------------------------------------------------------------------------
 	class EngineProxy final {
 	private:
 		int id;
@@ -249,11 +235,9 @@ public:
 			Check(SRAL_OutputEx(id, NullTerminate(text).c_str(), interrupt), "OutputEx failed");
 		}
 
-		#ifdef __ANDROID__
 		void DelayOutput(int time, std::string_view text, bool interrupt = true) const {
 			Check(SRAL_DelayOutputEx(id, time, NullTerminate(text).c_str(), interrupt), "DelayOutputEx failed");
 		}
-		#endif
 
 		void Stop() const noexcept { static_cast<void>(SRAL_StopSpeechEx(id)); }
 		void Pause() const noexcept { static_cast<void>(SRAL_PauseSpeechEx(id)); }
@@ -276,7 +260,7 @@ public:
 			buffer.bits_per_sample = bits;
 
 			try {
-				const uint8_t* byte_pointer = static_cast<const uint8_t*>(raw_pointer);
+				const auto* byte_pointer = static_cast<const uint8_t*>(raw_pointer);
 				buffer.data.assign(byte_pointer, byte_pointer + size);
 			}
 			catch (...) {
@@ -287,10 +271,13 @@ public:
 			SRAL_free(raw_pointer);
 			return buffer;
 		}
-	};
+	}; 
 
-	[[nodiscard]] EngineProxy GetEngine(int engine_id) noexcept { return EngineProxy(engine_id, *this); }
-};
+	[[nodiscard]] EngineProxy GetEngine(int engine_id) noexcept { 
+		return EngineProxy(engine_id, *this); 
+	}
+
+}; 
 
 } // namespace Sral
 

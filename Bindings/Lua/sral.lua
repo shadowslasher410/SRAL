@@ -67,13 +67,14 @@ local sral = {
         UIA                          = 0x20,   -- 1 << 5
         SAPI                         = 0x40,   -- 1 << 6
         SPEECH_DISPATCHER            = 0x80,   -- 1 << 7
-        VOICE_OVER                   = 0x0100, -- 1 << 8
-        NS_SPEECH                    = 0x0200, -- 1 << 9
-        AV_SPEECH                    = 0x0400, -- 1 << 10
-        ANDROID_ACCESSIBILITY_MGR    = 0x0800, -- 1 << 11
-        ANDROID_TEXT_TO_SPEECH       = 0x1000, -- 1 << 12
-        CHROMEVOX                    = 0x2000, -- 1 << 13
-        ORCA                         = 0x4000, -- 1 << 14
+        ORCA                         = 0x0100, -- 1 << 8
+        VOICE_OVER                   = 0x0200, -- 1 << 9
+        NS_SPEECH                    = 0x0400, -- 1 << 10
+        AV_SPEECH                    = 0x0800, -- 1 << 11
+        ANDROID_ACCESSIBILITY_MGR    = 0x1000, -- 1 << 12
+        ANDROID_TEXT_TO_SPEECH       = 0x2000, -- 1 << 13
+        CHROMEVOX                    = 0x4000, -- 1 << 14
+        ACCESS_KIT                   = 0x8000, -- 1 << 15   
         CURRENT                      = -1
     },
 
@@ -107,8 +108,9 @@ local sral = {
         ENABLE_SPELLING            = 7,
         USE_CHARACTER_DESCRIPTIONS = 8,
         NVDA_IS_CONTROL_EX         = 9,
-        ANDROID_JNI_ENV            = 10,
-        ANDROID_ACTIVITY           = 11
+        ENGINE_IS_PAUSED           = 10,
+        ANDROID_JNI_ENV            = 11,
+        ANDROID_ACTIVITY           = 12
     }
 }
 

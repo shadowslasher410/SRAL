@@ -1,304 +1,382 @@
-#if defined(__ANDROID__)
-#include "AndroidContext.h"
+package org.sral;
 
-#include <atomic>
-#include <concepts>
-#include <jni.h>
-#include <memory>
-#include <mutex>
-#include <pthread.h>
+import android.content.Context;
+import android.os.Bundle;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
+import android.util.Log;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import java.lang.ref.WeakReference;
+import java.util.Locale;
+import java.util.Objects;
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
 
-namespace Sral {
-namespace {
+public class AndroidTTSHelper {
+    private static final String TAG = "SRAL_TTSHelper";
+    private static final String UTTERANCE_ID = "sral_utterance";
+    private static final int INITIAL_CAPACITY = 8;
+    private volatile TextToSpeech tts;
+    private volatile boolean ready = false;
+    private volatile boolean speaking = false;
+    private float currentRate = 1.0f;
+    private float currentVolume = 1.0f;
+    private String[] ringBuffer;
+    private int capacity;
+    private int head = 0;
+    private int tail = 0;
+    private int size = 0;
+    private final ReentrantLock lock;
+    private final Condition loopCondition;
+    private final Condition speechCompletionCondition;
+    private Thread workerThread;
+    private volatile boolean isRunning;
 
-std::atomic<JavaVM*> g_vm{nullptr};
-jweak g_weak_activity{nullptr};
-std::mutex g_context_mutex;
-pthread_key_t g_detach_key;
-std::once_flag g_key_once_flag;
-std::atomic<bool> g_key_initialized{false};
+    private static final class SafeUtteranceListener extends UtteranceProgressListener {
+        private final WeakReference<AndroidTTSHelper> helperRef;
 
-}
-
-class [[nodiscard]] ScopedLocalRef final {
-public:
-    explicit ScopedLocalRef() noexcept : env_(nullptr), ref_(nullptr) {}
-    explicit ScopedLocalRef(JNIEnv* env, jobject ref) noexcept : env_(env), ref_(ref) {}
-    
-    ~ScopedLocalRef() noexcept {
-        if (env_ && ref_) [[likely]] {
-            env_->DeleteLocalRef(ref_);
+        SafeUtteranceListener(AndroidTTSHelper helper) {
+            this.helperRef = new WeakReference<>(helper);
         }
-    }
-    
-    ScopedLocalRef(const ScopedLocalRef&) = delete;
-    ScopedLocalRef& operator=(const ScopedLocalRef&) = delete;
-    
-    ScopedLocalRef(ScopedLocalRef&& other) noexcept : env_(other.env_), ref_(other.ref_) {
-        other.ref_ = nullptr; 
-        other.env_ = nullptr;
-    }
-    
-    ScopedLocalRef& operator=(ScopedLocalRef&& other) noexcept {
-        if (this != &other) {
-            if (env_ && ref_) [[likely]] env_->DeleteLocalRef(ref_);
-            env_ = other.env_;
-            ref_ = other.ref_;
-            other.ref_ = nullptr;
-            other.env_ = nullptr;
+
+        @Override
+        public void onStart(String utteranceId) {
+            if (helperRef.get() instanceof AndroidTTSHelper helper) {
+                Log.d(TAG, "Native hardware engine started rendering utterance: " + utteranceId);
+            }
         }
-        return *this;
-    }
 
-    [[nodiscard]] jobject get() const noexcept { return ref_; }
-    jobject release() noexcept {
-        jobject tmp = ref_;
-        ref_ = nullptr;
-        env_ = nullptr;
-        return tmp;
-    }
+        @Override
+        public void onDone(String utteranceId) {
+            if (helperRef.get() instanceof AndroidTTSHelper helper) {
+                helper.lock.lock();
+                try {
+                    helper.speaking = false;
+                    helper.speechCompletionCondition.signalAll();
+                } finally {
+                    helper.lock.unlock();
+                }
+            }
+        }
 
-    explicit operator bool() const noexcept { return ref_ != nullptr; }
+        @Override
+        @Deprecated
+        public void onError(String utteranceId) {
+            onError(utteranceId, -1);
+        }
 
-private:
-    JNIEnv* env_;
-    jobject ref_;
-};
-
-namespace {
-
-void PthreadThreadDetacher(void* value) noexcept {
-    if (!value) [[unlikely]] 
-        return;
-    
-    auto* vm = static_cast<JavaVM*>(value);
-    vm->DetachCurrentThread();
-}
-
-void InitializePthreadKeyOnce() noexcept {
-    if (pthread_key_create(&g_detach_key, PthreadThreadDetacher) == 0) {
-        g_key_initialized.store(true, std::memory_order::release);
-    }
-}
-
-bool EnforceThreadTokenRegistration(JavaVM* vm) noexcept {
-    std::call_once(g_key_once_flag, InitializePthreadKeyOnce);
-    if (!g_key_initialized.load(std::memory_order::acquire)) [[unlikely]] {
-        return false;
-    }
-
-    if (pthread_getspecific(g_detach_key) != nullptr) [[likely]] {
-        return true;
-    }
-
-    if (pthread_setspecific(g_detach_key, vm) == 0) {
-        return true;
-    }
-
-    return false;
-}
-
-class [[nodiscard]] ScopedCleanupAttachmentGuard final {
-public:
-    explicit ScopedCleanupAttachmentGuard(JavaVM* vm) noexcept : vm_(vm), env_(nullptr), must_detach_(false) {
-        if (!vm_) [[unlikely]] return;
-
-        jint status = vm_->GetEnv(reinterpret_cast<void**>(&env_), JNI_VERSION_1_6);
-        if (status == JNI_EDETACHED) {
-            if (vm_->AttachCurrentThread(&env_, nullptr) == JNI_OK) {
-                must_detach_ = true;
+        @Override
+        public void onError(String utteranceId, int errorCode) {
+            if (helperRef.get() instanceof AndroidTTSHelper helper) {
+                helper.lock.lock();
+                try {
+                    helper.speaking = false;
+                    helper.speechCompletionCondition.signalAll();
+                    Log.w(TAG, "Utterance playback failed for ID: %s with error code: %d".formatted(utteranceId, errorCode));
+                } finally {
+                    helper.lock.unlock();
+                }
             }
         }
     }
 
-    ~ScopedCleanupAttachmentGuard() noexcept {
-        if (must_detach_ && vm_) [[likely]] {
-            vm_->DetachCurrentThread();
-        }
-    }
+    private static final class SafeOnInitListener implements TextToSpeech.OnInitListener {
+        private final WeakReference<AndroidTTSHelper> helperRef;
 
-    ScopedCleanupAttachmentGuard(const ScopedCleanupAttachmentGuard&) = delete;
-    ScopedCleanupAttachmentGuard& operator=(const ScopedCleanupAttachmentGuard&) = delete;
-    ScopedCleanupAttachmentGuard(ScopedCleanupAttachmentGuard&&) noexcept = delete;
-    ScopedCleanupAttachmentGuard& operator=(ScopedCleanupAttachmentGuard&&) noexcept = delete;
-
-    [[nodiscard]] JNIEnv* GetEnv() const noexcept { return env_; }
-
-private:
-    JavaVM* vm_;
-    JNIEnv* env_;
-    bool must_detach_;
-};
-
-} 
-
-void ClearAndroidContext() noexcept {
-    JavaVM* vm = g_vm.exchange(nullptr, std::memory_order::acq_rel);
-    if (!vm) return;
-
-    if (g_key_initialized.load(std::memory_order::acquire)) {
-        pthread_setspecific(g_detach_key, nullptr);
-    }
-    {
-        ScopedCleanupAttachmentGuard attachment_guard{vm};
-        std::lock_guard lock{g_context_mutex};
-        JNIEnv* env = attachment_guard.GetEnv();
-
-        if (env && g_weak_activity) {
-            env->DeleteWeakGlobalRef(g_weak_activity);
-        }
-        g_weak_activity = nullptr;
-    }
-}
-
-bool SetAndroidJNIEnv(JNIEnv* env) noexcept {
-    if (!env) [[unlikely]]
-        return false;
-
-    JavaVM* new_vm{nullptr};
-    if (env->GetJavaVM(&new_vm) != JNI_OK || !new_vm) [[unlikely]] {
-        return false;
-    }
-
-    JavaVM* current_vm = g_vm.load(std::memory_order::acquire);
-    if (current_vm == new_vm) [[likely]] {
-        return true;
-    }
-
-    bool detach_required = false;
-
-    {
-        std::lock_guard lock{g_context_mutex};
-        
-        current_vm = g_vm.load(std::memory_order::relaxed);
-        if (current_vm == new_vm) {
-            return true;
+        SafeOnInitListener(AndroidTTSHelper helper) {
+            this.helperRef = new WeakReference<>(helper);
         }
 
-        if (g_weak_activity) {
-            if (current_vm) {
-                JNIEnv* old_env = nullptr;
-                jint status = current_vm->GetEnv(reinterpret_cast<void**>(&old_env), JNI_VERSION_1_6);
-                
-                if (status == JNI_OK && old_env) {
-                    old_env->DeleteWeakGlobalRef(g_weak_activity);
-                } else if (status == JNI_EDETACHED) {
-                    if (current_vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&old_env), nullptr) == JNI_OK && old_env) {
-                        old_env->DeleteWeakGlobalRef(g_weak_activity);
-                        detach_required = true;
+        @Override
+        public void onInit(int status) {
+            if (!(helperRef.get() instanceof AndroidTTSHelper helper)) {
+                return;
+            }
+
+            if (status == TextToSpeech.SUCCESS) {
+                try {
+                    helper.lock.lock();
+                    try {
+                        TextToSpeech actualTts = helper.tts;
+                        if (actualTts == null) {
+                            Log.w(TAG, "TTS instance reference not fully committed yet during initialization callback loop.");
+                            return;
+                        }
+
+                        actualTts.setLanguage(Locale.getDefault());
+                        actualTts.setOnUtteranceProgressListener(new SafeUtteranceListener(helper));
+                        actualTts.setSpeechRate(helper.currentRate);
+                        
+                        helper.ready = true;
+                        helper.startWorker();
+                    } finally {
+                        helper.lock.unlock();
+                    }
+                } catch (Throwable t) {
+                    switch (t) {
+                        case Exception e -> Log.e(TAG, "Failed to completely initialize TTS listener tracks", e);
+                        default -> Log.wtf(TAG, "Fatal engine breakdown during TTS tracking setup pass", t);
+                    }
+                    
+                    helper.lock.lock();
+                    try {
+                        helper.ready = false;
+                    } finally {
+                        helper.lock.unlock();
                     }
                 }
-            }
-            g_weak_activity = nullptr;
-        }
-
-        g_vm.store(new_vm, std::memory_order::release);
-    }
-    
-    if (detach_required && current_vm) {
-        current_vm->DetachCurrentThread();
-    }
-
-    return true;
-}
-
-JNIEnv* GetAndroidJNIEnv() noexcept {
-    JavaVM* vm = g_vm.load(std::memory_order::acquire);
-    if (!vm) [[unlikely]]
-        return nullptr;
-
-    JNIEnv* env{nullptr};
-    jint status = vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
-    
-    if (status == JNI_OK) [[likely]] {
-        if (EnforceThreadTokenRegistration(vm)) [[likely]] {
-            return env;
-        }
-        return nullptr;
-    }
-
-    if (status == JNI_EDETACHED) {
-        bool must_detach = false;
-        status = vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&env), nullptr);
-        if (status == JNI_OK) [[likely]] {
-            must_detach = true;
-            
-            if (EnforceThreadTokenRegistration(vm)) [[likely]] {
-                if (g_vm.load(std::memory_order::acquire) != nullptr) [[likely]] {
-                    return env; 
+            } else {
+                Log.e(TAG, "Android TextToSpeech initialization engine failed with status: %d".formatted(status));
+                
+                helper.lock.lock();
+                try {
+                    helper.ready = false;
+                } finally {
+                    helper.lock.unlock();
                 }
             }
         }
+    }
+
+    public AndroidTTSHelper(@NonNull Context context) {
+        Objects.requireNonNull(context, "Context cannot be null");
+        final Context appContext = context.getApplicationContext();
         
-        if (must_detach) {
-            if (g_vm.load(std::memory_order::acquire) == vm) {
-                vm->DetachCurrentThread();
+        this.capacity = INITIAL_CAPACITY;
+        this.ringBuffer = new String[capacity];
+        this.lock = new ReentrantLock();
+        this.loopCondition = lock.newCondition();
+        this.speechCompletionCondition = lock.newCondition();
+        
+        this.tts = new TextToSpeech(appContext, new SafeOnInitListener(this));
+    }
+
+    public boolean isActive() { 
+        return ready && tts != null; 
+    }
+
+    public boolean isSpeaking() { 
+        lock.lock();
+        try {
+            return speaking; 
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void speak(String text, boolean interrupt) {
+        if (text == null || text.trim().isEmpty()) {
+            return;
+        }
+
+        lock.lock();
+        try {
+            if (interrupt) {
+                clearQueueAndNativeFrameworkStop();
+            }
+
+            if (size == capacity) {
+                resizeBuffer();
+            }
+
+            ringBuffer[tail] = text.trim();
+            tail = (tail + 1) % capacity;
+            size++;
+            loopCondition.signal();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    private void startWorker() {
+        if (workerThread != null && workerThread.isAlive()) {
+            return;
+        }
+        isRunning = true;
+        workerThread = Thread.ofVirtual()
+                .name("TTSBackgroundWorker")
+                .start(new TTSWorkerRunnable());
+    }
+
+    private final class TTSWorkerRunnable implements Runnable {
+        @Override
+        public void run() {
+            while (isRunning) {
+                String targetText = null;
+
+                lock.lock();
+                try {
+                    while (size == 0 && isRunning) {
+                        loopCondition.await();
+                    }
+
+                    if (!isRunning) break;
+                    while (speaking && isRunning) {
+                        speechCompletionCondition.await();
+                    }
+
+                    if (!isRunning) break;
+                    targetText = ringBuffer[head];
+                    ringBuffer[head] = null;
+                    head = (head + 1) % capacity;
+                    size--;
+
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                } finally {
+                    lock.unlock();
+                }
+
+                if (targetText != null && isActive()) {
+                    executeNativeSpeak(targetText);
+                }
             }
         }
     }
-    return nullptr;
-}
 
-bool SetAndroidActivity(jobject activity) noexcept {
-    if (!activity) [[unlikely]]
-        return false;
+    private void executeNativeSpeak(String text) {
+        if (tts == null) return;
 
-    JavaVM* vm = g_vm.load(std::memory_order::acquire);
-    if (!vm) return false;
+        Bundle params = new Bundle();
+        if (currentVolume != 1.0f) {
+            params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, currentVolume);
+        }
 
-    JNIEnv* env = GetAndroidJNIEnv();
-    if (!env) [[unlikely]]
-        return false;
+        lock.lock();
+        try {
+            speaking = true;
+        } finally {
+            lock.unlock();
+        }
 
-    jobject raw_local = env->NewLocalRef(activity);
-    if (!raw_local) [[unlikely]]
-        return false;
+        boolean submissionSuccess = false;
+        try {
+            int result = tts.speak(text, TextToSpeech.QUEUE_ADD, params, UTTERANCE_ID);
+            submissionSuccess = (result == TextToSpeech.SUCCESS);
+            
+            if (!submissionSuccess) {
+                Log.e(TAG, "Native speech submission rejected by engine with status code: " + result);
+            }
+        } catch (Throwable t) {
+            switch (t) {
+                case Exception e -> Log.e(TAG, "Error executing bundle-based speech invocation", e);
+                default -> Log.wtf(TAG, "Fatal error executing bundle-based speech invocation", t);
+            }
+        }
 
-    ScopedLocalRef local_activity{env, raw_local};
-
-    std::lock_guard lock{g_context_mutex};
-    if (g_vm.load(std::memory_order::acquire) != vm) {
-        local_activity.release();
-        return false;
+        if (!submissionSuccess) {
+            lock.lock();
+            try {
+                speaking = false;
+                speechCompletionCondition.signalAll();
+            } finally {
+                lock.unlock();
+            }
+        }
     }
 
-    if (g_weak_activity) {
-        env->DeleteWeakGlobalRef(g_weak_activity);
-        g_weak_activity = nullptr;
+    private void resizeBuffer() {
+        assert lock.isHeldByCurrentThread() : "Lock must be held when resizing the buffer";
+
+        int newCapacity = capacity * 2;
+        String[] newBuffer = new String[newCapacity];
+        
+        if (head == 0) {
+            System.arraycopy(ringBuffer, 0, newBuffer, 0, capacity);
+        } else {
+            int itemsToEnd = capacity - head;
+            System.arraycopy(ringBuffer, head, newBuffer, 0, itemsToEnd);
+            System.arraycopy(ringBuffer, 0, newBuffer, itemsToEnd, head);
+        }
+        
+        this.ringBuffer = newBuffer;
+        this.head = 0;
+        this.tail = capacity; 
+        this.capacity = newCapacity;
+        
+        Log.d(TAG, "Dynamic ring buffer expanded. New capacity: %d".formatted(newCapacity));
     }
 
-    g_weak_activity = env->NewWeakGlobalRef(local_activity.get());
-    return g_weak_activity != nullptr;
-}
+    private void clearQueueAndNativeFrameworkStop() {
+        assert lock.isHeldByCurrentThread() : "Lock must be held when clearing queues";
+        
+        java.util.Arrays.fill(ringBuffer, null);
+        head = 0;
+        tail = 0;
+        size = 0;
+        speaking = false;
 
-ScopedLocalRef GetAndroidActivity() noexcept {
-    JNIEnv* env = GetAndroidJNIEnv();
-    if (!env) [[unlikely]]
-        return ScopedLocalRef{};
+        if (tts != null) {
+            try {
+                tts.stop();
+            } catch (Exception e) {
+                Log.e("SRAL_TTSHelper", "Failed to interrupt active playback queue safely", e);
+            }
+        }
+        
+        speechCompletionCondition.signalAll();
+        loopCondition.signalAll(); 
+    }
 
-    std::lock_guard lock{g_context_mutex};
+    public void stop() {
+        lock.lock();
+        try {
+            clearQueueAndNativeFrameworkStop();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public void setSpeechRate(float rate) {
+        currentRate = rate;
+        if (tts != null && ready) {
+            try {
+                tts.setSpeechRate(rate);
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to apply runtime speech rate updates", e);
+            }
+        }
+    }
+
+    public void setVolume(float volume) {
+        currentVolume = Math.clamp(volume, 0.0f, 1.0f);
+    }
+
+    public float getRate() { 
+        return currentRate; 
+    }
     
-    if (g_vm.load(std::memory_order::acquire) == nullptr) {
-        return ScopedLocalRef{};
+    public float getVolume() { 
+        return currentVolume; 
     }
 
-    jweak current_weak_activity = g_weak_activity;
-    if (!current_weak_activity) {
-        return ScopedLocalRef{};
-    }
+    public void shutdown() {
+        lock.lock();
+        try {
+            isRunning = false;
+            ready = false;
+            clearQueueAndNativeFrameworkStop();
+            loopCondition.signalAll();
+            speechCompletionCondition.signalAll();
+            
+            if (workerThread != null) {
+                workerThread.interrupt();
+                workerThread = null;
+            }
+        } finally {
+            lock.unlock();
+        }
 
-    jobject raw_local_ref = env->NewLocalRef(current_weak_activity);
-    if (!raw_local_ref) {
-        return ScopedLocalRef{};
+        if (tts != null) {
+            try {
+                tts.shutdown();
+            } catch (Exception e) {
+                Log.e(TAG, "Error encountered during engine lifecycle shutdown pass", e);
+            } finally {
+                tts = null;
+            }
+        }
     }
-
-    if (env->IsSameObject(raw_local_ref, nullptr) == JNI_TRUE) {
-        env->DeleteLocalRef(raw_local_ref);
-        return ScopedLocalRef{};
-    }
-
-    return ScopedLocalRef{env, raw_local_ref};
 }
-
-} // namespace Sral
-#endif // defined(__ANDROID__)

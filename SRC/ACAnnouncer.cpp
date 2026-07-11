@@ -1,164 +1,78 @@
 #include "ACAnnouncer.h"
 
+#include <algorithm>
+#include <concepts>
+#include <cstring>
 #include <iostream>
 
-template <typename T, void (*Deleter)(T*)> struct AccessKitUniquePtr {
-	struct CustomDeleter {
-		void operator()(T* ptr) const {
-			if (ptr)
-				Deleter(ptr);
-		}
-	};
-	using Type = std::unique_ptr<T, CustomDeleter>;
-};
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
+namespace Sral {
 
-ACAnnouncer::ACAnnouncer() = default;
+ACAnnouncer::ACAnnouncer() : m_ring_queue{} {
+	for (size_t i = 0; i < RING_BUFFER_SIZE; ++i) {
+		m_ring_queue[i].sequence.store(i, std::memory_order_relaxed);
+	}
+}
 
 ACAnnouncer::~ACAnnouncer() {
-	Uninitialize();
+	ACAnnouncer::Uninitialize();
 }
 
 ACAnnouncer::ACAnnouncer(ACAnnouncer&& other) noexcept {
-	std::lock_guard lock(other.m_mutex);
-
-	if (other.m_adapter) {
-		std::cerr << "[ACAnnouncer] Critical: Refusing move-construction of an active announcer instance.\n";
-		return;
-	}
-
-	m_bound_window = other.m_bound_window;
-	m_queue = std::move(other.m_queue);
-	m_use_id_b = other.m_use_id_b;
-	other.m_bound_window = nullptr;
+	*this = std::move(other);
 }
 
 ACAnnouncer& ACAnnouncer::operator=(ACAnnouncer&& other) noexcept {
 	if (this != &other) {
-		Uninitialize();
-		std::scoped_lock lock(m_mutex, other.m_mutex);
+		ACAnnouncer::Uninitialize();
+		std::lock_guard lock(other.m_init_mutex);
+		m_context_handle = other.m_context_handle;
+		m_adapter.store(other.m_adapter.load(), std::memory_order_relaxed);
+		m_worker_thread = std::move(other.m_worker_thread);
 
-		if (other.m_adapter) {
-			std::cerr << "[ACAnnouncer] Critical: Refusing move-assignment of an active announcer instance.\n";
-			return *this;
-		}
+		m_head.store(other.m_head.load(), std::memory_order_relaxed);
+		m_tail.store(other.m_tail.load(), std::memory_order_relaxed);
 
-		m_bound_window = other.m_bound_window;
-		m_queue = std::move(other.m_queue);
-		m_use_id_b = other.m_use_id_b;
-		other.m_bound_window = nullptr;
+		other.m_context_handle = nullptr;
+		other.m_adapter.store(nullptr, std::memory_order_relaxed);
 	}
 	return *this;
 }
 
-void ACAnnouncer::OnActionRequestCallback(struct accesskit_action_request* request, void* userdata) {
-	if (userdata) {
-		static_cast<ACAnnouncer*>(userdata)->HandleActionRequest(request);
-	}
-	else if (request) {
-		accesskit_action_request_free(request);
-	}
-}
-
-struct accesskit_tree_update* ACAnnouncer::ProvideUpdateCallback(void* userdata) {
-	if (userdata) {
-		return static_cast<ACAnnouncer*>(userdata)->InterceptUpdatePayload();
-	}
-	return nullptr;
-}
-
-void ACAnnouncer::HandleActionRequest(struct accesskit_action_request* request) noexcept {
-	if (request) {
-		accesskit_action_request_free(request);
-	}
-}
-
-struct accesskit_tree_update* ACAnnouncer::InterceptUpdatePayload() noexcept {
-	return m_active_update_packet;
-}
-
-bool ACAnnouncer::IsScreenReaderActive() noexcept {
-	BOOL screenReaderRunning = FALSE;
-	if (::SystemParametersInfoW(SPI_GETSCREENREADER, 0, &screenReaderRunning, 0)) {
-		return screenReaderRunning == TRUE;
-	}
-	return false;
-}
-
-bool ACAnnouncer::Initialize() {
-	std::lock_guard lock(m_mutex);
-	if (m_adapter)
-		return true;
-
-	HWND target_window = m_bound_window;
-	if (!target_window) {
-		target_window = ::GetForegroundWindow();
-		if (!target_window)
+bool ACAnnouncer::InitializeWithContext(void* platform_window_or_context) {
+	{
+		std::lock_guard lock(m_init_mutex);
+		if (m_adapter.load(std::memory_order_relaxed))
 			return false;
-
-		DWORD current_process_id = ::GetCurrentProcessId();
-		DWORD window_process_id = 0;
-		::GetWindowThreadProcessId(target_window, &window_process_id);
-
-		if (current_process_id != window_process_id) {
-			std::cerr << "[ACAnnouncer] Guard Blocked: Refusing cross-process engine assignment.\n";
-			return false;
-		}
-		m_bound_window = target_window;
+		m_context_handle = platform_window_or_context;
 	}
-
-	m_adapter = accesskit_windows_adapter_new(target_window, true, OnActionRequestCallback, static_cast<void*>(this));
-	if (!m_adapter)
-		return false;
-
-	accesskit_tree* tree_raw = accesskit_tree_new(WINDOW_ID);
-	if (tree_raw) {
-		typename AccessKitUniquePtr<accesskit_tree, accesskit_tree_free>::Type tree(tree_raw);
-		accesskit_tree_set_app_name(tree.get(), "ACAnnouncer");
-
-		accesskit_node* window_raw = accesskit_node_new(ACCESSKIT_ROLE_WINDOW);
-		if (window_raw) {
-			typename AccessKitUniquePtr<accesskit_node, accesskit_node_free>::Type window_node(window_raw);
-			accesskit_node_set_role(window_node.get(), ACCESSKIT_ROLE_WINDOW);
-			accesskit_node_push_child(window_node.get(), ANNOUNCEMENT_ID_A);
-			accesskit_node_push_child(window_node.get(), ANNOUNCEMENT_ID_B);
-
-			accesskit_tree_update* init_update_raw = accesskit_tree_update_with_capacity_and_focus(1, WINDOW_ID);
-			if (init_update_raw) {
-				typename AccessKitUniquePtr<accesskit_tree_update, accesskit_tree_update_free>::Type init_update(
-					init_update_raw);
-				accesskit_tree_update_set_tree(init_update.get(), tree.release());
-				accesskit_tree_update_push_node(init_update.get(), WINDOW_ID, window_node.release());
-
-				m_active_update_packet = init_update.get();
-				bool status = accesskit_windows_adapter_update_if_active(
-					m_adapter, ProvideUpdateCallback, static_cast<void*>(this));
-				m_active_update_packet = nullptr;
-
-				if (status) {
-					init_update.release();
-				}
-			}
-		}
-	}
-
-	m_worker_thread = std::jthread(&ACAnnouncer::BackgroundWorkerLoop, this);
-	return true;
+	return Initialize();
 }
 
 bool ACAnnouncer::Uninitialize() {
 	std::jthread thread_to_join;
-	accesskit_windows_adapter* adapter_to_free = nullptr;
+	void* adapter_to_free = nullptr;
 
 	{
-		std::lock_guard lock(m_mutex);
-		if (!m_adapter)
+		std::lock_guard lock(m_init_mutex);
+		adapter_to_free = m_adapter.load(std::memory_order_relaxed);
+		if (!adapter_to_free)
 			return true;
 
 		m_worker_thread.request_stop();
-		std::queue<SpeechTask>().swap(m_queue);
-		adapter_to_free = m_adapter;
-		m_adapter = nullptr;
-		m_semaphore.release();
+
+		size_t head_snap = m_head.load(std::memory_order_relaxed);
+		m_tail.store(head_snap, std::memory_order_release);
+		m_adapter.store(nullptr, std::memory_order_release);
+
+		m_ring_bell.store(true, std::memory_order_release);
+		m_ring_bell.notify_one();
+
 		thread_to_join = std::move(m_worker_thread);
 	}
 
@@ -167,40 +81,78 @@ bool ACAnnouncer::Uninitialize() {
 	}
 
 	if (adapter_to_free) {
-		accesskit_windows_adapter_free(adapter_to_free);
+#if defined(_WIN32)
+		accesskit_windows_adapter_free(static_cast<accesskit_windows_adapter*>(adapter_to_free));
+#elif defined(__APPLE__)
+#if TARGET_OS_IPHONE
+		accesskit_ios_adapter_free(static_cast<accesskit_ios_adapter*>(adapter_to_free));
+#else
+		accesskit_macos_adapter_free(static_cast<accesskit_macos_adapter*>(adapter_to_free));
+#endif
+#elif defined(__ANDROID__)
+		accesskit_android_adapter_free(static_cast<accesskit_android_adapter*>(adapter_to_free));
+#else
+		accesskit_unix_adapter_free(static_cast<accesskit_unix_adapter*>(adapter_to_free));
+#endif
 	}
 
-	std::lock_guard lock(m_mutex);
-	m_bound_window = nullptr;
+	m_context_handle = nullptr;
 	return true;
 }
 
-bool ACAnnouncer::Speak(const char* text, bool interrupt) {
-	if (!text)
-		text = "";
+bool ACAnnouncer::Speak(const char* speech_text, bool interrupt) {
+	std::string_view text_view(speech_text ? speech_text : "");
 
-	{
-		std::unique_lock lock(m_mutex);
-		if (!m_adapter) {
-			if (!IsScreenReaderActive())
-				return false;
-
-			lock.unlock();
-			if (!Initialize())
-				return false;
-		}
+	if (!m_adapter.load(std::memory_order_acquire)) {
+#if defined(_WIN32)
+		if (!IsScreenReaderActive())
+			return false;
+#endif
+		std::lock_guard lock(m_init_mutex);
+		if (!m_adapter.load(std::memory_order_acquire) && !Initialize())
+			return false;
 	}
 
-	std::lock_guard lock(m_mutex);
 	if (m_worker_thread.get_stop_token().stop_requested())
 		return false;
 
 	if (interrupt) {
-		std::queue<SpeechTask>().swap(m_queue);
+		size_t head_snap = m_head.load(std::memory_order_relaxed);
+		m_tail.store(head_snap, std::memory_order_release);
 	}
 
-	m_queue.push(SpeechTask{.text = std::string(text), .interrupt = interrupt});
-	m_semaphore.release();
+	SpeechTask* task_ptr = nullptr;
+	size_t ticket = m_head.load(std::memory_order_relaxed);
+
+	while (true) {
+		task_ptr = &m_ring_queue[ticket & RING_MASK];
+		size_t seq = task_ptr->sequence.load(std::memory_order_acquire);
+		intptr_t difference = static_cast<intptr_t>(seq) - static_cast<intptr_t>(ticket);
+
+		if (difference == 0) {
+			if (m_head.compare_exchange_weak(ticket, ticket + 1, std::memory_order_relaxed)) {
+				break;
+			}
+		}
+		else if (difference < 0) {
+			return false;
+		}
+		else {
+			ticket = m_head.load(std::memory_order_relaxed);
+		}
+	}
+
+	size_t max_copy = (std::min)(static_cast<size_t>(text_view.size()), static_cast<size_t>(task_ptr->text.size() - 1));
+	std::memcpy(task_ptr->text.data(), text_view.data(), max_copy);
+	task_ptr->text[max_copy] = '\0';
+	task_ptr->interrupt = interrupt;
+
+	task_ptr->sequence.store(ticket + 1, std::memory_order_release);
+
+	if (!m_ring_bell.exchange(true, std::memory_order_release)) {
+		m_ring_bell.notify_one();
+	}
+
 	return true;
 }
 
@@ -209,81 +161,261 @@ bool ACAnnouncer::StopSpeech() {
 }
 
 bool ACAnnouncer::GetActive() {
-	std::lock_guard lock(m_mutex);
-	return m_adapter != nullptr && !m_worker_thread.get_stop_token().stop_requested();
+	return m_adapter.load(std::memory_order_acquire) != nullptr && !m_worker_thread.get_stop_token().stop_requested();
 }
 
 void ACAnnouncer::BackgroundWorkerLoop(std::stop_token stop_token) {
 	while (!stop_token.stop_requested()) {
-		m_semaphore.acquire();
+		size_t current_tail = m_tail.load(std::memory_order_relaxed);
+		SpeechTask& task = m_ring_queue[current_tail & RING_MASK];
 
-		SpeechTask task;
-		accesskit_windows_adapter* current_adapter = nullptr;
-		accesskit_node_id active_id = ANNOUNCEMENT_ID_A;
-		accesskit_node_id inactive_id = ANNOUNCEMENT_ID_B;
+		size_t seq = task.sequence.load(std::memory_order_acquire);
+		intptr_t difference = static_cast<intptr_t>(seq) - static_cast<intptr_t>(current_tail + 1);
 
-		{
-			std::lock_guard lock(m_mutex);
-			if (stop_token.stop_requested() && m_queue.empty()) {
-				break;
+		if (difference != 0) {
+			m_ring_bell.store(false, std::memory_order_release);
+
+			seq = task.sequence.load(std::memory_order_acquire);
+			if (static_cast<intptr_t>(seq) - static_cast<intptr_t>(current_tail + 1) != 0) {
+				m_ring_bell.wait(false, std::memory_order_acquire);
 			}
-
-			if (m_queue.empty())
-				continue;
-
-			task = std::move(m_queue.front());
-			m_queue.pop();
-			current_adapter = m_adapter;
-
-			active_id = m_use_id_b ? ANNOUNCEMENT_ID_B : ANNOUNCEMENT_ID_A;
-			inactive_id = m_use_id_b ? ANNOUNCEMENT_ID_A : ANNOUNCEMENT_ID_B;
-			m_use_id_b = !m_use_id_b;
+			else {
+				m_ring_bell.store(true, std::memory_order_release);
+			}
+			if (stop_token.stop_requested()) [[unlikely]]
+				return;
+			continue;
 		}
 
+		const char* task_text = task.text.data();
+		bool task_interrupt = task.interrupt;
+
+		m_tail.store(current_tail + 1, std::memory_order_relaxed);
+
+		void* current_adapter = m_adapter.load(std::memory_order_acquire);
 		if (!current_adapter)
 			continue;
 
-		accesskit_node* window_raw = accesskit_node_new(ACCESSKIT_ROLE_WINDOW);
+		bool use_b = m_use_id_b.load(std::memory_order_relaxed);
+		accesskit_node_id active_id = use_b ? ANNOUNCEMENT_ID_B : ANNOUNCEMENT_ID_A;
+		accesskit_node_id inactive_id = use_b ? ANNOUNCEMENT_ID_A : ANNOUNCEMENT_ID_B;
+		m_use_id_b.store(!use_b, std::memory_order_relaxed);
+
+		struct accesskit_node* window_raw = accesskit_node_new(ACCESSKIT_ROLE_WINDOW);
 		if (!window_raw)
 			continue;
-		typename AccessKitUniquePtr<accesskit_node, accesskit_node_free>::Type window_node(window_raw);
-		accesskit_node_set_role(window_node.get(), ACCESSKIT_ROLE_WINDOW);
-		accesskit_node_push_child(window_node.get(), ANNOUNCEMENT_ID_A);
-		accesskit_node_push_child(window_node.get(), ANNOUNCEMENT_ID_B);
+		accesskit_node_set_role(window_raw, ACCESSKIT_ROLE_WINDOW);
+		accesskit_node_push_child(window_raw, ANNOUNCEMENT_ID_A);
+		accesskit_node_push_child(window_raw, ANNOUNCEMENT_ID_B);
 
-		accesskit_node* announcement_raw = accesskit_node_new(ACCESSKIT_ROLE_LABEL);
-		if (!announcement_raw)
+		struct accesskit_node* announcement_raw = accesskit_node_new(ACCESSKIT_ROLE_STATUS);
+		if (!announcement_raw) {
+			accesskit_node_free(window_raw);
 			continue;
-		typename AccessKitUniquePtr<accesskit_node, accesskit_node_free>::Type announcement_node(announcement_raw);
-		accesskit_node_set_role(announcement_node.get(), ACCESSKIT_ROLE_LABEL);
-		accesskit_node_set_label(announcement_node.get(), task.text.c_str());
-		accesskit_node_set_live(
-			announcement_node.get(), task.interrupt ? ACCESSKIT_LIVE_ASSERTIVE : ACCESSKIT_LIVE_POLITE);
-
-		accesskit_node* placeholder_raw = accesskit_node_new(ACCESSKIT_ROLE_LABEL);
-		if (!placeholder_raw)
-			continue;
-		typename AccessKitUniquePtr<accesskit_node, accesskit_node_free>::Type placeholder_node(placeholder_raw);
-		accesskit_node_set_role(placeholder_node.get(), ACCESSKIT_ROLE_LABEL);
-		accesskit_node_set_label(placeholder_node.get(), "");
-		accesskit_node_set_live(placeholder_node.get(), ACCESSKIT_LIVE_OFF);
-
-		accesskit_tree_update* update_raw = accesskit_tree_update_with_capacity_and_focus(3, active_id);
-		if (!update_raw)
-			continue;
-
-		typename AccessKitUniquePtr<accesskit_tree_update, accesskit_tree_update_free>::Type update(update_raw);
-		accesskit_tree_update_push_node(update.get(), WINDOW_ID, window_node.release());
-		accesskit_tree_update_push_node(update.get(), active_id, announcement_node.release());
-		accesskit_tree_update_push_node(update.get(), inactive_id, placeholder_node.release());
-
-		m_active_update_packet = update.get();
-		bool status = accesskit_windows_adapter_update_if_active(
-			current_adapter, ProvideUpdateCallback, static_cast<void*>(this));
-		m_active_update_packet = nullptr;
-
-		if (status) {
-			update.release();
 		}
+		accesskit_node_set_role(announcement_raw, ACCESSKIT_ROLE_STATUS);
+		accesskit_node_set_value(announcement_raw, task_text);
+		accesskit_node_set_live(announcement_raw, task_interrupt ? ACCESSKIT_LIVE_ASSERTIVE : ACCESSKIT_LIVE_POLITE);
+
+		struct accesskit_node* placeholder_raw = accesskit_node_new(ACCESSKIT_ROLE_STATUS);
+		if (!placeholder_raw) {
+			accesskit_node_free(announcement_raw);
+			accesskit_node_free(window_raw);
+			continue;
+		}
+		accesskit_node_set_role(placeholder_raw, ACCESSKIT_ROLE_STATUS);
+		accesskit_node_set_value(placeholder_raw, "");
+
+		struct accesskit_tree_update* update_raw = accesskit_tree_update_with_capacity_and_focus(3, active_id);
+		if (!update_raw) {
+			accesskit_node_free(placeholder_raw);
+			accesskit_node_free(announcement_raw);
+			accesskit_node_free(window_raw);
+			continue;
+		}
+
+		accesskit_tree_update_push_node(update_raw, WINDOW_ID, window_raw);
+		accesskit_tree_update_push_node(update_raw, active_id, announcement_raw);
+		accesskit_tree_update_push_node(update_raw, inactive_id, placeholder_raw);
+
+		bool status = false;
+
+#if defined(_WIN32)
+		status = accesskit_windows_adapter_update_if_active(
+			static_cast<accesskit_windows_adapter*>(current_adapter), ProvideUpdateCallback, this);
+#elif defined(__APPLE__)
+#if TARGET_OS_IPHONE
+		status = accesskit_ios_adapter_update_if_active(
+			static_cast<accesskit_ios_adapter*>(current_adapter), ProvideUpdateCallback, this);
+#else
+		status = accesskit_macos_adapter_update_if_active(
+			static_cast<accesskit_macos_adapter*>(current_adapter), ProvideUpdateCallback, this);
+#endif
+#elif defined(__ANDROID__)
+		status = accesskit_android_adapter_update_if_active(
+			static_cast<accesskit_android_adapter*>(current_adapter), ProvideUpdateCallback, this);
+#else
+		status = accesskit_unix_adapter_update_if_active(
+			static_cast<accesskit_unix_adapter*>(current_adapter), ProvideUpdateCallback, this);
+#endif
+
+		if (!status) {
+			struct accesskit_tree_update* leaked_packet =
+				m_active_update_packet.exchange(nullptr, std::memory_order_acq_rel);
+			if (leaked_packet) {
+				accesskit_tree_update_free(leaked_packet);
+			}
+		}
+
+		task.sequence.store(current_tail + RING_BUFFER_SIZE, std::memory_order_release);
 	}
 }
+
+void ACAnnouncer::OnActionRequestCallback(struct accesskit_action_request* request, void* userdata) {
+	if (userdata) [[likely]] {
+		static_cast<ACAnnouncer*>(userdata)->HandleActionRequest(request);
+	}
+	else if (request) [[unlikely]] {
+		accesskit_action_request_free(request);
+	}
+}
+
+struct accesskit_tree_update* ACAnnouncer::ProvideUpdateCallback(void* userdata) {
+	if (userdata) [[likely]] {
+		return static_cast<ACAnnouncer*>(userdata)->InterceptUpdatePayload();
+	}
+	return nullptr;
+}
+
+void ACAnnouncer::HandleActionRequest(struct accesskit_action_request* request) noexcept {
+	if (request) [[likely]] {
+		accesskit_action_request_free(request);
+	}
+}
+
+struct accesskit_tree_update* ACAnnouncer::InterceptUpdatePayload() noexcept {
+	return m_active_update_packet.exchange(nullptr, std::memory_order_acq_rel);
+}
+
+bool ACAnnouncer::IsScreenReaderActive() noexcept {
+#if defined(_WIN32)
+	BOOL screenReaderRunning = FALSE;
+	if (::SystemParametersInfoW(SPI_GETSCREENREADER, 0, &screenReaderRunning, 0)) {
+		return screenReaderRunning == TRUE;
+	}
+	return false;
+#else
+	return true;
+#endif
+}
+
+bool ACAnnouncer::Initialize() {
+	std::lock_guard lock(m_init_mutex);
+	void* current_adapter = m_adapter.load(std::memory_order_acquire);
+	if (current_adapter)
+		return true;
+
+#if defined(_WIN32)
+	HWND target_window = static_cast<HWND>(m_context_handle);
+	if (!target_window) {
+		target_window = ::GetForegroundWindow();
+		if (!target_window)
+			return false;
+
+		DWORD current_process_id = ::GetCurrentProcessId();
+		DWORD window_process_id = 0;
+		::GetWindowThreadProcessId(target_window, &window_process_id);
+		if (current_process_id != window_process_id) [[unlikely]] {
+			return false;
+		}
+		m_context_handle = static_cast<void*>(target_window);
+	}
+	current_adapter = accesskit_windows_adapter_new(target_window, true, OnActionRequestCallback, this);
+#elif defined(__APPLE__)
+#if TARGET_OS_IPHONE
+	if (!m_context_handle)
+		return false;
+	current_adapter = accesskit_ios_adapter_new(m_context_handle, OnActionRequestCallback, this);
+#else
+	if (!m_context_handle)
+		return false;
+	current_adapter = accesskit_macos_adapter_new(m_context_handle, OnActionRequestCallback, this);
+#endif
+#elif defined(__ANDROID__)
+	if (!m_context_handle)
+		return false;
+	current_adapter = accesskit_android_adapter_new(m_context_handle, OnActionRequestCallback, this);
+#else
+	current_adapter = accesskit_unix_adapter_new(OnActionRequestCallback, this);
+#endif
+
+	if (!current_adapter)
+		return false;
+	m_adapter.store(current_adapter, std::memory_order_release);
+
+	struct accesskit_tree* tree_raw = accesskit_tree_new(WINDOW_ID);
+	if (!tree_raw)
+		return false;
+
+	struct accesskit_node* window_raw = accesskit_node_new(ACCESSKIT_ROLE_WINDOW);
+	if (!window_raw) {
+		accesskit_tree_free(tree_raw);
+		return false;
+	}
+	accesskit_node_set_role(window_raw, ACCESSKIT_ROLE_WINDOW);
+	accesskit_node_push_child(window_raw, ANNOUNCEMENT_ID_A);
+	accesskit_node_push_child(window_raw, ANNOUNCEMENT_ID_B);
+
+	struct accesskit_tree_update* init_update_raw = accesskit_tree_update_with_capacity_and_focus(3, WINDOW_ID);
+	if (!init_update_raw) {
+		accesskit_node_free(window_raw);
+		accesskit_tree_free(tree_raw);
+		return false;
+	}
+
+	accesskit_tree_update_set_tree(init_update_raw, tree_raw);
+	accesskit_tree_update_push_node(init_update_raw, WINDOW_ID, window_raw);
+
+	for (accesskit_node_id id : {ANNOUNCEMENT_ID_A, ANNOUNCEMENT_ID_B}) {
+		struct accesskit_node* node_raw = accesskit_node_new(ACCESSKIT_ROLE_STATUS);
+		if (node_raw) {
+			accesskit_node_set_role(node_raw, ACCESSKIT_ROLE_STATUS);
+			accesskit_node_set_live(node_raw, ACCESSKIT_LIVE_POLITE);
+			accesskit_tree_update_push_node(init_update_raw, id, node_raw);
+		}
+	}
+	m_active_update_packet.store(init_update_raw, std::memory_order_release);
+	bool status = false;
+
+#if defined(_WIN32)
+	status = accesskit_windows_adapter_update_if_active(
+		static_cast<accesskit_windows_adapter*>(current_adapter), ProvideUpdateCallback, this);
+#elif defined(__APPLE__)
+#if TARGET_OS_IPHONE
+	status = accesskit_ios_adapter_update_if_active(
+		static_cast<accesskit_ios_adapter*>(current_adapter), ProvideUpdateCallback, this);
+#else
+	status = accesskit_macos_adapter_update_if_active(
+		static_cast<accesskit_macos_adapter*>(current_adapter), ProvideUpdateCallback, this);
+#endif
+#elif defined(__ANDROID__)
+	status = accesskit_android_adapter_update_if_active(
+		static_cast<accesskit_android_adapter*>(current_adapter), ProvideUpdateCallback, this);
+#else
+	status = accesskit_unix_adapter_update_if_active(
+		static_cast<accesskit_unix_adapter*>(current_adapter), ProvideUpdateCallback, this);
+#endif
+	if (!status) {
+		struct accesskit_tree_update* leaked_packet =
+			m_active_update_packet.exchange(nullptr, std::memory_order_acq_rel);
+		if (leaked_packet) {
+			accesskit_tree_update_free(leaked_packet);
+		}
+	}
+
+	m_worker_thread = std::jthread([this](std::stop_token st) { BackgroundWorkerLoop(st); });
+
+	return true;
+}
+
+} // namespace Sral

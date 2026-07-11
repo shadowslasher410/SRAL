@@ -3,7 +3,6 @@ import ctypes
 import os
 import sys
 
-# --- Load the SRAL C Library ---
 try:
     if os.name == 'nt':
         _sral_lib = ctypes.CDLL('./SRAL.dll')
@@ -28,11 +27,15 @@ class SRALEngine(IntEnum):
     UIA = 1 << 5
     SAPI = 1 << 6
     SPEECH_DISPATCHER = 1 << 7
-    VOICE_OVER = 1 << 8
-    NS_SPEECH = 1 << 9
-    AV_SPEECH = 1 << 10
-    ANDROID_ACCESSIBILITY_MANAGER = 1 << 11
-    ANDROID_TEXT_TO_SPEECH = 1 << 12
+    ORCA = 1 << 8
+    VOICE_OVER = 1 << 9
+    NS_SPEECH = 1 << 10
+    AV_SPEECH = 1 << 11
+    ANDROID_ACCESSIBILITY_MANAGER = 1 << 12
+    ANDROID_TEXT_TO_SPEECH = 1 << 13
+    CHROMEVOX = 1 << 14
+    ACCESS_KIT = 1 << 15
+
 
 class SRALFeature(IntEnum):
     """
@@ -74,6 +77,9 @@ class SRALParam(IntEnum):
     ENABLE_SPELLING = 7
     USE_CHARACTER_DESCRIPTIONS = 8
     NVDA_IS_CONTROL_EX = 9
+    ENGINE_IS_PAUSED = 10
+    ANDROID_JNI_ENV = 11
+    ANDROID_JNI_ACTIVITY = 12
 
 
 class SRALVoiceInfo(ctypes.Structure):
@@ -94,8 +100,6 @@ class SRALVoiceInfo(ctypes.Structure):
                 f" gender='{self.gender.decode('utf-8') if self.gender else 'N/A'}',"
                 f" vendor='{self.vendor.decode('utf-8') if self.vendor else 'N/A'}')")
 
-# --- Helper for Memory Management ---
-# This class acts as a context manager for memory allocated by SRAL_malloc
 class SRALMemory:
     def __init__(self, size_or_ptr, is_ptr=False):
         if is_ptr:
@@ -264,7 +268,6 @@ class SRAL:
         if not SRAL.is_initialized():
             print("Warning: SRAL is not initialized. Call SRAL.initialize() first.")
 
-    # --- Memory Management ---
     @staticmethod
     def sral_malloc(size: int) -> SRALMemory:
         """
@@ -293,7 +296,6 @@ class SRAL:
         if not _sral_lib: return
         _sral_lib.SRAL_free(ptr)
 
-    # --- Core Functions (Auto-updating engine) ---
 
     def speak(self, text: str, interrupt: bool = True) -> bool:
         """
@@ -727,8 +729,6 @@ class SRAL:
         self._check_initialized()
         if not _sral_lib: return False
         return _sral_lib.SRAL_IsSpeakingEx(engine.value)
-
-    # --- Utility Functions ---
 
     @staticmethod
     def is_initialized() -> bool:

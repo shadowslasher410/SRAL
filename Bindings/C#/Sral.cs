@@ -24,31 +24,33 @@ namespace SralCSharp
 		EnableSpelling = 7,
 		UseCharacterDescriptions = 8,
 		NvdaIsControlEx = 9,
-		AndroidJniEnv = 10,
-		AndroidActivity = 11
+		EngineISPaused = 10,
+		AndroidJniEnv = 11,
+		AndroidActivity = 12
 	};
 
-	[Flags]
-	public enum SralEngineFlags : int
-	{
-        None = 0,
-		Nvda = 1 << 0,
-		Jaws = 1 << 1,
-		Zdsr = 1 << 2,
-		Narrator = 1 << 3,
-		Uia = 1 << 4,
-		Sapi = 1 << 5,
-		SpeechDispatcher = 1 << 6,
-        Orca = 1 << 7,
-		VoiceOver = 1 << 8,
-		NsSpeech = 1 << 9,
-		AvSpeech = 1 << 10,
-		AndroidAccessibilityManager = 1 << 11,
-		AndroidTextToSpeech = 1 << 12,
-		ChromeVox = 1 << 13,
-		
-		Current = -1
-	}
+[Flags]
+public enum SralEngineFlags : int
+{
+    None = 0,
+    Nvda = 1 << 1,
+    Jaws = 1 << 2,
+    Zdsr = 1 << 3,
+    Narrator = 1 << 4,
+    Uia = 1 << 5,
+    Sapi = 1 << 6,
+    SpeechDispatcher = 1 << 7,
+    Orca = 1 << 8,
+    VoiceOver = 1 << 9,
+    NsSpeech = 1 << 10,
+    AvSpeech = 1 << 11,
+    AndroidAccessibilityManager = 1 << 12,
+    AndroidTextToSpeech = 1 << 13,
+    WebSpeech = 1 << 14,
+    ChromeVox = 1 << 15,
+    AccessKit = 1 << 16,
+    Any = -1
+}
 
 	[Flags]
 	public enum SralFeatureFlags : int

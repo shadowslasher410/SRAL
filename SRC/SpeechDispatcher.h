@@ -1,19 +1,39 @@
 #ifndef SPEECHDISPATCHER_H_
 #define SPEECHDISPATCHER_H_
+#pragma once
 
 #include "../Include/SRAL.h"
 #include "Engine.h"
+#include <mutex>
+#include <atomic>
+#include <new>
+#include <array>
+#include <string>
+#include <thread>
+#include <stop_token>
+#include <vector>
+#include <memory>
 
-#if defined(__linux__)
+#ifdef __cpp_lib_hardware_interference_size
+using std::hardware_destructive_interference_size;
+#else
+constexpr size_t hardware_destructive_interference_size = 64;
+#endif
+
+#if defined(__linux__) && !defined(__ANDROID__)
 #include <speech-dispatcher/libspeechd.h>
-#include <cstddef>
+#else
+struct SPDConnection;
+struct SPDVoice;
+using SPDNotificationType = int;
+#endif
 
 namespace Sral {
 
-class SpeechDispatcher final : public Engine {
+class alignas(hardware_destructive_interference_size) SpeechDispatcher final : public Engine {
 public:
     SpeechDispatcher() noexcept = default;
-    ~SpeechDispatcher() override { ClearVoiceList(); }
+    ~SpeechDispatcher() override;
 
     SpeechDispatcher(const SpeechDispatcher&) = delete;
     SpeechDispatcher& operator=(const SpeechDispatcher&) = delete;
@@ -24,8 +44,8 @@ public:
     bool SpeakSsml(const char* ssml, bool interrupt) override;
     bool Braille(const char* text) override;
 
-    bool IsSpeaking() const noexcept override;
-    bool GetActive() const noexcept override;
+    bool IsSpeaking() noexcept override;
+    bool GetActive() noexcept override;
 
     bool SetParameter(int param, const void* value) override;
     bool GetParameter(int param, void* value) override;
@@ -34,34 +54,72 @@ public:
     bool PauseSpeech() noexcept override;
     bool ResumeSpeech() noexcept override;
 
-    int GetNumber() const noexcept override { return SRAL_ENGINE_SPEECH_DISPATCHER; }
-    int GetCategory() const noexcept override { return SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE; }
+    int GetNumber() override { return SRAL_ENGINE_SPEECH_DISPATCHER; }
+    int GetCategory() override { return SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE; }
     
-    bool Initialize() noexcept override;
-    bool Uninitialize() noexcept override;
+    bool Initialize() override;
+    bool Uninitialize() override;
 
-    int GetFeatures() const noexcept override {
+    int GetFeatures() override {
         return SRAL_SUPPORTS_SPEECH | SRAL_SUPPORTS_BRAILLE | SRAL_SUPPORTS_SPEECH_RATE | 
                SRAL_SUPPORTS_SPEECH_VOLUME | SRAL_SUPPORTS_PAUSE_SPEECH | 
                SRAL_SUPPORTS_SPELLING | SRAL_SUPPORTS_SSML | SRAL_SUPPORTS_SELECT_VOICE;
     }
 
-    int GetKeyFlags() const noexcept override { return HANDLE_NONE; }
+    int GetKeyFlags() override { return HANDLE_NONE; }
+
+    static void SpeechNotificationCallback(size_t msg_id, size_t client_id, SPDNotificationType type) noexcept;
 
 private:
+    enum class TaskType : uint8_t { Speak, SpeakSsml, Stop, SetParam };
+    
+    struct AsyncSpdTask {
+        const char*           text_ptr;
+        std::atomic<size_t>   sequence;
+        TaskType              type;
+        int                   param_id;
+        int                   param_val;
+        bool                  interrupt;
+    };
+
+    void BackgroundWorkerLoop(std::stop_token stop_token) noexcept;
+
+    static constexpr size_t RING_BUFFER_SIZE = 128;
+    static constexpr size_t RING_MASK = RING_BUFFER_SIZE - 1;
+
+    alignas(hardware_destructive_interference_size) std::array<AsyncSpdTask, RING_BUFFER_SIZE> m_ring_queue;
+    alignas(hardware_destructive_interference_size) std::atomic<size_t> m_head{0};
+    alignas(hardware_destructive_interference_size) std::atomic<size_t> m_tail{0};
+    std::atomic<bool>   m_ring_bell{false};
+    static std::atomic<bool> is_active;
+    static std::mutex speechd_mutex;
+    static std::atomic<size_t> m_activeMsgId;
+
     SPDConnection* speech = nullptr;
+    SPDVoice** m_voiceList = nullptr;
     bool enableSpelling = false;
     bool brailleInitialized = false;
-
-    SPDVoice** m_voiceList = nullptr;
     int m_voiceCount = 0;
     int m_voiceIndex = 0;
+    int m_speechRate = 0;
+    int m_speechVolume = 0;
+    std::atomic<bool> m_isSpeakingLocal{false};
+
+    std::mutex m_mutex;
+    std::jthread m_worker_thread;
 
     int SetVoiceIndex() noexcept;
 
+    std::vector<std::unique_ptr<char[]>> m_voice_strings;
+    std::mutex m_string_pool_mutex;
+    std::vector<std::unique_ptr<char[]>> m_string_pool;
+    const char* AddString(const char* text);
+    void ClearStringPool() noexcept;
     void ClearVoiceList() noexcept {
         if (m_voiceList) {
-            free_spd_voices(m_voiceList);
+#if defined(__linux__) && !defined(__ANDROID__)
+            free_spd_modules(reinterpret_cast<char**>(m_voiceList));
+#endif
             m_voiceList = nullptr;
         }
         m_voiceCount = 0;
@@ -69,21 +127,17 @@ private:
 
     void RefreshVoiceList() noexcept {
         ClearVoiceList();
-        if (!speech) {
-            return;
-        }
+        if (!speech) return;
+#if defined(__linux__) && !defined(__ANDROID__)
         m_voiceList = spd_list_synthesis_voices(speech);
-        if (!m_voiceList) {
-            return;
-        }
+        if (!m_voiceList) return;
         while (m_voiceList[m_voiceCount] != nullptr) {
             ++m_voiceCount;
         }
+#endif
     }
-
-    static void SpeechNotificationCallback(size_t msg_id, size_t client_id, SPDNotificationType type) noexcept;
 };
 
 } // namespace Sral
-#endif
-#endif
+
+#endif // SPEECHDISPATCHER_H_

@@ -5,28 +5,36 @@
 #include <atomic>
 #include <mutex>
 #include <string_view>
+#include <new>
 
 #include "../Include/SRAL.h"
 #include "Engine.h"
 
+#ifdef __cpp_lib_hardware_interference_size
+using std::hardware_destructive_interference_size;
+#else
+constexpr size_t hardware_destructive_interference_size = 64;
+#endif
+
 namespace Sral {
 
-class alignas(std::hardware_destructive_interference_size) ChromeVox final : public Engine {
+class alignas(hardware_destructive_interference_size) ChromeVox final : public Engine {
 public:
 	ChromeVox();
-	~ChromeVox() noexcept override;
-
+	~ChromeVox() override;
+	
 	ChromeVox(const ChromeVox&) = delete;
 	ChromeVox& operator=(const ChromeVox&) = delete;
-	ChromeVox(ChromeVox&&) = delete;
-	ChromeVox& operator=(ChromeVox&&) = delete;
-
-	bool Speak(const char* text, bool interrupt) override;
+	ChromeVox(ChromeVox&&) noexcept = delete;
+	ChromeVox& operator=(ChromeVox&&) noexcept = delete;
+	
+	bool Speak(const char* speech_text, bool interrupt) override;
 	bool SpeakSsml(const char* ssml, bool interrupt) override;
 	bool Braille(const char* text) override;
 
 	void* SpeakToMemory(
 		const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override {
+		(void)text; (void)buffer_size; (void)channels; (void)sample_rate; (void)bits_per_sample;
 		return nullptr;
 	}
 
@@ -47,6 +55,7 @@ public:
 	[[nodiscard]] int GetKeyFlags() override { return HANDLE_NONE; }
 
 private:
+	const char* AddString(const char* text) { return text; }
 	static std::atomic<int> _mode;
 	static std::atomic<bool> is_active;
 	static std::mutex chromevox_mutex;

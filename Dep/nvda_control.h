@@ -17,7 +17,7 @@
  */
 
 
- #ifndef NVDA_CONTROL_H
+#ifndef NVDA_CONTROL_H
 #define NVDA_CONTROL_H
 
 #include <windows.h>

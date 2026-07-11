@@ -9,13 +9,14 @@ const SRALEngines = {
 	UIA: 1 << 5,
 	SAPI: 1 << 6,
 	SPEECH_DISPATCHER: 1 << 7,
-	VOICE_OVER: 1 << 8,
-	NS_SPEECH: 1 << 9,
-	AV_SPEECH: 1 << 10,
-	ANDROID_ACCESSIBILITY_MANAGER: 1 << 11,
-	ANDROID_TEXT_TO_SPEECH: 1 << 12,
-	CHROMEVOX: 1 << 13,
-	ORCA: 1 << 14,
+	ORCA: 1 << 8,
+	VOICE_OVER: 1 << 9,
+	NS_SPEECH: 1 << 10,
+	AV_SPEECH: 1 << 11,
+	ANDROID_ACCESSIBILITY_MANAGER: 1 << 12,
+	ANDROID_TEXT_TO_SPEECH: 1 << 13,
+	CHROMEVOX: 1 << 14,
+	ACCESS_KIT: 1 << 15,
 	CURRENT: -1
 };
 
@@ -49,6 +50,7 @@ const SRALParam = {
 	ENABLE_SPELLING: 7,
 	USE_CHARACTER_DESCRIPTIONS: 8,
 	NVDA_IS_CONTROL_EX: 9,
+	SRAL_PARAM_ENGINE_IS_PAUSED: 10,
 	ANDROID_JNI_ENV: 10,
 	ANDROID_ACTIVITY: 11
 };
@@ -66,9 +68,8 @@ function loadSRAL() {
 		Module().then((instance) => {
 			resolve({
 				api: instance,
-				SRALEngine,
+				SRALEngines,
 				SRALEngineCategory,
-				SRALFeature,
 				SRALSupportedFeatures,
 				SRALParam,
 				SRALVoiceInfo

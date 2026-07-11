@@ -100,15 +100,19 @@ uint32_t utf8_to_unicode(const char* character);
 
 /**
  * @brief Thread-safe conversion of a Unicode codepoint down to a multi-byte UTF-8 character string.
- * @param[out] out_buffer Target character destination block array (Must be at least 5 bytes large).
+ * @param[out] out_buffer Target character destination block array (C17 array constraint bounds tracking).
  * @return Returns the number of encoded bytes successfully written to the target destination layout.
  */
+#ifdef __cplusplus
 uint8_t unicode_to_utf8(uint32_t codepoint, char* out_buffer);
+#else
+uint8_t unicode_to_utf8(uint32_t codepoint, char out_buffer[static 5]);
+#endif
+
 
 /* --- Advanced Engine Internal Processing Hooks --- */
 uint8_t utf8_charsize(const char* character);
 uint8_t unicode_charsize(uint32_t codepoint);
-
 uint32_t utf8_converter(const char* character, uint8_t size);
 
 /**
@@ -121,4 +125,3 @@ uint32_t unicode_converter(uint32_t codepoint, uint8_t size);
 #endif
 
 #endif /* UTF8_ITER_H */
-

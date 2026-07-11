@@ -28,7 +28,10 @@
 #include <stdbool.h>
 #endif
 
-#ifdef _WIN32
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+#define SRAL_API EMSCRIPTEN_KEEPALIVE
+#elif defined(_WIN32)
 #if defined(SRAL_EXPORT)
 #define SRAL_API __declspec(dllexport)
 #elif defined(SRAL_STATIC)
@@ -99,7 +102,11 @@ enum SRAL_Engines {
 
     /* Chrome OS / Browser */
     /** @brief ChromeVox accessibility engine browser extension & ChromeOS native service. */
-    SRAL_ENGINE_CHROMEVOX = 1 << 14
+    SRAL_ENGINE_CHROMEVOX = 1 << 14,
+
+	/* Cross-Platform Framework Infrastructure */
+    /** @brief AccessKit unified static/shared library bridge layer for multi-target layouts. */
+    SRAL_ENGINE_ACCESSKIT = 1 << 15
 };
 
 /**
@@ -159,6 +166,7 @@ enum SRAL_EngineParams {
 	SRAL_PARAM_ENABLE_SPELLING,
 	SRAL_PARAM_USE_CHARACTER_DESCRIPTIONS,
 	SRAL_PARAM_NVDA_IS_CONTROL_EX,
+	SRAL_PARAM_ENGINE_IS_PAUSED,
 
 	/**
 	 * @brief (Android only) Set the JNIEnv* used by Android engines.
@@ -172,7 +180,7 @@ enum SRAL_EngineParams {
 	 * Must be set via SRAL_SetEngineParameter before SRAL_Initialize.
 	 * Value is a jobject cast to void*.
 	 */
-	SRAL_PARAM_ANDROID_ACTIVITY
+	SRAL_PARAM_ANDROID_ACTIVITY,	
 };
 
 /**
@@ -460,7 +468,6 @@ SRAL_API bool SRAL_IsInitialized(void);
  */
 SRAL_API void SRAL_Delay(int time);
 
-#ifdef __ANDROID__
 /**
  * @brief Schedules a text speech operation to be spoken after a specified delay time on the current engine.
  * @param time Delay time in milliseconds.
@@ -479,7 +486,6 @@ SRAL_API bool SRAL_DelayOutput(int time, const char* text, bool interrupt);
  * @return true if successfully scheduled, false otherwise.
  */
 SRAL_API bool SRAL_DelayOutputEx(int engine, int time, const char* text, bool interrupt);
-#endif
 
 /**
  *@brief Install speech interruption and pause keyboard hooks for speech engines other than screen readers, such as

@@ -455,7 +455,7 @@ class Program
 			int activeEnginesMask = Sral.SRAL_GetActiveEngines();
 			foreach (SralEngineFlags flag in Enum.GetValues(typeof(SralEngineFlags)))
 			{
-				if (flag != SralEngineFlags.None && flag != SralEngineFlags.Current)
+				if (flag != SralEngineFlags.None && flag != SralEngineFlags.Any)
 				{
 					int eVal = (int)flag;
 					string name = Sral.GetEngineName(eVal);

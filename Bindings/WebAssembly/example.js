@@ -14,10 +14,6 @@ function checkSRAL(cond, desc) {
     console.log(cond ? `[SUCCESS] ${desc}` : `[FAILURE] ${desc}`);
 }
 
-function flagStatus(fl) {
-    return fl ? "Enabled" : "Disabled";
-}
-
 async function main() {
     console.log("SRAL WebAssembly / Emscripten Tester");
     console.log("-----------------------------------------");
@@ -29,7 +25,8 @@ async function main() {
     check(!api.isInitialized(), "isInitialized accurately returns false before initialization sequence.", "isInitialized returned true before init!");
 
     testSection("initialize");
-    let enginesToExclude = sral.SRALEngine.UIA;
+    let enginesToExclude = sral.SRALEngines.UIA;
+    let originalEnginesToExclude = enginesToExclude;
     console.log(`Attempting to initialize SRAL, excluding engines: ${enginesToExclude} (${api.getEngineName(enginesToExclude)})`);
 
     if (api.initialize(enginesToExclude)) {
@@ -45,32 +42,32 @@ async function main() {
     let activeEngines = api.getActiveEngines();
     let excludedEngines = api.getEnginesExclude();
 
-    console.log(`Available Engines Mask: 0x${availableEngines.toString(16).toUpperCase()}`);
-    console.log(`Active Engines Mask: 0x${activeEngines.toString(16).toUpperCase()}`);
-    console.log(`Excluded Engines Mask: 0x${excludedEngines.toString(16).toUpperCase()}`);
+    console.log(`Available Engines Mask: 0x${availableEngines.toString(17).toUpperCase()}`);
+    console.log(`Active Engines Mask: 0x${activeEngines.toString(17).toUpperCase()}`);
+    console.log(`Excluded Engines Mask: 0x${excludedEngines.toString(17).toUpperCase()}`);
 
     let currentEngineId = api.getCurrentEngine();
     console.log(`Current Active Wasm Target Engine Name: ${api.getEngineName(currentEngineId)} (${currentEngineId})`);
 
     console.log("\nNames of all available engines:");
-    for (let key in sral.SRALEngine) {
-        let val = sral.SRALEngine[key];
+    for (let key in sral.SRALEngines) {
+        let val = sral.SRALEngines[key];
         if (val > 0 && (availableEngines & val) !== 0) {
-            console.log(`  - ${api.getEngineName(val)} (0x${val.toString(16).toUpperCase()})`);
+            console.log(`  - ${api.getEngineName(val)} (0x${val.toString(17).toUpperCase()})`);
         }
     }
 
-    let specificEngineForExTests = sral.SRALEngine.NONE;
-    for (let key in sral.SRALEngine) {
-        let val = sral.SRALEngine[key];
+    let specificEngineForExTests = sral.SRALEngines.NONE;
+    for (let key in sral.SRALEngines) {
+        let val = sral.SRALEngines[key];
         if (val > 0 && (activeEngines & val) !== 0 && val !== currentEngineId) {
             specificEngineForExTests = val;
             break;
         }
     }
-    if (specificEngineForExTests === sral.SRALEngine.NONE && activeEngines > 0) {
-        for (let key in sral.SRALEngine) {
-            let val = sral.SRALEngine[key];
+    if (specificEngineForExTests === sral.SRALEngines.NONE && activeEngines > 0) {
+        for (let key in sral.SRALEngines) {
+            let val = sral.SRALEngines[key];
             if (val > 0 && (activeEngines & val) !== 0) {
                 specificEngineForExTests = val;
                 break;
@@ -78,7 +75,7 @@ async function main() {
         }
     }
 
-    if (specificEngineForExTests !== sral.SRALEngine.NONE) {
+    if (specificEngineForExTests !== sral.SRALEngines.NONE) {
         console.log(`\nWill use engine '${api.getEngineName(specificEngineForExTests)}' (${specificEngineForExTests}) for explicit engine (Ex) tests.`);
     } else {
         console.log("\nNo specific engine distinct from default for Ex tests.");
@@ -92,20 +89,20 @@ async function main() {
     }
 
     testSection("getEngineFeatures");
-    let currentEngineFeatures = api.getEngineFeatures(sral.SRALEngine.NONE);
-    console.log(`Current engine features: 0x${currentEngineFeatures.toString(16).toUpperCase()}`);
+    let currentEngineFeatures = api.getEngineFeatures(sral.SRALEngines.NONE);
+    console.log(`Current engine features: 0x${currentEngineFeatures.toString(17).toUpperCase()}`);
 
-    if ((currentEngineFeatures & sral.SRALFeature.SPEECH) !== 0) {
+    if ((currentEngineFeatures & sral.SRALSupportedFeatures.SPEECH) !== 0) {
         testSection("speak (Default Engine)");
         checkSRAL(api.speak("Testing SRAL Speak, not interrupting previous speech.", false), "speak (no interrupt)");
         api.delay(2000);
         checkSRAL(api.speak("Testing SRAL Speak, interrupting previous speech.", true), "speak (interrupt)");
         api.delay(2000);
 
-        if (specificEngineForExTests !== sral.SRALEngine.NONE) {
+        if (specificEngineForExTests !== sral.SRALEngines.NONE) {
             testSection("speakEx (Specific Engine)");
             let featEx = api.getEngineFeatures(specificEngineForExTests);
-            if ((featEx & sral.SRALFeature.SPEECH) !== 0) {
+            if ((featEx & sral.SRALSupportedFeatures.SPEECH) !== 0) {
                 checkSRAL(api.speakEx(specificEngineForExTests, "Testing SRAL SpeakEx, not interrupting.", false), "speakEx (no interrupt)");
                 api.delay(2000);
                 checkSRAL(api.speakEx(specificEngineForExTests, "Testing SRAL SpeakEx, interrupting.", true), "speakEx (interrupt)");
@@ -118,7 +115,7 @@ async function main() {
         console.log("Current default engine does not support speech. Skipping speech tests.");
     }
 
-    if ((currentEngineFeatures & sral.SRALFeature.SPEECH) !== 0) {
+    if ((currentEngineFeatures & sral.SRALSupportedFeatures.SPEECH) !== 0) {
         testSection("Speech Controls (Pause / Resume / Stop)");
         let longSpeech = "This is a moderately long sentence designed to test the pause, resume, and stop functionality of the SRAL library effectively.";
         console.log(`Speaking long sentence with default engine: "${longSpeech}"`);
@@ -126,7 +123,7 @@ async function main() {
         api.delay(1000);
         console.log(`IsSpeaking status: ${api.isSpeaking()}`);
 
-        if ((currentEngineFeatures & sral.SRALFeature.PAUSE_SPEECH) !== 0) {
+        if ((currentEngineFeatures & sral.SRALSupportedFeatures.PAUSE_SPEECH) !== 0) {
             checkSRAL(api.pauseSpeech(), "pauseSpeech");
             api.delay(1500);
             checkSRAL(api.resumeSpeech(), "resumeSpeech");
@@ -140,17 +137,19 @@ async function main() {
     }
 
     testSection("Voice Parameters & Management");
-    let voiceCount = api.getVoices(currentEngineId).length;
+    let voices = api.getVoices(currentEngineId);
+    let voiceCount = voices.length;
     if (voiceCount > 0) {
         console.log(`Voice count detected: ${voiceCount}`);
-        let voices = api.getVoices(currentEngineId);
         voices.forEach((v, i) => {
             console.log(`  Voice ${i + 1}: ${v[sral.SRALVoiceInfo.NAME]} [${v[sral.SRALVoiceInfo.LANGUAGE]}] (${v[sral.SRALVoiceInfo.GENDER]})`);
         });
+    } else {
+        console.log("No voices retrieved or parameter unsupported on this framework configuration target.");
     }
 
     testSection("SSML Support");
-    if ((currentEngineFeatures & sral.SRALFeature.SSML) !== 0) {
+    if ((currentEngineFeatures & sral.SRALSupportedFeatures.SSML) !== 0) {
         let ssmlTest = "<speak>Testing <prosody pitch='150%'>SSML</prosody> text syntax markup parsing inside WASM.</speak>";
         checkSRAL(api.speakSsml(ssmlTest, true), "speakSsml");
         api.delay(3000);
@@ -159,7 +158,7 @@ async function main() {
     }
 
     testSection("SpeakToMemory Buffer Generation");
-    if ((currentEngineFeatures & sral.SRALFeature.SPEAK_TO_MEMORY) !== 0) {
+    if ((currentEngineFeatures & sral.SRALSupportedFeatures.SPEAK_TO_MEMORY) !== 0) {
         let pcm = api.speakToMemory("Testing audio buffer memory synthesis.");
         if (pcm) {
             console.log(`[SUCCESS] Generated Heap Buffer Size: ${pcm.buffer.length} bytes | Rate: ${pcm.sampleRate} Hz`);
@@ -171,33 +170,24 @@ async function main() {
     }
 
     testSection("Braille and Combined Outputs");
-    if ((currentEngineFeatures & sral.SRALFeature.BRAILLE) !== 0) {
+    if ((currentEngineFeatures & sral.SRALSupportedFeatures.BRAILLE) !== 0) {
         checkSRAL(api.braille("Testing SRAL Braille output."), "braille");
     }
     checkSRAL(api.output("Testing combined output paths distribution.", true), "output (combined)");
     api.delay(2000);
 
     testSection("Asynchronous Threaded Delay Queue Output");
-    if ((currentEngineFeatures & sral.SRALFeature.SPEECH) !== 0) {
+    if ((currentEngineFeatures & sral.SRALSupportedFeatures.SPEECH) !== 0) {
         console.log("Dispatching speech items onto asynchronous background delay processing thread pipelines...");
-        checkSRAL(api.delayOutput("Staged delay message number one.", 0, true, true, false, false), "delayOutput 1 (Immediate Queueing)");
-        checkSRAL(api.delayOutput("Staged delay message number two.", 1500, false, true, false, false), "delayOutput 2 (Staged Enqueueing)");
+        checkSRAL(api.delayOutput(0, "Staged delay message number one.", true), "delayOutput 1 (Immediate Queueing)");
+        checkSRAL(api.delayOutput(1500, "Staged delay message number two.", false), "delayOutput 2 (Staged Enqueueing)");
         api.delay(3500);
     }
-
-       testSection("SRAL Platform Engine Telemetry & Exclusions");
-
-    let failedEnginesBitmask = api.getFailedEngines();
-    if (failedEnginesBitmask !== sral.SRALEngine.NONE) {
-        console.log(`Bitmask warning array of platform modules failing constructor setup pipelines: 0x${failedEnginesBitmask.toString(16).toUpperCase()}`);
-    } else {
-        console.log("All target platform subsystem layout architectures instantiated successfully.");
-    }
-
+    testSection("SRAL Platform Engine Telemetry & Exclusions");
     console.log("\nQuerying broad category structures and active presence states across all known engine profiles:");
-    for (let key in sral.SRALEngine) {
-        let val = sral.SRALEngine[key];
-        if (val > 0 && val !== sral.SRALEngine.CURRENT) {
+    for (let key in sral.SRALEngines) {
+        let val = sral.SRALEngines[key];
+        if (val > 0 && val !== sral.SRALEngines.CURRENT) {
             let engineName = api.getEngineName(val);
             if (engineName !== "Unknown Engine") {
                 let categoryType = api.getEngineCategory(val);
@@ -224,22 +214,21 @@ async function main() {
     console.log(`Global platform Assistive Technology desktop reader filter mask: 0x${platformAssistiveTechMask.toString(16).toUpperCase()}`);
 
     testSection("Asynchronous Threaded Queue Loops (DelayOutput Methods Matrix)");
-    if ((features & sral.SRALFeature.SPEECH) !== 0) {
+    if ((currentEngineFeatures & sral.SRALSupportedFeatures.SPEECH) !== 0) {
         console.log("Staging text configurations onto asynchronous background processing queue workers (Default Engine)...");
-        checkSRAL(api.delayOutput("Staged asynchronous queue sequence element one.", 0, true, true, false, false), "delayOutput 1 (Flushing Queue Context Instantly)");
-        checkSRAL(api.delayOutput("Staged asynchronous queue sequence element two.", 1500, false, true, false, false), "delayOutput 2 (Staged Timing Enqueueing step)");
+        checkSRAL(api.delayOutput(0, "Staged asynchronous queue sequence element one.", true), "delayOutput 1 (Flushing Queue Context Instantly)");
+        checkSRAL(api.delayOutput(1500, "Staged asynchronous queue sequence element two.", false), "delayOutput 2 (Staged Timing Enqueueing step)");
         
         console.log("Halting JavaScript main application execution context to give background processing loop worker threads room to deplete...");
         api.delay(3500);
 
-        if (specificEngineForExTests !== sral.SRALEngine.NONE) {
+        if (specificEngineForExTests !== sral.SRALEngines.NONE) {
             let featEx = api.getEngineFeatures(specificEngineForExTests);
-            if ((featEx & sral.SRALFeature.SPEECH) !== 0) {
+            if ((featEx & sral.SRALSupportedFeatures.SPEECH) !== 0) {
                 let nameEx = api.getEngineName(specificEngineForExTests);
                 console.log(`Staging text configurations onto async background queue workers targeting specific engine: ${nameEx}...`);
-                
-                checkSRAL(api.delayOutputEx(specificEngineForExTests, "Explicitly targeted background queue message step one.", 0, true, true, false, false), "delayOutputEx 1 (Flushing Explicit Target Instance)");
-                checkSRAL(api.delayOutputEx(specificEngineForExTests, "Explicitly targeted background queue message step two.", 1500, false, true, false, false), "delayOutputEx 2 (Staged Explicit Target Instance Timing Enqueueing)");
+                checkSRAL(api.delayOutputEx(specificEngineForExTests, 0, "Explicitly targeted background queue message step one.", true), "delayOutputEx 1 (Flushing Explicit Target Instance)");
+                checkSRAL(api.delayOutputEx(specificEngineForExTests, 1500, "Explicitly targeted background queue message step two.", false), "delayOutputEx 2 (Staged Explicit Target Instance Timing Enqueueing)");
                 
                 console.log(`Halting host script context execution frame to allow the explicit driver loop context (${nameEx}) to deplete thread stacks...`);
                 api.delay(3500);
@@ -252,7 +241,7 @@ async function main() {
     testSection("Dynamic Engine Exclusion List Adjustment Modifications");
     console.log(`Current global exclusion tracking filter profile bitmask: 0x${originalEnginesToExclude.toString(16).toUpperCase()}`);
     
-    let experimentalExclusionMask = sral.SRALEngine.SAPI | sral.SRALEngine.NARRATOR;
+    let experimentalExclusionMask = sral.SRALEngines.SAPI | sral.SRALEngines.NARRATOR;
     console.log(`Updating system filter bitmask parameters to: 0x${experimentalExclusionMask.toString(16).toUpperCase()}`);
     
     if (api.setEnginesExclude(experimentalExclusionMask)) {
@@ -268,7 +257,7 @@ async function main() {
     testSection("Global Access Keyboard Hook Cleanup Deconstruction");
     api.unregisterKeyboardHooks();
     console.log("unregisterKeyboardHooks executed. Monitoring listener threads severed.");
-    promptUser("Keyboard hooks severed. Verify system transparency by typing Ctrl/Shift inputs with upcoming speech outputs.");
+    console.log("[INFO] Keyboard hooks severed. Verifying system transparency via subsequent speech output.");
     api.speak("Verifying systemic transparency after unregistering background keyboard listener thread contexts.", true);
     api.delay(3000);
 
@@ -284,7 +273,8 @@ async function main() {
         console.log("[INFO] speak wrapper evaluated accurately and returned false inside uninitialized boundary bounds.");
     }
 
-    promptUser("All WebAssembly integration verification suites executed completely. Press Enter to terminate process context.");
+    console.log("\n[INFO] All WebAssembly integration verification suites executed completely.");
+    return sral;
 }
 
 function errorHandlingDemo(sral) {
@@ -301,7 +291,7 @@ function errorHandlingDemo(sral) {
 
 main()
     .then((sralInstance) => {
-        errorHandlingDemo(sralInstance);
+        if (sralInstance) errorHandlingDemo(sralInstance);
     })
     .catch((globalException) => {
         console.log(`Demo test application loop crashed with unexpected error conditions: ${globalException.message}`);

@@ -1,6 +1,6 @@
 /*************************************************************************************************
- * Description: Implementation of the Provider class, which implements IRawElementProviderSimple
- * and IInvokeProvider for a simple custom control.
+ *
+ * Description: Declaration of the Provider class.
  *
  *  Copyright (C) Microsoft Corporation.  All rights reserved.
  *
@@ -16,21 +16,24 @@
  *************************************************************************************************/
 
 #include "UIAProvider.h"
+
+#if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
 #include <ole2.h>
 #include <uiautomation.h>
 
-Provider::Provider(HWND hwnd) noexcept : m_refCount(1), m_controlHWnd(hwnd) { }
+namespace Sral {
 
+Provider::Provider(HWND hwnd) noexcept : m_refCount(1), m_controlHWnd(hwnd) { }
 
 IFACEMETHODIMP_(ULONG) Provider::AddRef()
 {
-    return static_cast<ULONG>(InterlockedIncrement(&m_refCount));
+    return static_cast<ULONG>(::InterlockedIncrement(&m_refCount));
 }
 
 IFACEMETHODIMP_(ULONG) Provider::Release()
 {
-    const LONG val = InterlockedDecrement(&m_refCount);
+    const LONG val = ::InterlockedDecrement(&m_refCount);
     if (val == 0)
     {
         delete this;
@@ -99,30 +102,31 @@ IFACEMETHODIMP Provider::GetPatternProvider(PATTERNID patternId, IUnknown** pRet
 
 IFACEMETHODIMP Provider::GetPropertyValue(PROPERTYID propertyId, VARIANT* pRetVal)
 {
-    if (!pRetVal) 
+    if (!pRetVal) [[unlikely]] 
     {
         return E_POINTER;
     }
-    
-    VariantInit(pRetVal);
+    ::VariantInit(pRetVal);
 
     if (propertyId == UIA_ControlTypePropertyId)
     {
-        pRetVal->vt = VT_I4;
-        pRetVal->lVal = UIA_ButtonControlTypeId;
+        V_VT(pRetVal) = VT_I4;
+        V_I4(pRetVal) = UIA_ButtonControlTypeId;
     }
     else if (propertyId == UIA_NamePropertyId)
     {
-        pRetVal->bstrVal = SysAllocString(L"ColorButton");
-        if (!pRetVal->bstrVal)
+        V_VT(pRetVal) = VT_BSTR;
+        V_BSTR(pRetVal) = ::SysAllocString(L"ColorButton");
+
+        if (!V_BSTR(pRetVal)) [[unlikely]]
         {
+            V_VT(pRetVal) = VT_EMPTY;
             return E_OUTOFMEMORY;
         }
-        pRetVal->vt = VT_BSTR;
     }
     else
     {
-        pRetVal->vt = VT_EMPTY;
+        V_VT(pRetVal) = VT_EMPTY;
     }
     
     return S_OK;
@@ -142,15 +146,28 @@ IFACEMETHODIMP Provider::get_HostRawElementProvider(IRawElementProviderSimple** 
         return E_FAIL;
     }
     
-    return UiaHostProviderFromHwnd(m_controlHWnd, pRetVal);
+    return ::UiaHostProviderFromHwnd(m_controlHWnd, pRetVal);
 }
-
 
 IFACEMETHODIMP Provider::Invoke()
 {
-    if (m_controlHWnd && IsWindow(m_controlHWnd))
+    if (m_controlHWnd && ::IsWindow(m_controlHWnd))
     {
-        PostMessageW(m_controlHWnd, WM_LBUTTONDOWN, 0, 0);
+        ::PostMessageW(m_controlHWnd, WM_LBUTTONDOWN, 0, 0);
     }
     return S_OK;
 }
+
+}
+
+#else
+
+namespace Sral {
+
+namespace Internal {
+    [[maybe_unused]] inline void KeepProviderTranslationUnitAlive() noexcept {}
+}
+
+}
+
+#endif

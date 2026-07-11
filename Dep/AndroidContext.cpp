@@ -1,324 +1,312 @@
-#if defined(__ANDROID__)
-#include "AndroidContext.h"
-
 #include <atomic>
-#include <concepts>
-#include <jni.h>
 #include <memory>
 #include <mutex>
-#include <pthread.h>
+#include <cstdint>
+
+#include "AndroidContext.h"
+
+#ifdef __ANDROID__
+    #include <jni.h>
+#else
+    #define JNI_VERSION_1_6 0x00010006
+    #define JNI_OK 0
+    #define JNI_EDETACHED (-2)
+    #define JNI_TRUE 1
+
+    struct JNIEnv {
+        jint GetJavaVM(struct JavaVM**) noexcept { return JNI_OK; }
+        void DeleteLocalRef(jobject) noexcept {}
+        void DeleteWeakGlobalRef(jweak) noexcept {}
+        jobject NewLocalRef(jweak) noexcept { return nullptr; }
+        jboolean IsSameObject(jobject, jobject) noexcept { return static_cast<jboolean>(JNI_TRUE); }
+    };
+    struct JavaVM {
+        jint GetEnv(void**, jint) noexcept { return JNI_OK; }
+        jint AttachCurrentThreadAsDaemon(JNIEnv**, void*) noexcept { return JNI_OK; }
+        jint DetachCurrentThread() noexcept { return JNI_OK; }
+    };
+#endif
 
 namespace Sral {
-namespace {
-
-std::atomic<JavaVM*> g_vm{nullptr};
-jweak g_weak_activity{nullptr};
-std::mutex g_context_mutex;
-pthread_key_t g_detach_key;
-std::once_flag g_key_once_flag;
-std::atomic<bool> g_key_initialized{false};
-
-} // namespace
-
-class [[nodiscard]] ScopedLocalRef final {
-public:
-	explicit ScopedLocalRef() noexcept : env_(nullptr), ref_(nullptr) {}
-	explicit ScopedLocalRef(JNIEnv* env, jobject ref) noexcept : env_(env), ref_(ref) {}
-
-	~ScopedLocalRef() noexcept {
-		if (env_ && ref_) [[likely]] {
-			env_->DeleteLocalRef(ref_);
-		}
-	}
-
-	ScopedLocalRef(const ScopedLocalRef&) = delete;
-	ScopedLocalRef& operator=(const ScopedLocalRef&) = delete;
-
-	ScopedLocalRef(ScopedLocalRef&& other) noexcept : env_(other.env_), ref_(other.ref_) {
-		other.ref_ = nullptr;
-		other.env_ = nullptr;
-	}
-
-	ScopedLocalRef& operator=(ScopedLocalRef&& other) noexcept {
-		if (this != &other) [[likely]] {
-			JNIEnv* old_env = env_;
-			jobject old_ref = ref_;
-
-			env_ = other.env_;
-			ref_ = other.ref_;
-
-			other.ref_ = nullptr;
-			other.env_ = nullptr;
-
-			if (old_env && old_ref) {
-				old_env->DeleteLocalRef(old_ref);
-			}
-		}
-		return *this;
-	}
-
-	[[nodiscard]] jobject get() const noexcept { return ref_; }
-
-	jobject release() noexcept {
-		jobject tmp = ref_;
-		ref_ = nullptr;
-		env_ = nullptr;
-		return tmp;
-	}
-
-	explicit operator bool() const noexcept { return ref_ != nullptr; }
-
-private:
-	JNIEnv* env_;
-	jobject ref_;
-};
 
 namespace {
+    std::atomic<JavaVM*> g_vm{nullptr};
+    std::atomic<jweak> g_weak_activity{nullptr};
+    std::mutex g_context_mutex;
+    std::atomic<uint64_t> g_context_epoch{0};
+    std::atomic<uint32_t> g_readers_count{0};
 
-void PthreadThreadDetacher(void* value) noexcept {
-	if (!value) [[unlikely]]
-		return;
+    struct ThreadJniCache {
+        JNIEnv* env{nullptr};
+        JavaVM* bound_vm{nullptr};
+        uint64_t epoch{0};
+    };
+    
+    inline thread_local ThreadJniCache t_jni_cache{};
 
-	auto* vm = static_cast<JavaVM*>(value);
-	vm->DetachCurrentThread();
+    inline thread_local struct ThreadDetacher {
+        JavaVM* attached_vm{nullptr};
+        
+        ~ThreadDetacher() {
+            if (attached_vm) [[unlikely]] {
+                void* dummy{nullptr};
+                if (attached_vm->GetEnv(&dummy, JNI_VERSION_1_6) == JNI_OK) {
+                    attached_vm->DetachCurrentThread();
+                }
+            }
+        }
+    } t_thread_detacher;
 }
 
-void InitializePthreadKeyOnce() noexcept {
-	if (pthread_key_create(&g_detach_key, PthreadThreadDetacher) == 0) {
-		g_key_initialized.store(true, std::memory_order::release);
-	}
+ScopedLocalRef::~ScopedLocalRef() noexcept {
+#ifdef __ANDROID__
+    if (env_ && ref_) [[likely]] {
+        env_->DeleteLocalRef(ref_);
+    }
+#endif
 }
 
-bool EnforceThreadTokenRegistration(JavaVM* vm) noexcept {
-	std::call_once(g_key_once_flag, InitializePthreadKeyOnce);
-	if (!g_key_initialized.load(std::memory_order::acquire)) [[unlikely]] {
-		return false;
-	}
-
-	if (pthread_getspecific(g_detach_key) != nullptr) [[likely]] {
-		return true;
-	}
-
-	if (pthread_setspecific(g_detach_key, vm) == 0) {
-		return true;
-	}
-
-	return false;
+ScopedLocalRef::ScopedLocalRef(ScopedLocalRef&& other) noexcept 
+    : env_(other.env_), ref_(other.ref_) {
+    other.ref_ = nullptr;
+    other.env_ = nullptr;
 }
 
-class [[nodiscard]] ScopedCleanupAttachmentGuard final {
-public:
-	explicit ScopedCleanupAttachmentGuard(JavaVM* vm) noexcept : vm_(vm), env_(nullptr), must_detach_(false) {
-		if (!vm_) [[unlikely]]
-			return;
+ScopedLocalRef& ScopedLocalRef::operator=(ScopedLocalRef&& other) noexcept {
+    if (this != &other) [[likely]] {
+        JNIEnv* old_env = env_;
+        jobject old_ref = ref_;
 
-		jint status = vm_->GetEnv(reinterpret_cast<void**>(&env_), JNI_VERSION_1_6);
-		if (status == JNI_EDETACHED) {
-			if (vm_->AttachCurrentThread(&env_, nullptr) == JNI_OK) {
-				must_detach_ = true;
-			}
-		}
-	}
+        env_ = other.env_;
+        ref_ = other.ref_;
 
-	~ScopedCleanupAttachmentGuard() noexcept {
-		if (must_detach_ && vm_) [[likely]] {
-			vm_->DetachCurrentThread();
-		}
-	}
+        other.ref_ = nullptr;
+        other.env_ = nullptr;
 
-	ScopedCleanupAttachmentGuard(const ScopedCleanupAttachmentGuard&) = delete;
-	ScopedCleanupAttachmentGuard& operator=(const ScopedCleanupAttachmentGuard&) = delete;
-	ScopedCleanupAttachmentGuard(ScopedCleanupAttachmentGuard&&) noexcept = delete;
-	ScopedCleanupAttachmentGuard& operator=(ScopedCleanupAttachmentGuard&&) noexcept = delete;
+#ifdef __ANDROID__
+        if (old_env && old_ref) {
+            old_env->DeleteLocalRef(old_ref);
+        }
+#else
+        (void)old_env; (void)old_ref;
+#endif
+    }
+    return *this;
+}
 
-	[[nodiscard]] JNIEnv* GetEnv() const noexcept { return env_; }
+jobject ScopedLocalRef::release() noexcept {
+    jobject retained_ref = ref_;
+    ref_ = nullptr;
+    env_ = nullptr;
+    return retained_ref;
+}
 
-private:
-	JavaVM* vm_;
-	JNIEnv* env_;
-	bool must_detach_;
-};
-
-} // namespace
 
 bool SetAndroidJNIEnv(JNIEnv* env) noexcept {
-	if (!env) [[unlikely]]
-		return false;
+    if (!env) [[unlikely]] return false;
+#ifdef __ANDROID__
+    JavaVM* new_vm{nullptr};
+    if (env->GetJavaVM(&new_vm) != JNI_OK || !new_vm) [[unlikely]] return false;
 
-	JavaVM* new_vm{nullptr};
-	if (env->GetJavaVM(&new_vm) != JNI_OK || !new_vm) [[unlikely]] {
-		return false;
-	}
+    jweak old_activity = nullptr;
+    JavaVM* old_vm_to_clean = nullptr;
+    uint64_t current_epoch = 0;
 
-	JavaVM* current_vm = g_vm.load(std::memory_order::acquire);
-	if (current_vm == new_vm) [[likely]] {
-		return true;
-	}
+    {
+        std::lock_guard lock{g_context_mutex};
+        JavaVM* current_vm = g_vm.load(std::memory_order_relaxed);
+        if (current_vm == new_vm) {
+            current_epoch = g_context_epoch.load(std::memory_order_relaxed);
+            t_jni_cache = ThreadJniCache{ .env = env, .bound_vm = new_vm, .epoch = current_epoch };
+            return true;
+        }
 
-	bool old_vm_detach_required = false;
+        old_activity = g_weak_activity.load(std::memory_order_relaxed);
+        if (old_activity && current_vm) {
+            old_vm_to_clean = current_vm;
+            g_weak_activity.store(static_cast<jweak>(nullptr), std::memory_order_seq_cst);
+        }
 
-	JNIEnv* old_env = nullptr;
-	if (current_vm) {
-		jint status = current_vm->GetEnv(reinterpret_cast<void**>(&old_env), JNI_VERSION_1_6);
-		if (status == JNI_EDETACHED) {
-			if (current_vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&old_env), nullptr) == JNI_OK) {
-				old_vm_detach_required = true;
-			}
-		}
-	}
+        g_vm.store(new_vm, std::memory_order_release);
+        current_epoch = g_context_epoch.fetch_add(1, std::memory_order_release) + 1;
+    }
 
-	{
-		std::lock_guard lock{g_context_mutex};
+    t_jni_cache = ThreadJniCache{ .env = env, .bound_vm = new_vm, .epoch = current_epoch };
 
-		JavaVM* rechecked_vm = g_vm.load(std::memory_order::relaxed);
-		if (rechecked_vm == new_vm) {
-			if (old_vm_detach_required && current_vm) {
-				current_vm->DetachCurrentThread();
-			}
-			return true;
-		}
-
-		if (g_weak_activity) {
-			if (rechecked_vm == current_vm && old_env) {
-				old_env->DeleteWeakGlobalRef(g_weak_activity);
-			}
-			g_weak_activity = nullptr;
-		}
-
-		g_vm.store(new_vm, std::memory_order::release);
-	}
-
-	if (old_vm_detach_required && current_vm) {
-		current_vm->DetachCurrentThread();
-	}
-
-	return true;
+    if (old_vm_to_clean && old_activity) {
+        while (g_readers_count.load(std::memory_order_seq_cst) > 0) {
+            #if defined(__aarch64__) || defined(__arm__)
+            asm volatile("yield" ::: "memory");
+            #else
+            (void)0;
+            #endif
+        }
+        ScopedAttachmentGuard old_vm_guard{old_vm_to_clean};
+        JNIEnv* old_env = old_vm_guard.GetEnv();
+        if (old_env) [[likely]] {
+            old_env->DeleteWeakGlobalRef(old_activity);
+        }
+    }
+    return true;
+#else
+    (void)env; return false;
+#endif
 }
 
 bool SetAndroidActivity(jobject activity) noexcept {
-	if (!activity) [[unlikely]]
-		return false;
+    if (!activity) [[unlikely]] return false;
+#ifdef __ANDROID__
+    JavaVM* vm = g_vm.load(std::memory_order_acquire);
+    if (!vm) [[unlikely]] return false;
 
-	JavaVM* vm = g_vm.load(std::memory_order::acquire);
-	if (!vm)
-		return false;
+    JNIEnv* env = GetAndroidJNIEnv();
+    if (!env) [[unlikely]] return false;
 
-	JNIEnv* env = GetAndroidJNIEnv();
-	if (!env) [[unlikely]]
-		return false;
+    jweak new_weak = env->NewWeakGlobalRef(activity);
+    if (!new_weak) [[unlikely]] return false;
 
-	jobject raw_local = env->NewLocalRef(activity);
-	if (!raw_local) [[unlikely]]
-		return false;
+    std::lock_guard lock{g_context_mutex};
+    if (g_vm.load(std::memory_order_acquire) != vm) [[unlikely]] {
+        env->DeleteWeakGlobalRef(new_weak);
+        return false;
+    }
 
-	ScopedLocalRef local_activity{env, raw_local};
+    jweak old_activity = g_weak_activity.exchange(new_weak, std::memory_order_release);
+    if (old_activity) {
+        env->DeleteWeakGlobalRef(old_activity);
+    }
 
-	std::lock_guard lock{g_context_mutex};
-	if (g_vm.load(std::memory_order::acquire) != vm) {
-		return false;
-	}
-
-	if (g_weak_activity) {
-		env->DeleteWeakGlobalRef(g_weak_activity);
-		g_weak_activity = nullptr;
-	}
-
-	g_weak_activity = env->NewWeakGlobalRef(local_activity.get());
-	return g_weak_activity != nullptr;
+    return true;
+#else
+    (void)activity; return false;
+#endif
 }
 
 void ClearAndroidContext() noexcept {
-	JavaVM* vm = g_vm.exchange(nullptr, std::memory_order::acq_rel);
-	if (!vm)
-		return;
+    JavaVM* vm_to_clean = nullptr;
+    jweak old_activity = nullptr;
+    {
+        std::lock_guard lock{g_context_mutex};
+        vm_to_clean = g_vm.exchange(nullptr, std::memory_order_acq_rel);
+        if (!vm_to_clean) return;
 
-	if (g_key_initialized.load(std::memory_order::acquire)) {
-		pthread_setspecific(g_detach_key, nullptr);
-	}
+        old_activity = g_weak_activity.exchange(static_cast<jweak>(nullptr), std::memory_order_seq_cst);
+        g_context_epoch.fetch_add(1, std::memory_order_release);
+    }
 
-	{
-		ScopedCleanupAttachmentGuard attachment_guard{vm};
-		std::lock_guard lock{g_context_mutex};
-		JNIEnv* env = attachment_guard.GetEnv();
+    t_jni_cache = ThreadJniCache{};
 
-		if (env && g_weak_activity) {
-			env->DeleteWeakGlobalRef(g_weak_activity);
-		}
-		g_weak_activity = nullptr;
-	}
+    if (old_activity) {
+        while (g_readers_count.load(std::memory_order_seq_cst) > 0) {
+            #if defined(__aarch64__) || defined(__arm__)
+            asm volatile("yield" ::: "memory");
+            #else
+            (void)0;
+            #endif
+        }
+
+        ScopedAttachmentGuard attachment_guard{vm_to_clean};
+        JNIEnv* env = attachment_guard.GetEnv();
+        if (env) [[likely]] {
+            env->DeleteWeakGlobalRef(old_activity);
+        }
+    }
 }
 
 JNIEnv* GetAndroidJNIEnv() noexcept {
-	JavaVM* vm = g_vm.load(std::memory_order::acquire);
-	if (!vm) [[unlikely]]
-		return nullptr;
+    uint64_t initial_epoch = 0;
 
-	JNIEnv* env{nullptr};
-	jint status = vm->GetEnv(reinterpret_cast<void**>(&env), JNI_VERSION_1_6);
+    if (t_jni_cache.env != nullptr) [[likely]] {
+        initial_epoch = g_context_epoch.load(std::memory_order_relaxed);
+        if (t_jni_cache.epoch == initial_epoch) [[likely]] {
+            return t_jni_cache.env;
+        }
+        std::atomic_thread_fence(std::memory_order_acquire);
+    }
 
-	if (status == JNI_OK) [[likely]] {
-		if (EnforceThreadTokenRegistration(vm)) [[likely]] {
-			if (g_vm.load(std::memory_order::acquire) != nullptr) [[likely]] {
-				return env;
-			}
-		}
-		else {
-			return nullptr;
-		}
-	}
+    JavaVM* vm = g_vm.load(std::memory_order_acquire);
+    if (!vm) [[unlikely]] {
+        t_jni_cache = ThreadJniCache{ 
+            nullptr, 
+            nullptr, 
+            g_context_epoch.load(std::memory_order_relaxed) 
+        };
+        return nullptr;
+    }
 
-	if (status == JNI_EDETACHED || status != JNI_OK) {
-		bool must_detach = false;
-		if (status == JNI_EDETACHED) {
-			status = vm->AttachCurrentThreadAsDaemon(reinterpret_cast<void**>(&env), nullptr);
-			if (status == JNI_OK) [[likely]] {
-				must_detach = true;
-				if (EnforceThreadTokenRegistration(vm)) [[likely]] {
-					if (g_vm.load(std::memory_order::acquire) != nullptr) [[likely]] {
-						return env;
-					}
-				}
-			}
-		}
+    initial_epoch = g_context_epoch.load(std::memory_order_relaxed);
 
-		if (must_detach) {
-			if (g_key_initialized.load(std::memory_order::acquire)) {
-				pthread_setspecific(g_detach_key, nullptr);
-			}
-			vm->DetachCurrentThread();
-		}
-	}
-	return nullptr;
+#ifdef __ANDROID__
+    JavaVM* vm_verify = g_vm.load(std::memory_order_relaxed);
+    if (vm_verify != vm) [[unlikely]] {
+        t_jni_cache = ThreadJniCache{};
+        return nullptr;
+    }
+
+    void* env_ptr{nullptr};
+    jint status = vm->GetEnv(&env_ptr, JNI_VERSION_1_6);
+
+    auto try_cache_env = [initial_epoch, vm, cache_ptr = &t_jni_cache](void* ptr) mutable noexcept -> JNIEnv* {
+        auto* env = reinterpret_cast<JNIEnv*>(ptr);
+        const uint64_t post_epoch = g_context_epoch.load(std::memory_order_relaxed);
+        if (initial_epoch == post_epoch) [[likely]] {
+            *cache_ptr = ThreadJniCache{ .env = env, .bound_vm = vm, .epoch = initial_epoch };
+        }
+        return env;
+    };
+
+    if (status == JNI_OK) [[likely]] {
+        return try_cache_env(env_ptr);
+    }
+
+    if (status == JNI_EDETACHED) {
+        status = vm->AttachCurrentThreadAsDaemon(reinterpret_cast<JNIEnv**>(&env_ptr), nullptr);
+        if (status == JNI_OK) [[likely]] {
+            t_thread_detacher.attached_vm = vm;
+            return try_cache_env(env_ptr);
+        }
+    }
+#endif
+    return nullptr;
 }
 
+
 ScopedLocalRef GetAndroidActivity() noexcept {
-	JNIEnv* env = GetAndroidJNIEnv();
-	if (!env) [[unlikely]]
-		return ScopedLocalRef{};
+    JNIEnv* env = GetAndroidJNIEnv();
+    if (!env) [[unlikely]] return ScopedLocalRef{};
 
-	std::lock_guard lock{g_context_mutex};
+#ifdef __ANDROID__
+    g_readers_count.fetch_add(1, std::memory_order_seq_cst);
+    jweak snapshot_weak = g_weak_activity.load(std::memory_order_seq_cst);
 
-	if (g_vm.load(std::memory_order::acquire) == nullptr) {
-		return ScopedLocalRef{};
-	}
+    if (!snapshot_weak) [[unlikely]] {
+        g_readers_count.fetch_sub(1, std::memory_order_seq_cst);
+        return ScopedLocalRef{};
+    }
 
-	jweak current_weak_activity = g_weak_activity;
-	if (!current_weak_activity) {
-		return ScopedLocalRef{};
-	}
+    jweak revalidate_weak = g_weak_activity.load(std::memory_order_relaxed);
+    if (snapshot_weak != revalidate_weak) [[unlikely]] {
+        g_readers_count.fetch_sub(1, std::memory_order_seq_cst);
+        return ScopedLocalRef{};
+    }
 
-	jobject raw_local_ref = env->NewLocalRef(current_weak_activity);
-	if (!raw_local_ref) {
-		return ScopedLocalRef{};
-	}
+    jobject raw_local_ref = env->NewLocalRef(snapshot_weak);
+    g_readers_count.fetch_sub(1, std::memory_order_release);
 
-	if (env->IsSameObject(raw_local_ref, nullptr) == JNI_TRUE) {
-		env->DeleteLocalRef(raw_local_ref);
-		return ScopedLocalRef{};
-	}
+    if (!raw_local_ref) return ScopedLocalRef{};
 
-	return ScopedLocalRef{env, raw_local_ref};
+    if (env->IsSameObject(raw_local_ref, static_cast<jobject>(nullptr)) == JNI_TRUE) {
+        env->DeleteLocalRef(raw_local_ref);
+        return ScopedLocalRef{};
+    }
+    return ScopedLocalRef{env, raw_local_ref};
+#else
+    return ScopedLocalRef{};
+#endif
+}
+
+JavaVM* GetAndroidJavaVM() noexcept {
+    return g_vm.load(std::memory_order_acquire);
 }
 
 } // namespace Sral
-#endif // defined(__ANDROID__)

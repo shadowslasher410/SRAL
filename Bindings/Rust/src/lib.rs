@@ -11,13 +11,14 @@ pub const SRAL_ENGINE_NARRATOR: c_int = 1 << 4;
 pub const SRAL_ENGINE_UIA: c_int = 1 << 5;
 pub const SRAL_ENGINE_SAPI: c_int = 1 << 6;
 pub const SRAL_ENGINE_SPEECH_DISPATCHER: c_int = 1 << 7;
-pub const SRAL_ENGINE_VOICE_OVER: c_int = 1 << 8;
-pub const SRAL_ENGINE_NS_SPEECH: c_int = 1 << 9;
-pub const SRAL_ENGINE_AV_SPEECH: c_int = 1 << 10;
-pub const SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER: c_int = 1 << 11;
-pub const SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH: c_int = 1 << 12;
-pub const SRAL_ENGINE_CHROMEVOX: c_int = 1 << 13;
-pub const SRAL_ENGINE_ORCA: c_int = 1 << 14;
+pub const SRAL_ENGINE_ORCA: c_int = 1 << 8;
+pub const SRAL_ENGINE_VOICE_OVER: c_int = 1 << 9;
+pub const SRAL_ENGINE_NS_SPEECH: c_int = 1 << 10;
+pub const SRAL_ENGINE_AV_SPEECH: c_int = 1 << 11;
+pub const SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER: c_int = 1 << 12;
+pub const SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH: c_int = 1 << 13;
+pub const SRAL_ENGINE_CHROMEVOX: c_int = 1 << 14;
+pub const SRAL_ENGINE_ACCESSKIT: c_int = 1 << 15;
 pub const SRAL_ENGINE_CURRENT: c_int = -1;
 pub const SRAL_ENGINE_NO_SPECIFIED: c_int = -255;
 
@@ -47,6 +48,10 @@ pub const SRAL_PARAM_SAPI_TRIM_THRESHOLD: c_int = 6;
 pub const SRAL_PARAM_ENABLE_SPELLING: c_int = 7;
 pub const SRAL_PARAM_USE_CHARACTER_DESCRIPTIONS: c_int = 8;
 pub const SRAL_PARAM_NVDA_IS_CONTROL_EX: c_int = 9;
+pub const SRAL_PARAM_ENGINE_IS_PAUSED: c_int = 10;
+pub const SRAL_PARAM_ANDROID_JNI_ENV: c_int = 11;
+pub const SRAL_PARAM_ANDROID_ACTIVITY: c_int = 12;
+
 
 #[derive(Debug, Clone)]
 pub struct VoiceInfo {

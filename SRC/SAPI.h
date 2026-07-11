@@ -9,6 +9,7 @@
 
 #include <memory>
 #include <thread>
+#include <mutex>
 
 namespace Sral {
 class Sapi final : public Engine {
@@ -41,6 +42,7 @@ private:
 	int trimThreshold = 20;
 	int voiceIndex = 0;
 	std::jthread speechThread; 
+	std::mutex instanceMutex;
 };
 } // namespace Sral
 #endif

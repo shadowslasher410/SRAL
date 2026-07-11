@@ -1,59 +1,125 @@
-#ifndef SRAL_ANDROID_CONTEXT_H_
-#define SRAL_ANDROID_CONTEXT_H_
+#ifndef ANDROIDCONTEXT_H_
+#define ANDROIDCONTEXT_H_
 #pragma once
 
-#if defined(__ANDROID__)
-#include <jni.h>
+#include <cstdint>
 
-// Shared Android JNI context for SRAL engines.
-//
-// Native code on Android cannot obtain a JNIEnv* or the app's Activity on its
-// own — the host application must provide them. The host sets them via
-// SRAL_SetEngineParameter using SRAL_PARAM_ANDROID_JNI_ENV and
-// SRAL_PARAM_ANDROID_ACTIVITY (see SRAL.h), which forward into the setters
-// below. Engine implementations (e.g. AndroidTextToSpeech, future
-// AndroidTalkBack) retrieve the values through the accessor functions.
-//
-// SetAndroidJNIEnv must be called before SetAndroidActivity, since creating
-// a global ref for the activity requires a valid JNIEnv*.
+#if defined(__ANDROID__)
+    #include <jni.h>
+#else
+    using jint = int32_t;
+    using jboolean = uint8_t;
+
+    struct _jobject;
+    struct _jarray;
+    
+    typedef struct _jobject* jobject;
+    typedef struct _jobject* jweak;
+    typedef struct _jobject* jclass;
+    typedef struct _jobject* jstring;
+    typedef void*            jmethodID;
+    
+    struct JNIEnv;
+    struct JavaVM;
+#endif
 
 namespace Sral {
+class [[nodiscard]] ScopedAttachmentGuard final {
+public:
+    explicit ScopedAttachmentGuard(JavaVM* vm) noexcept;
+    ~ScopedAttachmentGuard() noexcept;
+
+    ScopedAttachmentGuard(const ScopedAttachmentGuard&) = delete;
+    ScopedAttachmentGuard& operator=(const ScopedAttachmentGuard&) = delete;
+    ScopedAttachmentGuard(ScopedAttachmentGuard&&) noexcept = delete;
+    ScopedAttachmentGuard& operator=(ScopedAttachmentGuard&&) noexcept = delete;
+
+    [[nodiscard]] JNIEnv* GetEnv() const noexcept { return env_; }
+
+private:
+    JavaVM* vm_;
+    JNIEnv* env_;
+    bool must_detach_;
+};
 
 /**
- * @brief Captures the JavaVM* from the provided env.
- * @param env The current JNI environment.
- * @return True if the JavaVM handle was successfully isolated.
+ * @brief An RAII wrapper that automatically manages the lifecycle of a JNI local reference.
+ * 
+ * Ensures that DeleteLocalRef is executed immediately when the wrapper scope terminates,
+ * preventing local reference table exhaustion on heavy background loops.
  */
-bool SetAndroidJNIEnv(JNIEnv* env) noexcept;
+class [[nodiscard]] ScopedLocalRef final {
+public:
+    ScopedLocalRef() noexcept = default;
+    explicit ScopedLocalRef(JNIEnv* env, jobject ref) noexcept : env_(env), ref_(ref) {}
+    ~ScopedLocalRef() noexcept;
+
+    // Local references are bound to their stack frame scope and cannot be copied
+    ScopedLocalRef(const ScopedLocalRef&) = delete;
+    ScopedLocalRef& operator=(const ScopedLocalRef&) = delete;
+
+    // Supports explicit ownership transfers via C++ move semantics
+    ScopedLocalRef(ScopedLocalRef&& other) noexcept;
+    ScopedLocalRef& operator=(ScopedLocalRef&& other) noexcept;
+
+    /**
+     * @brief Relinquishes ownership of the wrapped local reference without freeing it.
+     * @return The raw JNI jobject reference.
+     */
+    [[nodiscard]] jobject release() noexcept;
+
+    /**
+     * @brief Accesses the raw underlying local reference pointer.
+     */
+    [[nodiscard]] jobject get() const noexcept { return ref_; }
+
+    /**
+     * @brief Syntactic sugar to quickly check if the underlying reference is non-null.
+     */
+    [[nodiscard]] explicit operator bool() const noexcept { return ref_ != nullptr; }
+
+private:
+    JNIEnv* env_{nullptr};
+    jobject ref_{nullptr};
+};
 
 /**
- * @brief Stores a global ref to activity.
- * Requires SetAndroidJNIEnv to have been called first.
- * @param activity The jobject handle pointing to the Host Android Activity.
- * @return True if the global reference was safely instantiated.
+ * @brief Registers or updates the global Java Virtual Machine instance.
+ * @param env An active JNIEnv pointer belonging to the initialization thread.
+ * @return True if the VM was extracted and assigned successfully, false otherwise.
  */
-bool SetAndroidActivity(jobject activity) noexcept;
+[[nodiscard]] bool SetAndroidJNIEnv(JNIEnv* env) noexcept;
 
 /**
- * @brief Releases the global ref to activity and clears cached JVM bindings.
- * Called by SRAL_Uninitialize. Completely thread-safe.
+ * @brief Registers the current global Android Activity context.
+ * @param activity A local or global reference to the active Android Activity.
+ * @return True if a weak reference tracking point was safely instantiated.
+ */
+[[nodiscard]] bool SetAndroidActivity(jobject activity) noexcept;
+
+/**
+ * @brief Flushes all stored global states, clears references, and disconnects tracking handles.
  */
 void ClearAndroidContext() noexcept;
 
 /**
- * @brief Returns a JNIEnv* valid on the calling thread, attaching it if necessary.
- * @return A thread-local valid JNIEnv*, or nullptr on terminal lookup failure.
+ * @brief Fetches or attaches a thread-specific execution pointer for the active JNI environment.
+ * @return A valid JNIEnv pointer, or nullptr if the JVM is uninitialized or thread attachment fails.
  */
 [[nodiscard]] JNIEnv* GetAndroidJNIEnv() noexcept;
 
 /**
- * @brief Returns the Activity global ref.
- * @return The active global reference jobject, or nullptr if unassigned.
+ * @brief Resolves and secures a safe local instance copy of the active Android Activity.
+ * @return A ScopedLocalRef wrapping the activity. Check via explicit bool cast for null validation.
  */
-[[nodiscard]] jobject GetAndroidActivity() noexcept;
+[[nodiscard]] ScopedLocalRef GetAndroidActivity() noexcept;
+
+/**
+ * @brief Retrieves the globally registered Java Virtual Machine pointer.
+ * @return The underlying JavaVM pointer, or nullptr if not set.
+ */
+[[nodiscard]] JavaVM* GetAndroidJavaVM() noexcept;
 
 } // namespace Sral
 
-#endif // defined(__ANDROID__)
-
-#endif // SRAL_ANDROID_CONTEXT_H_
+#endif // ANDROIDCONTEXT_H_

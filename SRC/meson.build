@@ -1,25 +1,27 @@
 assert(meson.current_source_dir().ends_with('SRC'), 'SRC/meson.build must be called via subdir() from the root directory')
 
-# Resolve root workspace anchors to reference external resources without sandbox escapes
 root_src = meson.project_source_root()
 
-# --- Structural Isolation of Dependency Code Targets ---
+is_windows_target   = (host_system == 'windows')
+is_apple_target     = (host_system == 'darwin')
+is_android_target   = (host_system == 'android')
+is_emscripten_target = (host_system == 'emscripten')
+is_ios_target       = get_option('TARGET_IOS')
+
 dep_sources = []
-if is_windows
+if is_windows_target
   dep_sources += [
     root_src / 'Dep/nvda_control.c',
     root_src / 'Dep/fsapi.c',
     root_src / 'Dep/blastspeak.c'
   ]
-elif not is_apple and not is_android and not is_emscripten
+elif not is_apple_target and not is_android_target and not is_emscripten_target
   dep_sources += [root_src / 'Dep/utf-8.c']
 endif
 
-# --- Shared C/C++ Global System Hardening Flag Management ---
 global_c_cpp_args = ['-Wall', '-Wextra']
 
-# Protect compiler generation flags against MSVC command parsing crashes
-if cc.get_id() != 'msvc'
+if c_id != 'msvc'
   global_c_cpp_args += [
     '-D_FORTIFY_SOURCE=3',
     '-fstack-protector-all',
@@ -30,16 +32,16 @@ if cc.get_id() != 'msvc'
     '-fno-common',
     '-ftrivial-auto-var-init=zero'
   ]
-  if cc.has_argument('-fcf-protection=full')
-    global_c_cpp_args += '-fcf-protection=full'
+  if c_compiler.has_argument('-fcf-protection=full')
+    global_c_cpp_args += ['-fcf-protection=full']
   endif
-  if cc.has_argument('-mbranch-protection=all')
-    global_c_cpp_args += '-mbranch-protection=all'
+  if c_compiler.has_argument('-mbranch-protection=all')
+    global_c_cpp_args += ['-mbranch-protection=all']
   endif
 endif
 
-supported_global_c_args   = cc.get_supported_arguments(global_c_cpp_args)
-supported_global_cpp_args = cpp.get_supported_arguments(global_c_cpp_args)
+supported_global_c_args   = c_compiler.get_supported_arguments(global_c_cpp_args)
+supported_global_cpp_args = cpp_compiler.get_supported_arguments(global_c_cpp_args)
 
 sral_deps_lib = static_library('sral_deps',
   dep_sources,
@@ -48,7 +50,6 @@ sral_deps_lib = static_library('sral_deps',
   pic: true
 )
 
-# --- Strict Compilation Auditing & Warning Profiles ---
 shared_warnings = [
   '-Werror',
   '-Wformat=2',                      
@@ -70,123 +71,119 @@ cpp_exclusive_warnings = [
   '-Woverloaded-virtual',            
 ]
 
-# Query warnings strictly via matching backend language front-ends
-core_c_args   = supported_global_c_args   + cc.get_supported_arguments(shared_warnings)
-core_cpp_args = supported_global_cpp_args + cpp.get_supported_arguments(shared_warnings + cpp_exclusive_warnings)
+core_c_args   = supported_global_c_args   + c_compiler.get_supported_arguments(shared_warnings)
+core_cpp_args = supported_global_cpp_args + cpp_compiler.get_supported_arguments(shared_warnings + cpp_exclusive_warnings)
 
 core_sources = files('Engine.cpp', 'SRAL.cpp')
 
-# --- Feature Mapping Logic ---
 if get_option('SRAL_WITH_CHROMEVOX')
   core_sources += files('ChromeVox.cpp')
 else
-  core_c_args   += '-DSRAL_NO_CHROMEVOX'
-  core_cpp_args += '-DSRAL_NO_CHROMEVOX'
+  core_c_args   += ['-DSRAL_NO_CHROMEVOX']
+  core_cpp_args += ['-DSRAL_NO_CHROMEVOX']
 endif
 
-if is_windows
+if is_windows_target
   core_sources += files('Encoding.cpp')
   if get_option('SRAL_WITH_NVDA')
     core_sources += files('NVDA.cpp')
   else
-    core_c_args += '-DSRAL_NO_NVDA'
-    core_cpp_args += '-DSRAL_NO_NVDA'
+    core_c_args  += ['-DSRAL_NO_NVDA']
+    core_cpp_args += ['-DSRAL_NO_NVDA']
   endif
   if get_option('SRAL_WITH_JAWS')
     core_sources += files('Jaws.cpp')
   else
-    core_c_args += '-DSRAL_NO_JAWS'
-    core_cpp_args += '-DSRAL_NO_JAWS'
+    core_c_args  += ['-DSRAL_NO_JAWS']
+    core_cpp_args += ['-DSRAL_NO_JAWS']
   endif
   if get_option('SRAL_WITH_ZDSR')
     core_sources += files('ZDSR.cpp')
   else
-    core_c_args += '-DSRAL_NO_ZDSR'
-    core_cpp_args += '-DSRAL_NO_ZDSR'
+    core_c_args  += ['-DSRAL_NO_ZDSR']
+    core_cpp_args += ['-DSRAL_NO_ZDSR']
   endif
   if get_option('SRAL_WITH_SAPI')
     core_sources += [files('SAPI.cpp'), root_src / 'Dep/wasapi.cpp']
   else
-    core_c_args += '-DSRAL_NO_SAPI'
-    core_cpp_args += '-DSRAL_NO_SAPI'
+    core_c_args  += ['-DSRAL_NO_SAPI']
+    core_cpp_args += ['-DSRAL_NO_SAPI']
   endif
   if get_option('SRAL_WITH_UIA')
     core_sources += [files('UIA.cpp'), root_src / 'Dep/UIAProvider.cpp']
   else
-    core_c_args += '-DSRAL_NO_UIA'
-    core_cpp_args += '-DSRAL_NO_UIA'
+    core_c_args  += ['-DSRAL_NO_UIA']
+    core_cpp_args += ['-DSRAL_NO_UIA']
   endif
 
-elif is_apple
+elif is_apple_target
   if get_option('SRAL_WITH_VOICEOVER')
     core_sources += files('VoiceOver.mm')
   else
-    core_c_args += '-DSRAL_NO_VOICEOVER'
-    core_cpp_args += '-DSRAL_NO_VOICEOVER'
+    core_c_args  += ['-DSRAL_NO_VOICEOVER']
+    core_cpp_args += ['-DSRAL_NO_VOICEOVER']
   endif
   if get_option('SRAL_WITH_AVSPEECH')
     core_sources += files('AVSpeech.mm')
   else
-    core_c_args += '-DSRAL_NO_AVSPEECH'
-    core_cpp_args += '-DSRAL_NO_AVSPEECH'
+    core_c_args  += ['-DSRAL_NO_AVSPEECH']
+    core_cpp_args += ['-DSRAL_NO_AVSPEECH']
   endif
-  if not is_ios and get_option('SRAL_WITH_NSSPEECH')
+  if not is_ios_target and get_option('SRAL_WITH_NSSPEECH')
     core_sources += files('NSSpeech.mm')
   else
-    core_c_args += '-DSRAL_NO_NSSPEECH'
-    core_cpp_args += '-DSRAL_NO_NSSPEECH'
+    core_c_args  += ['-DSRAL_NO_NSSPEECH']
+    core_cpp_args += ['-DSRAL_NO_NSSPEECH']
   endif
 
-elif is_android
+elif is_android_target
   core_sources += [root_src / 'Dep/AndroidContext.cpp']
   if get_option('SRAL_WITH_ANDROID_TTS')
     core_sources += files('AndroidTextToSpeech.cpp')
   else
-    core_c_args += '-DSRAL_NO_ANDROID_TTS'
-    core_cpp_args += '-DSRAL_NO_ANDROID_TTS'
+    core_c_args  += ['-DSRAL_NO_ANDROID_TTS']
+    core_cpp_args += ['-DSRAL_NO_ANDROID_TTS']
   endif
   if get_option('SRAL_WITH_ANDROID_ACCESSIBILITY')
     core_sources += files('AndroidAccessibilityManager.cpp')
   else
-    core_c_args += '-DSRAL_NO_ANDROID_ACCESSIBILITY'
-    core_cpp_args += '-DSRAL_NO_ANDROID_ACCESSIBILITY'
+    core_c_args  += ['-DSRAL_NO_ANDROID_ACCESSIBILITY']
+    core_cpp_args += ['-DSRAL_NO_ANDROID_ACCESSIBILITY']
   endif
 
-elif is_emscripten
+elif is_emscripten_target
   # Managed natively via Emscripten target profiles
 else
   core_sources += files('Encoding.cpp', 'ACAnnouncer.cpp')
   if get_option('SRAL_WITH_SPEECH_DISPATCHER')
     core_sources += files('SpeechDispatcher.cpp')
   else
-    core_c_args += '-DSRAL_NO_SPEECH_DISPATCHER'
-    core_cpp_args += '-DSRAL_NO_SPEECH_DISPATCHER'
+    core_c_args  += ['-DSRAL_NO_SPEECH_DISPATCHER']
+    core_cpp_args += ['-DSRAL_NO_SPEECH_DISPATCHER']
   endif
   if get_option('SRAL_WITH_ORCA')
     core_sources += files('Orca.cpp')
   else
-    core_c_args += '-DSRAL_NO_ORCA'
-    core_cpp_args += '-DSRAL_NO_ORCA'
+    core_c_args  += ['-DSRAL_NO_ORCA']
+    core_cpp_args += ['-DSRAL_NO_ORCA']
   endif
 endif
 
-# --- Linker Target Enforcement Validation ---
 supported_link_args = []
 
-if cc.get_id() != 'msvc'
+if c_id != 'msvc'
   desired_link_args = [
     '-Wl,-z,relro',       
     '-Wl,-z,now',         
     '-Wl,-z,noexecstack', 
     '-Wl,-z,defs',
   ]
-  supported_link_args = cc.get_supported_link_arguments(desired_link_args)
+  supported_link_args = c_compiler.get_supported_link_arguments(desired_link_args)
 else
   desired_msvc_link = ['/NXCOMPAT', '/DYNAMICBASE', '/HIGHENTROPYVA']
-  supported_link_args = cc.get_supported_link_arguments(desired_msvc_link)
+  supported_link_args = c_compiler.get_supported_link_arguments(desired_msvc_link)
 endif
 
-# --- Core Dynamic/Static Shared Engine Generation ---
 sral_lib = library('SRAL',
   core_sources,
   include_directories: inc_dir,

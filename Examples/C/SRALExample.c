@@ -4,7 +4,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef SRAL_STATIC
 #define SRAL_STATIC
+#endif
 #include <SRAL.h>
 
 #ifdef _WIN32

@@ -4,19 +4,21 @@
 
 namespace Sral {
 
-bool Engine::SpeakSsml(const char* const ssml, const bool interrupt) {
+bool Engine::SpeakSsml(const char* ssml, bool interrupt) {
 	return Speak(ssml, interrupt);
 }
 
-void* Engine::SpeakToMemory([[maybe_unused]] const char* const text,
-	[[maybe_unused]] uint64_t* const buffer_size,
-	[[maybe_unused]] int* const channels,
-	[[maybe_unused]] int* const sample_rate,
-	[[maybe_unused]] int* const bits_per_sample) {
+void* Engine::SpeakToMemory(const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) {
+	(void)text;
+	(void)buffer_size;
+	(void)channels;
+	(void)sample_rate;
+	(void)bits_per_sample;
 	return nullptr;
 }
 
-bool Engine::Braille([[maybe_unused]] const char* const text) {
+bool Engine::Braille(const char* text) {
+	(void)text;
 	return false;
 }
 
@@ -32,11 +34,15 @@ int Engine::GetKeyFlags() {
 	return HANDLE_NONE;
 }
 
-bool Engine::SetParameter([[maybe_unused]] const int param, [[maybe_unused]] const void* const value) {
+bool Engine::SetParameter(int param, const void* value) {
+	(void)param;
+	(void)value;
 	return false;
 }
 
-bool Engine::GetParameter([[maybe_unused]] const int param, [[maybe_unused]] void* const value) {
+bool Engine::GetParameter(int param, void* value) {
+	(void)param;
+	(void)value;
 	return false;
 }
 

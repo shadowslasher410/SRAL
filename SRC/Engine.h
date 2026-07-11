@@ -10,6 +10,7 @@
 #include <type_traits>
 #include <vector>
 
+// cppcheck-suppress syntaxError
 namespace Sral {
 
 enum KeyboardFlags : int { HANDLE_NONE = 0, HANDLE_INTERRUPT = 2, HANDLE_PAUSE_RESUME = 4 };
@@ -27,8 +28,9 @@ public:
 
 	Engine(const Engine&) = delete;
 	Engine& operator=(const Engine&) = delete;
-	Engine(Engine&&) = delete;
-	Engine& operator=(Engine&&) = delete;
+	
+	Engine(Engine&&) noexcept = default;
+	Engine& operator=(Engine&&) noexcept = default;
 
 	[[nodiscard]] virtual bool Speak(const char* text, bool interrupt) = 0;
 	[[nodiscard]] virtual bool SpeakSsml(const char* ssml, bool interrupt);

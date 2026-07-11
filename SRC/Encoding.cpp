@@ -1,5 +1,4 @@
 #include "Encoding.h"
-
 #include <string>
 #include <string_view>
 #include <array>
@@ -7,11 +6,13 @@
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
+#else
+#include <uchar.h>
 #endif
 
 namespace Sral {
 
-bool UnicodeConvert([[maybe_unused]] std::string_view input, [[maybe_unused]] std::wstring& output) {
+bool UnicodeConvert(std::string_view input, std::wstring& output) {
 	output.clear();
 	if (input.empty()) {
 		return true;
@@ -46,11 +47,51 @@ bool UnicodeConvert([[maybe_unused]] std::string_view input, [[maybe_unused]] st
 	}
 	return false;
 #else
-	return false;
+	std::mbstate_t state{};
+	const char* ptr = input.data();
+	const char* end = input.data() + input.size();
+
+	constexpr size_t kStackBufferSize = 512;
+	size_t converted_chars = 0;
+
+	std::array<wchar_t, kStackBufferSize> stack_buffer;
+	std::wstring heap_buffer;
+	wchar_t* current_dest = stack_buffer.data();
+	size_t current_capacity = kStackBufferSize;
+
+	while (ptr < end) {
+		char32_t c32 = 0;
+		size_t rc = mbrtoc32(&c32, ptr, end - ptr, &state);
+		
+		if (rc == static_cast<size_t>(-1) || rc == static_cast<size_t>(-2)) [[unlikely]] {
+			return false;
+		}
+		if (rc == 0) {
+			rc = 1;
+
+		if (converted_chars >= current_capacity) {
+			if (current_dest == stack_buffer.data()) {
+				heap_buffer.assign(stack_buffer.data(), converted_chars);
+			}
+			heap_buffer.resize(heap_buffer.size() + kStackBufferSize);
+			current_dest = heap_buffer.data();
+			current_capacity = heap_buffer.size();
+		}
+
+		current_dest[converted_chars++] = static_cast<wchar_t>(c32);
+		ptr += rc;
+	}
+
+	if (current_dest == stack_buffer.data()) {
+		output.assign(stack_buffer.data(), converted_chars);
+	} else {
+		heap_buffer.resize(converted_chars);
+		output = std::move(heap_buffer);
+	}
+	return true;
 #endif
 }
-
-bool UnicodeConvert([[maybe_unused]] std::wstring_view input, [[maybe_unused]] std::string& output) {
+bool UnicodeConvert(std::wstring_view input, std::string& output) {
 	output.clear();
 	if (input.empty()) {
 		return true;
@@ -62,7 +103,6 @@ bool UnicodeConvert([[maybe_unused]] std::wstring_view input, [[maybe_unused]] s
 	}
 
 	const int input_size = static_cast<int>(input.size());
-	
 	const int size_needed = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, input.data(), input_size, nullptr, 0, nullptr, nullptr);
 	if (size_needed <= 0) [[unlikely]] {
 		return false;
@@ -86,7 +126,44 @@ bool UnicodeConvert([[maybe_unused]] std::wstring_view input, [[maybe_unused]] s
 	}
 	return false;
 #else
-	return false;
+	std::mbstate_t state{};
+	constexpr size_t kStackBufferSize = 1024;
+	std::array<char, kStackBufferSize> stack_buffer;
+	std::string heap_buffer;
+	
+	char* current_dest = stack_buffer.data();
+	size_t bytes_written = 0;
+	size_t current_capacity = kStackBufferSize;
+
+	for (const wchar_t wch : input) {
+		char32_t c32 = static_cast<char32_t>(wch);
+		std::array<char, 4> bytes{};
+		
+		size_t rc = c32rtomb(bytes.data(), c32, &state);
+		if (rc == static_cast<size_t>(-1)) [[unlikely]] {
+			return false;
+		}
+
+		if (bytes_written + rc >= current_capacity) {
+			if (current_dest == stack_buffer.data()) {
+				heap_buffer.assign(stack_buffer.data(), bytes_written);
+			}
+			heap_buffer.resize(heap_buffer.size() + kStackBufferSize * 2);
+			current_dest = heap_buffer.data();
+			current_capacity = heap_buffer.size();
+		}
+
+		std::memcpy(current_dest + bytes_written, bytes.data(), rc);
+		bytes_written += rc;
+	}
+
+	if (current_dest == stack_buffer.data()) {
+		output.assign(stack_buffer.data(), bytes_written);
+	} else {
+		heap_buffer.resize(bytes_written);
+		output = std::move(heap_buffer);
+	}
+	return true;
 #endif
 }
 
@@ -98,11 +175,11 @@ void XmlEncode(std::string& data) {
 	size_t expansion_size = 0;
 	for (const char c : data) {
 		switch (c) {
-		case '&':  expansion_size += 4; break; // "&amp;"  (+4 bytes)
-		case '<':  expansion_size += 3; break; // "&lt;"   (+3 bytes)
-		case '>':  expansion_size += 3; break; // "&gt;"   (+3 bytes)
-		case '"':  expansion_size += 5; break; // "&quot;" (+5 bytes)
-		case '\'': expansion_size += 5; break; // "&apos;" (+5 bytes)
+		case '&':  expansion_size += 4; break; 
+		case '<':  expansion_size += 3; break;
+		case '>':  expansion_size += 3; break;
+		case '"':  expansion_size += 5; break;
+		case '\'': expansion_size += 5; break;
 		default: break;
 		}
 	}

@@ -292,7 +292,6 @@ class SRAL {
   List<SralVoiceInfo> getVoices(int engine) {
     final pCount = malloc<Int32>()..value = 0;
     try {
-      // 4 corresponds directly to SRAL_PARAM_VOICE_COUNT
       if (!_getEngineParameter(engine, 4, pCount.cast<Void>()) || pCount.value <= 0) {
         return [];
       }
@@ -318,7 +317,6 @@ class SRAL {
           ));
         }
 
-        // Release array buffer using your engine's custom memory deallocator contract
         _sralFree(rawArray.cast<Void>());
         return voices;
       } finally {

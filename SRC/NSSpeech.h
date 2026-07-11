@@ -4,26 +4,36 @@
 #if defined(__APPLE__) || defined(__MACH__)
 #include <TargetConditionals.h>
 
-#if TARGET_OS_OSX
+#if defined(TARGET_OS_OSX) && TARGET_OS_OSX
+
+#include "../Include/SRAL.h"
+#include "Engine.h"
 
 namespace Sral {
 
-constexpr int SRAL_PARAM_SPEECH_RATE = 1;
-constexpr int SRAL_PARAM_SPEECH_VOLUME = 2;
-
-class NsSpeech {
+class NSSpeech final : public Engine {
 public:
-	static bool Initialize();
-	static bool Uninitialize();
+	NSSpeech() noexcept = default;
+	~NSSpeech() override = default;
 
-	static bool Speak(const char* text, bool interrupt);
-	static bool StopSpeech();
+	NSSpeech(const NSSpeech&) = delete;
+	NSSpeech& operator=(const NSSpeech&) = delete;
+	NSSpeech(NsSpeech&&) = delete; 
+	NSSpeech& operator=(NSSpeech&&) = delete;
 
-	static bool IsSpeaking();
-	static bool GetActive();
-
-	static bool SetParameter(int param, const void* value);
-	static bool GetParameter(int param, void* value);
+	[[nodiscard]] bool Speak(const char* text, bool interrupt) override;
+	[[nodiscard]] bool StopSpeech() override;
+	[[nodiscard]] bool IsSpeaking() override;
+	[[nodiscard]] bool GetActive() override;
+	[[nodiscard]] bool SetParameter(int param, const void* value) override;
+	[[nodiscard]] bool GetParameter(int param, void* value) override;
+	
+	[[nodiscard]] int GetNumber() override { return SRAL_ENGINE_NS_SPEECH; }
+	[[nodiscard]] int GetCategory() override { return SRAL_ENGINE_CATEGORY_SCREEN_READER; }
+	[[nodiscard]] int GetFeatures() override { return SRAL_SUPPORTS_SPEECH; }
+	
+	[[nodiscard]] bool Initialize() override;
+	[[nodiscard]] bool Uninitialize() override;
 
 private:
 	static void* obj;
@@ -31,6 +41,6 @@ private:
 
 } // namespace Sral
 
-#endif /* TARGET_OS_OSX */
+#endif /* defined(TARGET_OS_OSX) && TARGET_OS_OSX */
 #endif /* defined(__APPLE__) || defined(__MACH__) */
 #endif /* NS_SPEECH_H */

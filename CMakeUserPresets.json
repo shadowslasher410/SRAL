@@ -2,199 +2,51 @@
   "version": 11,
   "configurePresets": [
     {
-      "name": "base-desktop",
-      "displayName": "Base Desktop Configuration",
-      "description": "Inherited baseline for local architecture desktop targets",
-      "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "BUILD_BINDINGS": "OFF",
-        "BUILD_TESTS": "ON"
-      }
-    },
-    {
-      "name": "base-desktop-debug",
-      "displayName": "Base Desktop Debug Template",
-      "hidden": true,
-      "inherits": "base-desktop",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "base-chromevox-release",
-      "displayName": "Base ChromeVox Release Template",
-      "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
-      "name": "base-chromevox-debug",
-      "displayName": "Base ChromeVox Debug Template",
-      "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "base-android-release",
-      "displayName": "Base Android Release Template",
-      "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release"
-      }
-    },
-    {
-      "name": "base-android-debug",
-      "displayName": "Base Android Debug Template",
-      "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug"
-      }
-    },
-    {
-      "name": "desktop-release",
-      "displayName": "Desktop Release",
-      "description": "Absolute hardened production profile with multi-compiler fallback mitigations",
-      "inherits": "base-desktop",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "BUILD_SHARED_LIBS": "ON",
-        "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
-        "CMAKE_LINK_WARNING_AS_ERROR": "ON",
-        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
-        "CMAKE_OPTIMIZE_DEPENDENCIES": "ON",
-        "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON",
-        "CMAKE_C_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -fstack-clash-protection -fcf-protection=full -fPIE -ftrivial-auto-var-init=pattern -Wall -Wextra -Wconversion -Wformat-security",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -fstack-clash-protection -fcf-protection=full -fPIE -ftrivial-auto-var-init=pattern -Wall -Wextra -Wconversion -Wformat-security",
-        "CMAKE_EXE_LINKER_FLAGS_RELEASE": "-pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack -Wl,-z,nodlopen",
-        "CMAKE_C_FLAGS_RELEASE_INIT": "/O2 /GS /guard:cf /sdl",
-        "CMAKE_CXX_FLAGS_RELEASE_INIT": "/O2 /GS /guard:cf /sdl",
-        "CMAKE_EXE_LINKER_FLAGS_RELEASE_INIT": "/NXCOMPAT /DYNAMICBASE /HIGHENTROPYVA /GUARD:CF /DEPENDENTLOADFLAG:0x2000"
-      }
-    },
-    {
-      "name": "desktop-static-debug",
-      "displayName": "Desktop Static Debug",
-      "description": "Static library layout containing debug symbols for local testing",
-      "inherits": "base-desktop",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "BUILD_SHARED_LIBS": "OFF"
-      }
-    },
-    {
-      "name": "desktop-sanitizers",
-      "displayName": "Desktop Sanitizers (Debug)",
-      "description": "Strict runtime testing environment for catching memory safety violations",
-      "inherits": "base-desktop",
-      "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
-        "BUILD_SHARED_LIBS": "OFF",
-        "CMAKE_C_FLAGS_DEBUG": "-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer",
-        "CMAKE_CXX_FLAGS_DEBUG": "-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer"
-      }
-    },
-    {
-      "name": "wasm-release",
-      "displayName": "Emscripten WebAssembly Release",
-      "description": "Hardened static WebAssembly build configuration leveraging Emscripten toolchain",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/wasm-release",
-      "toolchainFile": "${hostEnv:EMSCRIPTEN}/cmake/Modules/Platform/Emscripten.cmake",
-      "condition": {
-        "type": "notEquals",
-        "lhs": "${hostEnv:EMSCRIPTEN}",
-        "rhs": ""
+      "name": "user-wasm-release",
+      "displayName": "Local Emscripten WebAssembly Release",
+      "inherits": "wasm-release",
+      "toolchainFile": "C:/tools/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "environment": {
+        "EMSDK": "C:/tools/emsdk"
       },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "SRAL_COMPILE_AS_WASM": "ON",
-        "BUILD_SHARED_LIBS": "OFF",
-        "CMAKE_OPTIMIZE_DEPENDENCIES": "ON",
-        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
-        "CMAKE_C_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -ftrivial-auto-var-init=pattern -Wall -Wextra -Wformat-security",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -ftrivial-auto-var-init=pattern -Wall -Wextra -Wformat-security"
+        "PATH_EMSDK_INSTALL": "C:/tools/emsdk"
       }
     },
     {
-      "name": "android-arm64-release",
-      "displayName": "Android ARM64 Release",
-      "description": "Hardened cross-compilation preset targeting AArch64 Android platforms",
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/android-arm64",
-      "toolchainFile": "${hostEnv:ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
-      "condition": {
-        "type": "notEquals",
-        "lhs": "${hostEnv:ANDROID_NDK_HOME}",
-        "rhs": ""
+      "name": "user-wasm-debug",
+      "displayName": "Local Emscripten WebAssembly Debug",
+      "inherits": "wasm-debug",
+      "toolchainFile": "C:/tools/emsdk/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "environment": {
+        "EMSDK": "C:/tools/emsdk"
       },
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Release",
-        "ANDROID_ABI": "arm64-v8a",
-        "ANDROID_PLATFORM": "android-26",
-        "BUILD_SHARED_LIBS": "ON",
-        "CMAKE_OPTIMIZE_DEPENDENCIES": "ON",
-        "CMAKE_POSITION_INDEPENDENT_CODE": "ON",
-        "CMAKE_COMPILE_WARNING_AS_ERROR": "ON",
-        "CMAKE_C_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong -fstack-clash-protection -mbranch-protection=standard -fPIE -ftrivial-auto-var-init=pattern -Wall -Wextra -Wconversion -Wformat-security",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_GLIBCXX_ASSERTIONS -fstack-protector-strong -fstack-clash-protection -mbranch-protection=standard -fPIE -ftrivial-auto-var-init=pattern -Wall -Wextra -Wconversion -Wformat-security",
-        "CMAKE_EXE_LINKER_FLAGS_RELEASE": "-pie -Wl,-z,relro -Wl,-z,now -Wl,-z,nodlopen"
-      }
-    }
-  ],
-  "buildPresets": [
-    {
-      "name": "desktop-release",
-      "configurePreset": "desktop-release"
-    },
-    {
-      "name": "desktop-sanitizers",
-      "configurePreset": "desktop-sanitizers"
-    },
-    {
-      "name": "wasm-release",
-      "configurePreset": "wasm-release"
-    },
-    {
-      "name": "android-arm64-release",
-      "configurePreset": "android-arm64-release"
-    }
-  ],
-  "testPresets": [
-    {
-      "name": "desktop-tests",
-      "configurePreset": "desktop-release",
-      "output": {
-        "outputOnFailure": true
-      },
-      "execution": {
-        "noTestsAction": "error",
-        "stopOnFailure": false,
-        "jobs": 0
+        "PATH_EMSDK_INSTALL": "C:/tools/emsdk"
       }
     },
     {
-      "name": "sanitizer-tests",
-      "configurePreset": "desktop-sanitizers",
-      "output": {
-        "outputOnFailure": true
+      "name": "user-android-arm64-release",
+      "displayName": "Local Android ARM64 Release",
+      "inherits": "android-arm64-release",
+      "toolchainFile": "C:/Users/Sheryl/AppData/Local/Android/Sdk/ndk/29.0.14206865/build/cmake/android.toolchain.cmake",
+      "environment": {
+        "ANDROID_NDK_HOME": "C:/Users/Sheryl/AppData/Local/Android/Sdk/ndk/29.0.14206865"
       },
-      "execution": {
-        "noTestsAction": "error",
-        "stopOnFailure": true,
-        "jobs": 0
+      "cacheVariables": {
+        "PATH_ANDROID_NDK": "C:/Users/Sheryl/AppData/Local/Android/Sdk/ndk/29.0.14206865"
+      }
+    },
+    {
+      "name": "user-android-arm64-debug",
+      "displayName": "Local Android ARM64 Debug",
+      "inherits": "android-arm64-debug",
+      "toolchainFile": "C:/Users/Sheryl/AppData/Local/Android/Sdk/ndk/29.0.14206865/build/cmake/android.toolchain.cmake",
+      "environment": {
+        "ANDROID_NDK_HOME": "C:/Users/Sheryl/AppData/Local/Android/Sdk/ndk/29.0.14206865"
+      },
+      "cacheVariables": {
+        "PATH_ANDROID_NDK": "C:/Users/Sheryl/AppData/Local/Android/Sdk/ndk/29.0.14206865"
       }
     }
   ]

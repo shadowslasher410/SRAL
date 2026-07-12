@@ -9,7 +9,6 @@ project(
     'default_library=both',
     'warning_level=3',
     'b_pie=true',                   # Enforce Position Independent Executables
-    'gnu_symbol_visibility=hidden', # Prevent code from leaking internal functions
     'b_staticpic=true',             # Force PIC inside static libraries to support global ASLR
     'b_lto=true',                   # Global LTO lets compilers track cross-file safety paths
     'b_lundef=true',                # Hard crash linker if unexpected undefined symbols exist
@@ -104,28 +103,30 @@ endif
 global_defense_args = [
   '-D_FORTIFY_SOURCE=3',             # Static and runtime buffer sizing evaluation
   '-fstack-protector-all',           # Stack canaries on every function frame
-  '-fstack-clash-protection',        # Mitigate stack allocation page jumping
   '-fno-delete-null-pointer-checks', # Prevent optimizer from stripping out NULL traps
   '-fwrapv',                         # Strict signed wrapping math
   '-fno-strict-overflow',            # Disallow assumptions regarding overflow UB
   '-fno-common',                     # Ban implicit collision of duplicate variables
   '-ftrivial-auto-var-init=zero',    # Auto-initialize stack bytes to zero
 ]
+if not is_emscripten
+  global_defense_args += '-fstack-clash-protection'
+endif
 
 if c_compiler.has_argument('-fcf-protection=full')
-  global_defense_args += '-fcf-protection=full'        # Intel CET / AMD Shadow Stack
+  global_defense_args += '-fcf-protection=full'
 endif
 if c_compiler.has_argument('-mbranch-protection=all')
-  global_defense_args += '-mbranch-protection=all'     # ARM PAC/BTI mitigations
+  global_defense_args += '-mbranch-protection=all'
 endif
 
 supported_global_defenses = c_compiler.get_supported_arguments(global_defense_args)
 add_project_arguments(supported_global_defenses, language: ['c', 'cpp'])
 
 cpp_defense_args = [
-  '-D_GLIBCXX_ASSERTIONS',           # Strict bounds checking for GNU libstdc++
-  '-D_LIBCPP_ENABLE_ASSERTIONS=1',   # Bounds checking for legacy LLVM libc++
-  '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE' # Clang STL hardening
+  '-D_GLIBCXX_ASSERTIONS',
+  '-D_LIBCPP_ENABLE_ASSERTIONS=1',
+  '-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE'
 ]
 supported_cpp_defenses = cpp_compiler.get_supported_arguments(cpp_defense_args)
 add_project_arguments(supported_cpp_defenses, language: 'cpp')

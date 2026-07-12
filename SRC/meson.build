@@ -1,4 +1,4 @@
-assert(meson.current_source_dir().ends_with('SRC'), 'SRC/meson.build must be called via subdir() from the root directory')
+assert(meson.current_source_dir().endswith('SRC'), 'SRC/meson.build must be called via subdir() from the root directory')
 
 root_src = meson.project_source_root()
 
@@ -51,7 +51,6 @@ sral_deps_lib = static_library('sral_deps',
 )
 
 shared_warnings = [
-  '-Werror',
   '-Wformat=2',                      
   '-Wformat-security',
   '-Werror=format-security',         
@@ -152,7 +151,6 @@ elif is_android_target
   endif
 
 elif is_emscripten_target
-  # Managed natively via Emscripten target profiles
 else
   core_sources += files('Encoding.cpp', 'ACAnnouncer.cpp')
   if get_option('SRAL_WITH_SPEECH_DISPATCHER')
@@ -193,6 +191,21 @@ sral_lib = library('SRAL',
   cpp_args: core_cpp_args, 
   link_args: supported_link_args,
   pic: true,                         
-  gnu_symbol_visibility: 'hidden',
-  install: true
+  werror: true,
+  install: true,
+  sral_lib = library('SRAL',
+  core_sources,
+  include_directories: inc_dir,
+  dependencies: sral_dependencies,
+  link_with: sral_deps_lib,          
+  c_args: core_c_args,
+  cpp_args: core_cpp_args, 
+  link_args: supported_link_args,
+  pic: true,                         
+  install: true,
+  override_options: [
+    'werror=true',
+    'c_visibility=hidden',
+    'cpp_visibility=hidden'
+  ]
 )

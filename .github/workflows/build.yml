@@ -85,8 +85,8 @@ jobs:
             --buildtype=release \
             --prefix="/" \
             -Ddefault_library=both \
-            -DBUILD_TESTS=false \
-            -DBUILD_BINDINGS=false
+            -DBUILD_TESTS=true \
+            -DBUILD_BINDINGS=true
       
       - name: Print Hidden Meson Log on Failure
         if: failure() || always()
@@ -225,7 +225,6 @@ jobs:
 
           [host_machine]
           system     = 'android'
-          cpu_family = '$MESON_CPU'
           cpu        = '$ARCH'
           endian     = 'little'
           EOF
@@ -235,9 +234,8 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf builddir
-          # Fixed the trailing backslash syntax error
           meson setup builddir --cross-file android_cross.txt \
-            --buildtype=release \
+            --buildtype=debug \
             -Ddefault_library=both
 
       - name: Compile Target Shared Libraries
@@ -319,7 +317,13 @@ jobs:
           c = 'emcc'
           cpp = 'em++'
           ar = 'emar'
-          strip = 'emstrip'
+
+          [built-in options]
+          c_args = ['-pthread', '-Wno-error=unused-command-line-argument']
+          cpp_args = ['-pthread', '-Wno-error=unused-command-line-argument']
+          c_link_args = ['-pthread', '-sWASM=1', '-sSIDE_MODULE=1']
+          cpp_link_args = ['-pthread', '-sWASM=1', '-sSIDE_MODULE=1']
+          default_library = 'static'
 
           [host_machine]
           system = 'emscripten'
@@ -327,6 +331,7 @@ jobs:
           cpu = 'wasm32'
           endian = 'little'
           EOF
+
 
       - name: Configure WebAssembly Cross Compilation Pass
         shell: bash
@@ -338,10 +343,10 @@ jobs:
 
           meson setup builddir --cross-file emscripten_cross.txt \
             --buildtype=release \
-            --prefix="" \
-            -Dwebassembly=true \
-            -DBUILD_TESTS=false \
-            -DBUILD_BINDINGS=false
+            --prefix="/" \
+            -DBUILD_TESTS=true\
+            -DBUILD_BINDINGS=true
+
 
       - name: Compile Static Object Graph
         shell: bash
@@ -481,9 +486,9 @@ jobs:
             --buildtype=release \
             -Ddefault_library=static \
             -DTARGET_IOS=true \
-            -DSRAL_WITH_NSSPEECH=false \
-            -DBUILD_TESTS=false \
-            -DBUILD_BINDINGS=false
+            -DSRAL_WITH_NSSPEECH=true \
+            -DBUILD_TESTS=true \
+            -DBUILD_BINDINGS=true
           meson compile -C build-device
 
       - name: Configure and Compile iOS Simulator Targets
@@ -494,18 +499,18 @@ jobs:
             --buildtype=debug \
             -Ddefault_library=static \
             -DTARGET_IOS=true \
-            -DSRAL_WITH_NSSPEECH=false \
-            -DBUILD_TESTS=false \
-            -DBUILD_BINDINGS=false
+            -DSRAL_WITH_NSSPEECH=true \
+            -DBUILD_TESTS=true \
+            -DBUILD_BINDINGS=true
           meson compile -C build-sim-arm64
 
           meson setup build-sim-x86_64 --cross-file ios_sim_x86_64_cross.txt \
             --buildtype=debug \
             -Ddefault_library=static \
             -DTARGET_IOS=true \
-            -DSRAL_WITH_NSSPEECH=false \
-            -DBUILD_TESTS=false \
-            -DBUILD_BINDINGS=false
+            -DSRAL_WITH_NSSPEECH=true \
+            -DBUILD_TESTS=true \
+            -DBUILD_BINDINGS=true
           meson compile -C build-sim-x86_64
 
       - name: Assemble Apple XCFramework Architecture Staging Bundle

@@ -1,6 +1,7 @@
 # Project Target Build, Staging & Generation Trees
 out/
 builddir/
+build/
 subprojects/
 *.o
 *.obj

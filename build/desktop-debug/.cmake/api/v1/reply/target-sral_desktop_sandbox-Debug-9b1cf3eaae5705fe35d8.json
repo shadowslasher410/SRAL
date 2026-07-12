@@ -1,0 +1,193 @@
+{
+	"backtrace" : 2,
+	"backtraceGraph" : 
+	{
+		"commands" : 
+		[
+			"add_custom_target",
+			"ExternalProject_Add",
+			"add_dependencies",
+			"_ep_step_add_target",
+			"ExternalProject_Add_Step",
+			"cmake_language",
+			"_ep_add_configure_command"
+		],
+		"files" : 
+		[
+			"C:/Program Files/CMake/share/cmake-4.3/Modules/ExternalProject.cmake",
+			"CMakeLists.txt",
+			"C:/Program Files/CMake/share/cmake-4.3/Modules/ExternalProject.cmake:2839:EVAL"
+		],
+		"nodes" : 
+		[
+			{
+				"file" : 1
+			},
+			{
+				"command" : 1,
+				"file" : 1,
+				"line" : 150,
+				"parent" : 0
+			},
+			{
+				"command" : 0,
+				"file" : 0,
+				"line" : 3180,
+				"parent" : 1
+			},
+			{
+				"command" : 6,
+				"file" : 0,
+				"line" : 3265,
+				"parent" : 1
+			},
+			{
+				"command" : 5,
+				"file" : 0,
+				"line" : 2839,
+				"parent" : 3
+			},
+			{
+				"file" : 2,
+				"parent" : 4
+			},
+			{
+				"command" : 4,
+				"file" : 2,
+				"line" : 2,
+				"parent" : 5
+			},
+			{
+				"command" : 3,
+				"file" : 0,
+				"line" : 2450,
+				"parent" : 6
+			},
+			{
+				"command" : 2,
+				"file" : 0,
+				"line" : 2033,
+				"parent" : 7
+			}
+		]
+	},
+	"codemodelVersion" : 
+	{
+		"major" : 2,
+		"minor" : 10
+	},
+	"dependencies" : 
+	[
+		{
+			"backtrace" : 8,
+			"id" : "sral_desktop_sandbox-configure::@6890427a1f51a3e7e1df"
+		}
+	],
+	"folder" : 
+	{
+		"name" : "ExternalProjectTargets/sral_desktop_sandbox"
+	},
+	"id" : "sral_desktop_sandbox::@6890427a1f51a3e7e1df",
+	"name" : "sral_desktop_sandbox",
+	"orderDependencies" : 
+	[
+		{
+			"backtrace" : 8,
+			"id" : "sral_desktop_sandbox-configure::@6890427a1f51a3e7e1df"
+		}
+	],
+	"paths" : 
+	{
+		"build" : ".",
+		"source" : "."
+	},
+	"sourceGroups" : 
+	[
+		{
+			"name" : "",
+			"sourceIndexes" : 
+			[
+				0
+			]
+		},
+		{
+			"name" : "CMake Rules",
+			"sourceIndexes" : 
+			[
+				1,
+				2,
+				3,
+				4,
+				5,
+				6,
+				7,
+				8,
+				9
+			]
+		}
+	],
+	"sources" : 
+	[
+		{
+			"backtrace" : 2,
+			"isGenerated" : true,
+			"path" : "build/desktop-debug/CMakeFiles/sral_desktop_sandbox",
+			"sourceGroupIndex" : 0
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "build/desktop-debug/CMakeFiles/sral_desktop_sandbox.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "build/desktop-debug/CMakeFiles/sral_desktop_sandbox-complete.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-build.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-configure.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-download.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-install.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-mkdir.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-patch.rule",
+			"sourceGroupIndex" : 1
+		},
+		{
+			"backtrace" : 0,
+			"isGenerated" : true,
+			"path" : "build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-update.rule",
+			"sourceGroupIndex" : 1
+		}
+	],
+	"type" : "UTILITY"
+}

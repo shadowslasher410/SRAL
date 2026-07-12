@@ -1,0 +1,44 @@
+{
+	"sources" : 
+	[
+		{
+			"file" : "C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/CMakeFiles/sral_desktop_sandbox"
+		},
+		{
+			"file" : "C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/CMakeFiles/sral_desktop_sandbox.rule"
+		},
+		{
+			"file" : "C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/CMakeFiles/sral_desktop_sandbox-complete.rule"
+		},
+		{
+			"file" : "C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-build.rule"
+		},
+		{
+			"file" : "C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-configure.rule"
+		},
+		{
+			"file" : "C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-download.rule"
+		},
+		{
+			"file" : "C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-install.rule"
+		},
+		{
+			"file" : "C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-mkdir.rule"
+		},
+		{
+			"file" : "C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-patch.rule"
+		},
+		{
+			"file" : "C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/sral_desktop_sandbox-prefix/src/sral_desktop_sandbox-stamp/sral_desktop_sandbox-update.rule"
+		}
+	],
+	"target" : 
+	{
+		"labels" : 
+		[
+			"sral_desktop_sandbox",
+			"SRAL_Root_Orchestrator"
+		],
+		"name" : "sral_desktop_sandbox"
+	}
+}

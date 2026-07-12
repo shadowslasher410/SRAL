@@ -1,0 +1,4 @@
+C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/CMakeFiles/sral_desktop_sandbox.dir
+C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/CMakeFiles/sral_desktop_sandbox-configure.dir
+C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/CMakeFiles/edit_cache.dir
+C:/Users/Sheryl/Documents/My_Projects/SRAL/build/desktop-debug/CMakeFiles/rebuild_cache.dir

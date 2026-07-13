@@ -334,7 +334,7 @@ if build_bindings
   go_exe = find_program('go', required: false)
   if get_option('SRAL_BINDING_GO') and go_exe.found()
     go_proj_dir = bindings_dir / 'Go'
-    if is_windows && cmd_exe.found()
+    if is_windows and cmd_exe.found()
       run_target('sral_go_binding', command: [cmd_exe, '/c', 'cd', '/d', go_proj_dir, '&&', 'go', 'build', '-mod=readonly', './...'])
     elif sh_exe.found()
       run_target('sral_go_binding', command: [sh_exe, '-c', 'cd "$1" && "$2" build -mod=readonly ./...', 'meson_sh', go_proj_dir, go_exe.path()])

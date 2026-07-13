@@ -41,9 +41,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: [linux, windows, macOS]
-        os: [ubuntu-24.04, windows-2025, macos-26]
-        variant: [debug, release]
+        include:
+          - os: ubuntu-latest
+            name: linux-x64
+            variant: debug
+          - os: windows-latest
+            name: windows-x64
+            variant: release
+          - os: macos-latest
+            name: macos-universal
+            variant: release
 
     steps:
       - name: Checkout code
@@ -55,7 +62,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: '3.14.6'
+          python-version: '3.14'
           cache: 'pip'
 
       - name: Install Hardened Dependencies via Cryptographic Hashes
@@ -168,7 +175,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: '3.14.6'
+          python-version: '3.14'
           cache: 'pip'
 
       - name: Install Hardened Dependencies via Cryptographic Hashes
@@ -312,7 +319,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: '3.14.6'
+          python-version: '3.14'
           cache: 'pip'
 
       - name: Install Hardened Dependencies via Cryptographic Hashes
@@ -411,7 +418,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: '3.14.6'
+          python-version: '3.14'
           cache: 'pip'
 
       - name: Install Hardened Dependencies via Cryptographic Hashes
@@ -440,8 +447,8 @@ jobs:
 
           cat << EOF > ios_device_cross.txt
           [binaries]
-          c = ['clang', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=15.0']
-          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=15.0']
+          c = ['clang', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=26.0']
+          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=26.0']
           ar = 'ar'
           strip = 'strip'
 
@@ -467,8 +474,8 @@ jobs:
 
           cat << EOF > ios_sim_arm64_cross.txt
           [binaries]
-          c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios15.0-simulator']
-          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios15.0-simulator']
+          c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios26.0-simulator']
+          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios26.0-simulator']
           ar = 'ar'
           strip = 'strip'
 
@@ -494,8 +501,8 @@ jobs:
 
           cat << EOF > ios_sim_x86_64_cross.txt
           [binaries]
-          c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios15.0-simulator']
-          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios15.0-simulator']
+          c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios26.0-simulator']
+          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios26.0-simulator']
           ar = 'ar'
           strip = 'strip'
 

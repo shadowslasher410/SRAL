@@ -127,7 +127,7 @@
         "CMAKE_OPTIMIZE_DEPENDENCIES": "ON",
         "CMAKE_INTERPROCEDURAL_OPTIMIZATION": "ON",
         "CMAKE_C_FLAGS_RELEASE": "/O2 /GS /guard:cf /sdl /W4 /WX",
-        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /GS /guard:cf /sdl /W4 /WX",
+        "CMAKE_CXX_FLAGS_RELEASE": "/O2 /GS /guard:cf /sdl /W4 /WX /D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING",
         "CMAKE_EXE_LINKER_FLAGS_RELEASE": "/NXCOMPAT /DYNAMICBASE /HIGHENTROPYVA /GUARD:CF /DEPENDENTLOADFLAG:0x2000"
       }
     },
@@ -140,7 +140,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "BUILD_SHARED_LIBS": "OFF",
         "CMAKE_C_FLAGS_DEBUG": "-g -O1 -fsanitize=address -fno-omit-frame-pointer",
-        "CMAKE_CXX_FLAGS_DEBUG": "-g -O1 -fsanitize=address -fno-omit-frame-pointer",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -O1 -fsanitize=address -fno-omit-frame-pointer -D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING",
         "CMAKE_EXE_LINKER_FLAGS_DEBUG": "-fsanitize=address",
         "CMAKE_SHARED_LINKER_FLAGS_DEBUG": "-fsanitize=address"
       }
@@ -153,8 +153,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_OSX_ARCHITECTURES": "arm64",
-        "CMAKE_C_FLAGS_RELEASE": "-O3 -D_FORTIFY_SOURCE=3 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -fstack-clash-protection -fPIE -Wall -Wextra -Wconversion",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O3 -D_FORTIFY_SOURCE=3 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -fstack-clash-protection -fPIE -Wall -Wextra -Wconversion"
+        "CMAKE_C_FLAGS_RELEASE": "-O3 -D_FORTIFY_SOURCE=3 -fstack-protector-strong -fstack-clash-protection -fPIE -Wall -Wextra -Wconversion",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O3 -D_FORTIFY_SOURCE=3 -fstack-protector-strong -fstack-clash-protection -fPIE -Wall -Wextra -Wconversion"
       }
     },
     {
@@ -180,8 +180,8 @@
         "SRAL_COMPILE_AS_WASM": "ON",
         "BUILD_SHARED_LIBS": "OFF",
         "PATH_EMSDK_INSTALL": "$env{EMSDK}",
-        "CMAKE_C_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -ftrivial-auto-var-init=pattern -Wall -Wextra -Wformat-security",
-        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE -fstack-protector-strong -ftrivial-auto-var-init=pattern -Wall -Wextra -Wformat-security"
+        "CMAKE_C_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3  -fstack-protector-strong -ftrivial-auto-var-init=pattern -Wall -Wextra -Wformat-security",
+        "CMAKE_CXX_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -fstack-protector-strong -ftrivial-auto-var-init=pattern -Wall -Wextra -Wformat-security"
       }
     },
     {

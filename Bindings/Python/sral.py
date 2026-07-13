@@ -566,8 +566,6 @@ class SRAL:
         if not _sral_lib: return
         _sral_lib.SRAL_Uninitialize()
 
-    # --- Extended Functions (Specific engine operations) ---
-
     def speak_ex(self, engine: SRALEngine, text: str, interrupt: bool = True) -> bool:
         """
         Speak the given text with the specified engine.

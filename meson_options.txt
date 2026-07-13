@@ -1,40 +1,125 @@
-option('TARGET_DESKTOP', type: 'boolean', value: true, description: 'Build native desktop workspace library')
-option('TARGET_CHROMEVOX', type: 'boolean', value: false, description: 'Build WebAssembly ChromeVox wrapper')
-option('TARGET_ANDROID', type: 'boolean', value: false, description: 'Build Android mobile NDK asset bundle')
-option('TARGET_IOS', type: 'boolean', value: false, description: 'Build Apple iOS static bundle')
-option('BUILD_SHARED_LIBS', type: 'boolean', value: true, description: 'Build shared library variants instead of archives')
-option('BUILD_TESTS', type: 'boolean', value: true, description: 'Compile native testing harness validation executables')
-option('BUILD_BINDINGS', type: 'boolean', value: true, description: 'Generate bridge language platform wrappers')
-option('VERSION_MINTARGET_MACOS', type: 'string', value: '15', description: 'Minimum macOS architecture baseline')
-option('VERSION_MINTARGET_WINDOWS', type: 'string', value: '10', description: 'Minimum Windows target version baseline')
-option('VERSION_MINTARGET_ANDROID', type: 'string', value: '21', description: 'Minimum Android platform API boundary')
-option('VERSION_MINTARGET_IOS', type: 'string', value: '15', description: 'Minimum iOS device deployment ceiling')
-option('SRAL_WITH_CHROMEVOX', type: 'boolean', value: false, description: 'Toggle ChromeVox WebAssembly accessibility tracking')
-option('SRAL_WITH_UIA', type: 'boolean', value: true, description: 'Toggle Windows UI Automation runtime engine bindings')
-option('SRAL_WITH_NSSPEECH', type: 'boolean', value: true, description: 'Toggle Apple Cocoa NSSpeech Synthesizer layers')
-option('SRAL_WITH_NVDA', type: 'boolean', value: false, description: 'Toggle NVDA integration layers')
-option('SRAL_WITH_JAWS', type: 'boolean', value: false, description: 'Toggle Freedom Scientific JAWS integration layer')
-option('SRAL_WITH_ZDSR', type: 'boolean', value: false, description: 'Toggle ZDSR screen reader layer bindings')
-option('SRAL_WITH_SAPI', type: 'boolean', value: false, description: 'Toggle Microsoft Speech API (SAPI5) audio wrappers')
-option('SRAL_WITH_VOICEOVER', type: 'boolean', value: false, description: 'Toggle Apple macOS VoiceOver accessibility layers')
-option('SRAL_WITH_AVSPEECH', type: 'boolean', value: false, description: 'Toggle Apple AVFoundation AVSpeechSynthesizer layers')
-option('SRAL_WITH_ANDROID_TTS', type: 'boolean', value: false, description: 'Toggle Android TextToSpeech engine wrappers')
-option('SRAL_WITH_ANDROID_ACCESSIBILITY', type: 'boolean', value: false, description: 'Toggle Android AccessibilityManager integration pipelines')
-option('SRAL_WITH_SPEECH_DISPATCHER', type: 'boolean', value: false, description: 'Toggle POSIX speech dispatcher framework integrations')
-option('SRAL_WITH_ORCA', type: 'boolean', value: false, description: 'Toggle Linux AT-SPI Orca accessibility layer pipelines')
-option('SRAL_WITH_BRLAPI', type: 'boolean', value: false, description: 'Toggle Braille BrlAPI system components connection')
-option('SRAL_BINDING_CSHARP', type: 'boolean', value: false, description: 'Enable .NET C# code wrapper module generation')
-option('SRAL_BINDING_RUST', type: 'boolean', value: false, description: 'Enable Cargo Rust binding target structures creation')
-option('SRAL_BINDING_NODE', type: 'boolean', value: false, description: 'Enable Node.js JavaScript binding wrapper generation')
-option('SRAL_BINDING_GO', type: 'boolean', value: false, description: 'Enable Go language bindings generation code tracking')
-option('SRAL_BINDING_DART', type: 'boolean', value: false, description: 'Enable Flutter Dart wrappers output generation')
-option('SRAL_BINDING_LUA', type: 'boolean', value: false, description: 'Enable Lua runtime environment script wrappers generation')
-option('SRAL_BINDING_PYTHON', type: 'boolean', value: false, description: 'Enable Python packaging module source structures output')
-option('SRAL_INSTALL_BINDING_SOURCES', type: 'boolean', value: true, description: 'Deploy platform binding source modules inside share paths')
-option('PATH_NVDA_INSTALL', type: 'string', value: '', description: 'Custom installation file path map targeting NVDA SDK')
-option('PATH_SPEECHD_INSTALL', type: 'string', value: '', description: 'Custom installation file path map targeting Speech Dispatcher')
-option('PATH_PYTHON_INSTALL', type: 'string', value: '', description: 'Custom absolute file path tracking valid Python 3 interpreter')
-option('PATH_EMSDK_INSTALL', type: 'string', value: '', description: 'Custom file path tracking pre-installed Emscripten SDK')
-option('PATH_ANDROID_NDK', type: 'string', value: '', description: 'Custom file path tracking local Android NDK toolchains')
-option('PATH_ACCESSKIT_INSTALL', type: 'string', value: '', description: 'Custom directory path tracking AccessKit pre-built binaries')
-option('PATH_JDK_INSTALL', type: 'string', value: '', description: 'Custom absolute tracking location to preinstalled target Java SDK versions')
+option('TARGET_DESKTOP', type: 'boolean', value: true, 
+       description: 'Build native desktop workspace accessibility library')
+
+option('TARGET_CHROMEVOX', type: 'boolean', value: false, 
+       description: 'Build WebAssembly ChromeVox wrapper core')
+
+option('TARGET_ANDROID', type: 'boolean', value: false, 
+       description: 'Build Android mobile NDK asset bundle')
+
+option('TARGET_IOS', type: 'boolean', value: false, 
+       description: 'Build Apple iOS device/simulator static bundle')
+
+option('BUILD_SHARED_LIBS', type: 'boolean', value: true, 
+       description: 'Build shared library modules instead of static archives')
+
+option('BUILD_TESTS', type: 'boolean', value: true, 
+       description: 'Compile integration test harness executable targets')
+
+option('BUILD_BINDINGS', type: 'boolean', value: true, 
+       description: 'Generate multi-language wrapper bridge bindings')
+
+option('SRAL_INSTALL_BINDING_SOURCES', type: 'boolean', value: true, 
+       description: 'Deploy raw source scripts for wrapper engines into installed staging trees')
+
+option('VERSION_USERTARGET_WINDOWS', type: 'string', value: '10', 
+       description: 'Preferred target Windows major version baseline tracking descriptor')
+
+option('VERSION_USERTARGET_MACOS', type: 'string', value: '15', 
+       description: 'Preferred target macOS major version baseline tracking descriptor')
+
+option('VERSION_USERTARGET_IOS', type: 'string', value: '15', 
+       description: 'Preferred target iOS deployment system version mapping indicator')
+
+option('VERSION_USERTARGET_ANDROID', type: 'string', value: '21', 
+       description: 'Preferred target Android API Level target floor framework allocation')
+
+option('PATH_NVDA_INSTALL', type: 'string', value: '', 
+       description: 'Custom path map pointer for the local NVDA Screen Reader SDK include files')
+
+option('PATH_SPEECHD_INSTALL', type: 'string', value: '', 
+       description: 'Custom installation directory path maps targeting the speech-dispatcher subsystem binary root')
+
+option('PATH_PYTHON_INSTALL', type: 'string', value: '', 
+       description: 'Custom target platform absolute path pointing to a working Python 3.8+ system execution tool')
+
+option('PATH_EMSDK_INSTALL', type: 'string', value: '', 
+       description: 'Custom local workspace path pointing to a pre-installed Emscripten SDK pipeline core')
+
+option('PATH_ANDROID_NDK', type: 'string', value: '', 
+       description: 'Custom local workspace path pointing to a pre-installed Android NDK layout root')
+
+option('PATH_ACCESSKIT_INSTALL', type: 'string', value: '', 
+       description: 'Custom directory path maps targeting a pre-built cross-platform AccessKit framework build')
+
+option('PATH_JDK_INSTALL', type: 'string', value: '', 
+       description: 'Custom installation path targeting a pre-installed JDK bundle environment wrapper')
+
+option('SRAL_WITH_CHROMEVOX', type: 'boolean', value: false, 
+       description: 'Explicit activation parameter forcing the ChromeVox message system interaction layer')
+
+option('SRAL_WITH_UIA', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing the Microsoft UI Automation provider interaction layer')
+
+option('SRAL_WITH_NSSPEECH', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing older Apple AppKit NSSpeechSynthesizer legacy engine layers')
+
+option('SRAL_WITH_NVDA', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing the dynamic NVDA controller API integration logic')
+
+option('SRAL_WITH_JAWS', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing Freedom Scientific JAWS automated runtime API lookups')
+
+option('SRAL_WITH_ZDSR', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing the Chinese ZDSR Screen Reader module integration passes')
+
+option('SRAL_WITH_SAPI', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing native Microsoft SAPI 5 speech system integration layers')
+
+option('SRAL_WITH_SPEECH_DISPATCHER', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing standard open system Speech Dispatcher socket pipelines')
+
+option('SRAL_WITH_ORCA', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing Orca AT-SPI2 desktop bus messaging endpoints')
+
+option('SRAL_WITH_BRLAPI', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing BRLTTY hardware cell line braille device layers')
+
+option('SRAL_WITH_VOICEOVER', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing VoiceOver accessibility channel target support')
+
+option('SRAL_WITH_AVSPEECH', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing AVFoundation AVSpeechSynthesizer engine integrations')
+
+option('SRAL_WITH_ANDROID_TTS', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing native Android TextToSpeech engine wrappers')
+
+option('SRAL_WITH_ANDROID_ACCESSIBILITY', type: 'boolean', value: true, 
+       description: 'Explicit activation parameter forcing TalkBack framework AccessibilityManager triggers')
+
+option('SRAL_BINDING_CSHARP', type: 'boolean', value: true, 
+       description: 'Compile desktop safe C# bindings matching current targeted platform specs')
+
+option('SRAL_BINDING_RUST', type: 'boolean', value: false, 
+       description: 'Compile strict tracking Rust wrapper crates using cargo compiler instances')
+
+option('SRAL_BINDING_NODE', type: 'boolean', value: false, 
+       description: 'Build native Node.js V8 execution context addon bridges matching current target platform specs')
+
+option('SRAL_BINDING_GO', type: 'boolean', value: false, 
+       description: 'Build native Go modules using cgo interaction layouts')
+
+option('SRAL_BINDING_DART', type: 'boolean', value: false, 
+       description: 'Build structural Dart package channels using pub integration tasks')
+
+option('SRAL_BINDING_LUA', type: 'boolean', value: false, 
+       description: 'Build lightweight Lua embedded script processing interfaces')
+
+option('SRAL_BINDING_PYTHON', type: 'boolean', value: false, 
+       description: 'Build clean Python package distribution artifacts using inline setups')
+
+option('SRAL_SIGN_OUTPUTS', type: 'boolean', value: false, 
+       description: 'Cryptographically sign output library components and binary products natively during compilation passes')
+
+option('APPLE_SIGNING_IDENTITY', type: 'string', value: '', 
+       description: 'Apple Developer Team ID or certificate name string pointer utilized during codesign installations')

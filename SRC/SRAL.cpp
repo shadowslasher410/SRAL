@@ -88,7 +88,7 @@ private:
 	std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
 };
 
-static std::atomic<std::shared_ptr<Sral::Engine>> g_currentEngine{ nullptr };
+static std::shared_ptr<Sral::Engine> g_currentEngine{ nullptr };
 static std::map<SRAL_Engines, std::shared_ptr<Sral::Engine>> g_engines;
 
 static std::mutex g_sralEngineMutex;
@@ -258,15 +258,16 @@ static void trigger_output_thread_safely() {
 
 static void speech_engine_update() noexcept {
 	if (!g_initialized) return;
-
-	std::shared_ptr<Sral::Engine> current = g_currentEngine.load(std::memory_order_acquire);
+	std::shared_ptr<Sral::Engine> current = std::atomic_load(&g_currentEngine);
 	const int category = current ? current->GetCategory() : static_cast<int>(SRAL_ENGINE_CATEGORY_UNKNOWN);
 	
 	if (!current || !current->GetActive() || category == SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE ||
 		category == SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER) {
 
+		bool narratorActive = false;
+
 #if defined(_WIN32) && !defined(SRAL_NO_UIA)
-		bool narratorActive = (IsNarratorRunningFast() == TRUE);
+		narratorActive = (IsNarratorRunningFast() == TRUE);
 		
 		if (!narratorActive) {
 			static std::atomic<ULONGLONG> s_lastSnapTime{0};
@@ -284,13 +285,15 @@ static void speech_engine_update() noexcept {
 				}
 			}
 		}
+#endif
 
 		if (narratorActive) {
-			g_currentEngine.store(get_engine_internal(SRAL_ENGINE_UIA), std::memory_order_release);
+#if defined(_WIN32) && !defined(SRAL_NO_UIA)
+			std::atomic_store(&g_currentEngine, get_engine_internal(SRAL_ENGINE_UIA));
 			return;
+#endif
 		}
 		else {
-#endif
 			std::shared_ptr<Sral::Engine> nextEngine = nullptr;
 			for (const auto& [value, ptr] : g_engines) {
 				if (ptr && ptr->GetActive() && !(g_excludes & static_cast<int>(value))) {
@@ -298,12 +301,11 @@ static void speech_engine_update() noexcept {
 					break;
 				}
 			}
-			g_currentEngine.store(nextEngine, std::memory_order_release);
-#if defined(_WIN32) && !defined(SRAL_NO_UIA)
+			std::atomic_store(&g_currentEngine, nextEngine);
 		}
-#endif
 	}
 }
+
 
 extern "C" {
 
@@ -370,6 +372,11 @@ SRAL_API bool SRAL_Initialize(int engines_exclude) {
 	g_engines[SRAL_ENGINE_ANDROID_TTS] = std::make_shared<Sral::AndroidTextToSpeech>();
 #endif
 
+#elif defined(__EMSCRIPTEN__)
+#ifndef SRAL_NO_CHROMEVOX
+	g_engines[SRAL_ENGINE_CHROMEVOX] = std::make_shared<Sral::ChromeVox>();
+#endif
+
 #else
 #ifndef SRAL_NO_SPEECH_DISPATCHER
 	g_engines[SRAL_ENGINE_SPEECH_DISPATCHER] = std::make_shared<Sral::SpeechDispatcher>();
@@ -402,8 +409,12 @@ SRAL_API bool SRAL_Initialize(int engines_exclude) {
 		return false;
 	}
 	g_excludes = engines_exclude;
+	
+	(void)g_enginesFailedToInitialize; 
+	
 	return g_initialized;
 }
+
 SRAL_API void SRAL_Uninitialize(void) {
 	std::lock_guard<std::mutex> lock(g_sralEngineMutex);
 	if (!g_initialized) {
@@ -432,7 +443,7 @@ SRAL_API void SRAL_Uninitialize(void) {
 	Sral::ClearAndroidContext();
 #endif
 
-	g_currentEngine.store(nullptr, std::memory_order_release);
+	std::atomic_store(&g_currentEngine, std::shared_ptr<Sral::Engine>(nullptr));
 	g_engines.clear();
 	g_excludes = SRAL_ENGINE_NONE;
 	g_enginesFailedToInitialize = SRAL_ENGINE_NONE;
@@ -441,7 +452,7 @@ SRAL_API void SRAL_Uninitialize(void) {
 
 SRAL_API bool SRAL_Speak(const char* text, bool interrupt) {
 	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
 	if (!active) {
 		return false;
 	}
@@ -451,7 +462,7 @@ SRAL_API bool SRAL_Speak(const char* text, bool interrupt) {
 SRAL_API void* SRAL_SpeakToMemory(
 	const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) {
 	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
 	if (!active) {
 		return nullptr;
 	}
@@ -460,7 +471,7 @@ SRAL_API void* SRAL_SpeakToMemory(
 
 SRAL_API bool SRAL_SpeakSsml(const char* ssml, bool interrupt) {
 	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
 	if (!active) {
 		return false;
 	}
@@ -469,7 +480,7 @@ SRAL_API bool SRAL_SpeakSsml(const char* ssml, bool interrupt) {
 
 SRAL_API bool SRAL_Braille(const char* text) {
 	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
 	if (!active) {
 		return false;
 	}
@@ -478,7 +489,7 @@ SRAL_API bool SRAL_Braille(const char* text) {
 
 SRAL_API bool SRAL_Output(const char* text, bool interrupt) {
 	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
 	if (!active) {
 		return false;
 	}
@@ -487,7 +498,7 @@ SRAL_API bool SRAL_Output(const char* text, bool interrupt) {
 
 SRAL_API bool SRAL_StopSpeech(void) {
 	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
 	if (!active) {
 		return false;
 	}
@@ -496,7 +507,7 @@ SRAL_API bool SRAL_StopSpeech(void) {
 
 SRAL_API bool SRAL_PauseSpeech(void) {
 	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
 	if (!active) {
 		return false;
 	}
@@ -505,7 +516,7 @@ SRAL_API bool SRAL_PauseSpeech(void) {
 
 SRAL_API bool SRAL_ResumeSpeech(void) {
 	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
 	if (!active) {
 		return false;
 	}
@@ -514,7 +525,7 @@ SRAL_API bool SRAL_ResumeSpeech(void) {
 
 SRAL_API bool SRAL_IsSpeaking(void) {
 	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
 	if (!active) {
 		return false;
 	}
@@ -523,13 +534,13 @@ SRAL_API bool SRAL_IsSpeaking(void) {
 
 SRAL_API int SRAL_GetCurrentEngine(void) {
 	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
 	return active ? active->GetNumber() : SRAL_ENGINE_NONE;
 }
 
 SRAL_API int SRAL_GetEngineFeatures(int engine) {
 	if (engine == 0) {
-		std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+		std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
 		return active ? active->GetFeatures() : -1;
 	}
 	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
@@ -537,27 +548,31 @@ SRAL_API int SRAL_GetEngineFeatures(int engine) {
 }
 
 SRAL_API bool SRAL_SetEngineParameter(int engine, int param, const void* value) {
-#if defined(__ANDROID__)
-	if (param == SRAL_PARAM_ANDROID_JNI_ENV) {
-		void* non_const_val = const_cast<void*>(value);
-		return Sral::SetAndroidJNIEnv(static_cast<JNIEnv*>(non_const_val));
-	}
-	if (param == SRAL_PARAM_ANDROID_ACTIVITY) {
-		void* non_const_val = const_cast<void*>(value);
-		return Sral::SetAndroidActivity(static_cast<jobject>(non_const_val));
-	}
-#endif
-	if (engine == 0) {
-		std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
-		return active ? active->SetParameter(param, value) : false;
-	}
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-	return e ? e->SetParameter(param, value) : false;
+	#if defined(__ANDROID__)
+		if (param == SRAL_PARAM_ANDROID_JNI_ENV) {
+			void* non_const_val = const_cast<void*>(value);
+			return Sral::SetAndroidJNIEnv(static_cast<JNIEnv*>(non_const_val));
+		}
+		if (param == SRAL_PARAM_ANDROID_ACTIVITY) {
+			void* non_const_val = const_cast<void*>(value);
+			return Sral::SetAndroidActivity(static_cast<jobject>(non_const_val));
+		}
+	#else
+		(void)param;
+		(void)value;
+	#endif
+
+		if (engine == 0) {
+			std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
+			return active ? active->SetParameter(param, value) : false;
+		}
+		std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
+		return e ? e->SetParameter(param, value) : false;
 }
 
 SRAL_API bool SRAL_GetEngineParameter(int engine, int param, void* value) {
 	if (engine == 0) {
-		std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
+		std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);;
 		return active ? active->GetParameter(param, value) : false;
 	}
 	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
@@ -705,52 +720,72 @@ SRAL_API bool SRAL_IsSpeakingEx(int engine) {
 }
 
 SRAL_API void SRAL_Delay(int time) {
-	if (!SRAL_IsInitialized()) {
-		return;
-	}
-	g_lastDelayTime.store(static_cast<uint64_t>(time), std::memory_order_relaxed);
-	g_delayOperation.store(true, std::memory_order_release);
+	#if not defined (__ANDROID__)
+		if (!SRAL_IsInitialized()) {
+			return;
+		}
+		g_lastDelayTime.store(static_cast<uint64_t>(time), std::memory_order_relaxed);
+		g_delayOperation.store(true, std::memory_order_release);
+	#else
+		(void)time;
+	#endif
 }
 
 SRAL_API bool SRAL_DelayOutput(int time, const char* text, bool interrupt) {
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = g_currentEngine.load(std::memory_order_acquire);
-	if (!active) {
+	#if defined(__ANDROID__)
+		speech_engine_update();
+		std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
+		if (!active) {
+			return false;
+		}
+		return SRAL_DelayOutputEx(active->GetNumber(), time, text, interrupt);
+	#else
+		(void)time;
+		(void)text;
+		(void)interrupt;
 		return false;
-	}
-	return SRAL_DelayOutputEx(active->GetNumber(), time, text, interrupt);
+	#endif
 }
 
 SRAL_API bool SRAL_DelayOutputEx(int engine, int time, const char* text, bool interrupt) {
-	if (time < 0 || !SRAL_IsInitialized()) {
+	#if defined(__ANDROID__)
+		if (time < 0 || !SRAL_IsInitialized()) {
+			return false;
+		}
+
+		std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
+		if (!e) [[unlikely]] {
+			return false;
+		}
+
+		QueuedOutput qout{
+			.text = std::string(text ? text : ""),
+			.interrupt = interrupt,
+			.braille = false,
+			.speak = true,
+			.ssml = false,
+			.time = time,
+			.engine = e
+		};
+
+		{
+			std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
+			g_delayedOutputs.push_back(std::move(qout));
+		}
+
+		if (!g_outputThreadRunning.load(std::memory_order_acquire)) {
+			trigger_output_thread_safely();
+		}
+		return true;
+	#else
+		(void)engine;
+		(void)time;
+		(void)text;
+		(void)interrupt;
 		return false;
-	}
-
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-	if (!e) [[unlikely]] {
-		return false;
-	}
-
-	QueuedOutput qout{
-		.text = std::string(text ? text : ""),
-		.interrupt = interrupt,
-		.braille = false,
-		.speak = true,
-		.ssml = false,
-		.time = time,
-		.engine = e
-	};
-
-	{
-		std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
-		g_delayedOutputs.push_back(std::move(qout));
-	}
-
-	if (!g_outputThreadRunning.load(std::memory_order_acquire)) {
-		trigger_output_thread_safely();
-	}
-	return true;
+	#endif
 }
+
 
 SRAL_API int SRAL_GetAvailableEngines(void) {
 	if (g_engines.empty()) {
@@ -1005,7 +1040,7 @@ bool PlatformRegisterKeyboardHooks(void) {
 	}
 	return (g_keyboardHook != nullptr);
 
-#elif defined(__LINUX__) && !defined(__ANDROID__)
+#elif defined(__linux__) && !defined(__ANDROID__)
 	g_hookThread = std::thread([]() {
 		DBusError err;
 		dbus_error_init(&err);
@@ -1043,11 +1078,15 @@ bool PlatformRegisterKeyboardHooks(void) {
 	});
 	return true;
 #else
+	(void)g_shiftPressed;
+	(void)g_keyboardHookThread;
+	(void)g_hookThread;
 	return true;
 #endif
 }
 
 void PlatformUnregisterKeyboardHooks(void) {
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
 	if (!g_keyboardHookThread.load(std::memory_order_acquire)) {
 		return;
 	}
@@ -1055,6 +1094,7 @@ void PlatformUnregisterKeyboardHooks(void) {
 	if (g_hookThread.joinable()) {
 		g_hookThread.join();
 	}
+#endif
 }
 
 SRAL_API bool SRAL_RegisterKeyboardHooks(void) {

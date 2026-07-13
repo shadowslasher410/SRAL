@@ -20,7 +20,7 @@ else()
     set_target_properties(${PROJECT_NAME} PROPERTIES PREFIX "" SUFFIX ".node")
 endif()
 
-if(MSVC)
+if(MSVC OR CMAKE_CXX_COMPILER_ID MATCHES "MSVC|MSVCLike")
     target_compile_options(${PROJECT_NAME} PRIVATE /EHsc)
 else()
     target_compile_options(${PROJECT_NAME} PRIVATE -fexceptions)

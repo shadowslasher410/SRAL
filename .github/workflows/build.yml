@@ -14,6 +14,7 @@ on:
       - opened
       - synchronize
   workflow_dispatch:
+  
   workflow_call:
     inputs:
       release_version:
@@ -28,21 +29,22 @@ concurrency:
   group: build-${{ github.ref }}-${{ inputs.release_version || github.sha }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_call' }}
 
+defaults:
+  run:
+    shell: bash
 jobs:
   desktop:
+    name: Desktop (${{ matrix.os }} - ${{ matrix.variant }})
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            name: linux-x64
-          - os: windows-latest
-            name: windows-x64
-          - os: macos-latest
-            name: macos-universal
+        name: [linux, windows, macOS]
+        os: [ubuntu-24.04, windows-2025, macos-26]
+        variant: [debug, release]
+
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -54,22 +56,40 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.14.6'
+          cache: 'pip'
 
-      - name: Install Meson and Ninja
-        shell: bash
+      - name: Install Hardened Dependencies via Cryptographic Hashes
         run: |
           set -euo pipefail
-          python -m pip install --require-hashes -r <(echo "pip==26.1.2 --hash=sha256:773ec99aa5673ec54cb6a38612143a53be416298539050085a2d67aae4ec52b6")
-
-          pip install --require-hashes -r <(cat << 'EOF'
+          cat << 'EOF' > requirements.txt
+          pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
           meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
+          ninja==1.13.0 --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978
           ninja==1.13.0 --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa
+          ninja==1.13.0 --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff
+          ninja==1.13.0 --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1
+          ninja==1.13.0 --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
           EOF
-          )
+          python -m pip install --require-hashes -r requirements.txt
+          rm requirements.txt
 
-      - name: Install dependencies (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        shell: bash
+      - name: Setup Visual Studio Developer Environment (Windows-Only)
+        if: runner.os == 'Windows'
+        uses: mlocati/setup-msvc@ade6aff3df872d66c12a63dcacdddf0041cb2693 # v1.3.1
+        with:
+          architecture: x64
+
+      - name: Cache Linux System APT Development Packages
+        if: matrix.os == 'ubuntu-24.04'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /var/cache/apt/archives
+          key: ${{ runner.os }}-apt-dev-packages-${{ hashFiles('**/meson.build') }}
+          restore-keys: |
+            ${{ runner.os }}-apt-dev-packages-
+
+      - name: Install dependencies (Linux System Headers)
+        if: matrix.os == 'ubuntu-24.04'
         run: |
           set -euo pipefail
           export DEBIAN_FRONTEND=noninteractive
@@ -77,60 +97,67 @@ jobs:
           sudo -E apt-get install -y --no-install-recommends \
             libspeechd-dev libdbus-1-dev libatspi2-dev brltty libbrlapi-dev
 
-      - name: Configure Project (Meson)
-        shell: bash
+      - name: Configure Project Sandbox (Meson)
+        env:
+          WORKSPACE_PREFIX: "${{ github.workspace }}/dist"
         run: |
           set -euo pipefail
-          meson setup builddir \
-            --buildtype=release \
-            --prefix="/" \
+          meson setup builddir_${{ matrix.variant }} \
+            --buildtype=${{ matrix.variant }} \
+            --prefix="$WORKSPACE_PREFIX" \
+            -DSRAL_DEV_SANITIZERS=${{ matrix.variant == 'debug' }} \
             -Ddefault_library=both \
+            -Dwerror=true \
+            -Db_lto=true \
+            -Db_pie=true \
+            -Db_staticpic=true \
+            -DTARGET_DESKTOP=true \
             -DBUILD_TESTS=true \
-            -DBUILD_BINDINGS=true
+            -DBUILD_BINDINGS=true \
+            -DSRAL_INSTALL_BINDING_SOURCES=true
       
       - name: Print Hidden Meson Log on Failure
         if: failure() || always()
         run: |
+          set -euo pipefail
           echo "=== DUMPING INTERNAL MESON LOG ==="
-          if [ -f "builddir/meson-logs/meson-log.txt" ]; then
-            cat builddir/meson-logs/meson-log.txt
+          if [ -f "builddir_${{ matrix.variant }}/meson-logs/meson-log.txt" ]; then
+            cat builddir_${{ matrix.variant }}/meson-logs/meson-log.txt
           else
-            echo "builddir/meson-logs/meson-log.txt not found!" break;
+            echo "builddir_${{ matrix.variant }}/meson-logs/meson-log.txt not found!"
           fi
 
       - name: Compile and Link Targets
-        shell: bash
         run: |
           set -euo pipefail
-          meson compile -C builddir
+          meson compile -C builddir_${{ matrix.variant }}
 
       - name: Install into staging tree
-        shell: bash
         run: |
           set -euo pipefail
-          meson install -C builddir --destdir ../dist
+          meson install -C builddir_${{ matrix.variant }}
 
       - name: Archive artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-${{ matrix.name }}
+          name: bundle-${{ matrix.name }}-${{ matrix.variant }}
           path: "${{ github.workspace }}/dist"
           if-no-files-found: error
-          
   android:
-    runs-on: ubuntu-latest
+    name: Android (${{ matrix.abi }} - ${{ matrix.variant }})
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
+        abi: [arm64-v8a, x86_64]
+        variant: [debug, release]
         include:
           - abi: arm64-v8a
             arch: aarch64
-            meson_cpu: aarch64
           - abi: x86_64
             arch: x86_64
-            meson_cpu: x86_64
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -142,48 +169,62 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.14.6'
+          cache: 'pip'
 
-      - name: Install Meson and Ninja
-        shell: bash
+      - name: Install Hardened Dependencies via Cryptographic Hashes
         run: |
           set -euo pipefail
-          python -m pip install --require-hashes -r <(echo "pip==26.1.2 --hash=sha256:773ec99aa5673ec54cb6a38612143a53be416298539050085a2d67aae4ec52b6")
-
-          pip install --require-hashes -r <(cat << 'EOF'
+          cat << 'EOF' > requirements.txt
+          pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
           meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
+          ninja==1.13.0 --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978
           ninja==1.13.0 --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa
+          ninja==1.13.0 --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff
+          ninja==1.13.0 --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1
+          ninja==1.13.0 --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
           EOF
-          )
+          python -m pip install --require-hashes -r requirements.txt
+          rm requirements.txt
 
       - name: Set up JetBrains Runtime JDK 25
-        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
+        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v4.5.0
         with:
           distribution: 'jetbrains'
           java-version: '25'
       
       - name: Set up Base Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        env:
+          ACCEPT_ANDROID_SDK_LICENSES: 'true'
 
-      - name: Set up Native Linux Android NDK (r25)
-        uses: nttld/setup-ndk@v1.5.0
+      - name: Cache Android NDK r27c Workspace
+        id: cache-ndk
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /opt/hostedtoolcache/ndk
+          key: ${{ runner.os }}-ndk-r27c
+
+      - name: Set up Native Linux Android NDK (r27)
+        if: steps.cache-ndk.outputs.cache-hit != 'true'
+        uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         id: setup-ndk
         with:
-          ndk-version: r25c
+          ndk-version: r27c
           link-to-sdk: true
 
       - name: Create Android Cross File Dynamically
         env:
           SECRET_NDK: ${{ secrets.ANDROID_NDK_HOME }}
           ARCH: ${{ matrix.arch }}
-          MESON_CPU: ${{ matrix.meson_cpu }}
-        shell: bash
+          ABI: ${{ matrix.abi }}
         run: |
           set -euo pipefail
-          
           TARGET_NDK="${SECRET_NDK:-${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-}}}"
           
           if [ -z "$TARGET_NDK" ]; then
-            if [ -d "/usr/local/lib/android/sdk/ndk-bundle" ]; then
+            if [ -d "/opt/hostedtoolcache/ndk/r27c/x64" ]; then
+              TARGET_NDK="/opt/hostedtoolcache/ndk/r27c/x64"
+            elif [ -d "/usr/local/lib/android/sdk/ndk-bundle" ]; then
               TARGET_NDK="/usr/local/lib/android/sdk/ndk-bundle"
             else
               FOUND_NDK=$(find /usr/local/lib/android/sdk/ndk -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -n 1 || true)
@@ -192,93 +233,66 @@ jobs:
           fi
           
           if [ -z "$TARGET_NDK" ] || [ ! -d "$TARGET_NDK" ]; then
-            echo "::error::Failed to locate an active Android NDK Toolchain Environment directory context."
+            echo "::error::Failed to locate Android NDK."
             exit 1
           fi
           
-          echo "Using Android NDK Toolchain located at: $TARGET_NDK"
+          API_FLOOR="21"
+          HOST_PLATFORM="linux-x86_64"
+          TOOLCHAIN_BIN="$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin"
           
-          if [ -d "$TARGET_NDK/toolchains/llvm/prebuilt/windows-x86_64" ]; then
-            HOST_PLATFORM="windows-x86_64"
-          else
-            HOST_PLATFORM="linux-x86_64"
-          fi
-          
-          echo "Detected NDK Host Sub-Architecture Layout: $HOST_PLATFORM"
-          
-          if [ "$ARCH" = "aarch64" ]; then
-            CLANG_TRIPLE="aarch64-linux-android24"
-          else
-            CLANG_TRIPLE="x86_64-linux-android24"
-          fi
-
           cat << EOF > android_cross.txt
           [binaries]
-          c     = '$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin/clang'
-          cpp   = '$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin/clang++'
-          ar    = '$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin/llvm-ar'
-          strip = '$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin/llvm-strip'
+          c   = '$TOOLCHAIN_BIN/$ARCH-linux-android$API_FLOOR-clang'
+          cpp = '$TOOLCHAIN_BIN/$ARCH-linux-android$API_FLOOR-clang++'
+          ar  = '$TOOLCHAIN_BIN/llvm-ar'
+          strip = '$TOOLCHAIN_BIN/llvm-strip'
 
-          [built-in options]
-          c_args   = ['-target', '$CLANG_TRIPLE']
-          cpp_args = ['-target', '$CLANG_TRIPLE']
+          [properties]
+          sys_root = '$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/sysroot'
 
           [host_machine]
-          system     = 'android'
-          cpu        = '$ARCH'
-          endian     = 'little'
+          system = 'android'
+          cpu_family = '$ARCH'
+          cpu = '$ABI'
+          endian = 'little'
           EOF
 
-      - name: Configure Android Target
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf builddir
-          meson setup builddir --cross-file android_cross.txt \
-            --buildtype=debug \
-            -Ddefault_library=both
-
-      - name: Compile Target Shared Libraries
-        shell: bash
-        run: |
-          set -euo pipefail
-          meson compile -C builddir
-
-      - name: Install ABI targets into staging structure
+      - name: Configure Android Target Sandbox Options
         env:
-          ABI: ${{ matrix.abi }}
-        shell: bash
+          WORKSPACE_PREFIX: "${{ github.workspace }}/dist"
         run: |
           set -euo pipefail
-          STAGING_DIR="${{ github.workspace }}/dist-android-${ABI}"
-          mkdir -p "$STAGING_DIR/lib/$ABI" "$STAGING_DIR/include" "$STAGING_DIR/java"
-          
-          find builddir \( -name 'libSRAL.so' -o -name 'libSRAL.a' \) -exec cp {} "$STAGING_DIR/lib/$ABI/" \;
-          
-          H_DIR="Include"
-          if [ ! -d "$H_DIR" ] && [ -d "include" ]; then
-            H_DIR="include"
-          fi
-          
-          if [ -d "$H_DIR" ]; then
-            cp "$H_DIR/SRAL.h" "$H_DIR/Sral.hpp" "$STAGING_DIR/include/"
-          fi
-          
-          if [ -f "Dep/AndroidTTSHelper.java" ]; then
-            cp Dep/AndroidTTSHelper.java Dep/AndroidAccessibilityManagerHelper.java "$STAGING_DIR/java/"
-          fi
+          meson setup builddir_${{ matrix.variant }} \
+            --cross-file android_cross.txt \
+            --buildtype=${{ matrix.variant }} \
+            --prefix="$WORKSPACE_PREFIX" \
+            -DSRAL_DEV_SANITIZERS=${{ matrix.variant == 'debug' }} \
+            -DTARGET_ANDROID=true \
+            -DVERSION_MINTARGET_ANDROID=21 \
+            -DBUILD_TESTS=false \
+            -DBUILD_BINDINGS=false
+
+      - name: Compile Mobile ARM64 Architecture Shared Libraries
+        run: |
+          set -euo pipefail
+          meson compile -C builddir_${{ matrix.variant }}
 
       - name: Archive Android artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-android-${{ matrix.abi }}
-          path: "${{ github.workspace }}/dist-android-${{ matrix.abi }}"
+          name: bundle-android-${{ matrix.abi }}-${{ matrix.variant }}
+          path: "${{ github.workspace }}/dist"
           if-no-files-found: error
-
   webassembly:
-    runs-on: ubuntu-latest
+    name: WebAssembly (${{ matrix.variant }})
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [debug, release]
     steps:
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -290,26 +304,33 @@ jobs:
         uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
         with:
           version: 6.0.2
+          actions-cache-folder: 'emsdk-cache'
+      
+      - name: Verify EMSDK Local Environment Setup
+        run: emcc -v
 
       - name: Set up Python
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.14.6'
+          cache: 'pip'
 
-      - name: Install Meson and Ninja
-        shell: bash
+      - name: Install Hardened Dependencies via Cryptographic Hashes
         run: |
           set -euo pipefail
-          python -m pip install --require-hashes -r <(echo "pip==26.1.2 --hash=sha256:773ec99aa5673ec54cb6a38612143a53be416298539050085a2d67aae4ec52b6")
-
-          pip install --require-hashes -r <(cat << 'EOF'
+          cat << 'EOF' > requirements.txt
+          pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
           meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
+          ninja==1.13.0 --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978
           ninja==1.13.0 --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa
+          ninja==1.13.0 --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff
+          ninja==1.13.0 --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1
+          ninja==1.13.0 --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
           EOF
-          )
+          python -m pip install --require-hashes -r requirements.txt
+          rm requirements.txt
 
-      - name: Create WebAssembly Cross File
-        shell: bash
+      - name: Create WebAssembly Hardened Cross File
         run: |
           set -euo pipefail
           cat << 'EOF' > emscripten_cross.txt
@@ -317,13 +338,13 @@ jobs:
           c = 'emcc'
           cpp = 'em++'
           ar = 'emar'
+          strip = 'emstrip'
 
-          [built-in options]
-          c_args = ['-pthread', '-Wno-error=unused-command-line-argument']
-          cpp_args = ['-pthread', '-Wno-error=unused-command-line-argument']
-          c_link_args = ['-pthread', '-sWASM=1', '-sSIDE_MODULE=1']
-          cpp_link_args = ['-pthread', '-sWASM=1', '-sSIDE_MODULE=1']
-          default_library = 'static'
+          [properties]
+          c_args        = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
+          cpp_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
+          c_link_args   = ['-pthread', '-sSTACK_OVERFLOW_CHECK=2', '-sASSERTIONS=1', '-sWASM_BIGINT']
+          cpp_link_args = ['-pthread', '-sSTACK_OVERFLOW_CHECK=2', '-sASSERTIONS=1', '-sWASM_BIGINT']
 
           [host_machine]
           system = 'emscripten'
@@ -332,47 +353,52 @@ jobs:
           endian = 'little'
           EOF
 
-
       - name: Configure WebAssembly Cross Compilation Pass
-        shell: bash
+        env:
+          WORKSPACE_PREFIX: "${{ github.workspace }}/dist"
         run: |
           set -euo pipefail
-          if [ -f "$EMSDK/emsdk_env.sh" ]; then
-            source "$EMSDK/emsdk_env.sh"
-          fi
-
-          meson setup builddir --cross-file emscripten_cross.txt \
-            --buildtype=release \
-            --prefix="/" \
-            -DBUILD_TESTS=true\
-            -DBUILD_BINDINGS=true
-
+          source $EMSDK_NODE/../../emsdk_env.sh
+          meson setup builddir_${{ matrix.variant }} \
+            --cross-file emscripten_cross.txt \
+            --buildtype=${{ matrix.variant }} \
+            --prefix="$WORKSPACE_PREFIX" \
+            -DSRAL_DEV_SANITIZERS=false \
+            -Ddefault_library=static \
+            -Dwerror=true \
+            -Db_lto=true \
+            -Db_pie=true \
+            -Db_staticpic=true \
+            -DTARGET_DESKTOP=false \
+            -DTARGET_CHROMEVOX=true \
+            -DSRAL_WITH_CHROMEVOX=true \
+            -DSRAL_INSTALL_BINDING_SOURCES=true
 
       - name: Compile Static Object Graph
-        shell: bash
         run: |
           set -euo pipefail
-          if [ -f "$EMSDK/emsdk_env.sh" ]; then
-            source "$EMSDK/emsdk_env.sh"
-          fi
-          meson compile -C builddir
-  
+          source $EMSDK_NODE/../../emsdk_env.sh
+          meson compile -C builddir_${{ matrix.variant }}
+
       - name: Install into staging tree
-        shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "${{ github.workspace }}/dist-wasm"
-          meson install -C builddir --destdir "${{ github.workspace }}/dist-wasm"
+          source $EMSDK_NODE/../../emsdk_env.sh
+          meson install -C builddir_${{ matrix.variant }}
 
       - name: Archive WebAssembly artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-wasm
-          path: "${{ github.workspace }}/dist-wasm"
+          name: bundle-wasm-${{ matrix.variant }}
+          path: "${{ github.workspace }}/dist"
           if-no-files-found: error
-
   ios:
-    runs-on: macos-15
+    name: iOS Framework (${{ matrix.variant }})
+    runs-on: macos-26
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [debug, release]
     permissions:
       contents: read
     steps:
@@ -386,175 +412,193 @@ jobs:
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.14.6'
+          cache: 'pip'
 
-      - name: Install Meson and Ninja
-        shell: bash
+      - name: Install Hardened Dependencies via Cryptographic Hashes
         run: |
           set -euo pipefail
-          python -m pip install --require-hashes -r <(echo "pip==26.1.2 --hash=sha256:773ec99aa5673ec54cb6a38612143a53be416298539050085a2d67aae4ec52b6")
-
-          pip install --require-hashes -r <(cat << 'EOF'
+          cat << 'EOF' > requirements.txt
+          pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
           meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
+          ninja==1.13.0 --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978
           ninja==1.13.0 --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa
+          ninja==1.13.0 --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff
+          ninja==1.13.0 --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1
+          ninja==1.13.0 --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
           EOF
-          )
+          python -m pip install --require-hashes -r requirements.txt
+          rm requirements.txt
 
       - name: Create iOS Hardware Device Cross File
-        shell: bash
         run: |
           set -euo pipefail
           SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-          
           if [ -z "${SDK_PATH}" ] || [ ! -d "${SDK_PATH}" ]; then
-            echo "::error::iPhoneOS System Platform SDK root directory environment context resolving context failed."
+            echo "::error::iPhoneOS SDK environment context resolution failed."
             exit 1
           fi
 
-          cat << 'EOF' > ios_device_cross.txt
+          cat << EOF > ios_device_cross.txt
           [binaries]
-          c = ['clang', '-isysroot', '@SDK_PATH@', '-arch', 'arm64', '-miphoneos-version-min=15.0']
-          cpp = ['clang++', '-isysroot', '@SDK_PATH@', '-arch', 'arm64', '-miphoneos-version-min=15.0']
+          c = ['clang', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=15.0']
+          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=15.0']
           ar = 'ar'
           strip = 'strip'
 
+          [properties]
+          c_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+          cpp_args    = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+
           [host_machine]
-          system = 'darwin'
+          system = 'ios'
           cpu_family = 'aarch64'
           cpu = 'arm64'
           endian = 'little'
           EOF
-
-          sed -i "" "s|@SDK_PATH@|${SDK_PATH}|g" ios_device_cross.txt
 
       - name: Create iOS Simulator ARM64 Cross File
-        shell: bash
         run: |
           set -euo pipefail
           SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
           if [ -z "${SDK_PATH}" ] || [ ! -d "${SDK_PATH}" ]; then
-            echo "::error::iPhoneSimulator SDK root environment resolution execution block context tracking failed."
+            echo "::error::iPhoneSimulator SDK environment context resolution failed."
             exit 1
           fi
 
-          cat << 'EOF' > ios_sim_arm64_cross.txt
+          cat << EOF > ios_sim_arm64_cross.txt
           [binaries]
-          c = ['clang', '-isysroot', '@SDK_PATH@', '-target', 'arm64-apple-ios15.0-simulator']
-          cpp = ['clang++', '-isysroot', '@SDK_PATH@', '-target', 'arm64-apple-ios15.0-simulator']
+          c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios15.0-simulator']
+          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios15.0-simulator']
           ar = 'ar'
           strip = 'strip'
 
+          [properties]
+          c_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+          cpp_args    = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+
           [host_machine]
-          system = 'darwin'
+          system = 'ios'
           cpu_family = 'aarch64'
           cpu = 'arm64'
           endian = 'little'
           EOF
 
-          sed -i "" "s|@SDK_PATH@|${SDK_PATH}|g" ios_sim_arm64_cross.txt
-
       - name: Create iOS Simulator X86_64 Cross File
-        shell: bash
         run: |
           set -euo pipefail
           SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
           if [ -z "${SDK_PATH}" ] || [ ! -d "${SDK_PATH}" ]; then
-            echo "::error::iPhoneSimulator X86_64 target SDK platform verification pipeline mapping context failed."
+            echo "::error::iPhoneSimulator X86_64 target SDK context resolution failed."
             exit 1
           fi
 
-          cat << 'EOF' > ios_sim_x86_64_cross.txt
+          cat << EOF > ios_sim_x86_64_cross.txt
           [binaries]
-          c = ['clang', '-isysroot', '@SDK_PATH@', '-target', 'x86_64-apple-ios15.0-simulator']
-          cpp = ['clang++', '-isysroot', '@SDK_PATH@', '-target', 'x86_64-apple-ios15.0-simulator']
+          c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios15.0-simulator']
+          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios15.0-simulator']
           ar = 'ar'
           strip = 'strip'
 
+          [properties]
+          c_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+          cpp_args    = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+
           [host_machine]
-          system = 'darwin'
+          system = 'ios'
           cpu_family = 'x86_64'
           cpu = 'x86_64'
           endian = 'little'
           EOF
 
-          sed -i "" "s|@SDK_PATH@|${SDK_PATH}|g" ios_sim_x86_64_cross.txt
-
       - name: Configure and Compile iOS Device Target
-        shell: bash
         run: |
           set -euo pipefail
-          meson setup build-device --cross-file ios_device_cross.txt \
-            --buildtype=release \
+          meson setup build-device-${{ matrix.variant }} --cross-file ios_device_cross.txt \
+            --buildtype=${{ matrix.variant }} \
+            -DSRAL_DEV_SANITIZERS=${{ matrix.variant == 'debug' }} \
             -Ddefault_library=static \
+            -Dwerror=true \
+            -Db_lto=true \
+            -Db_pie=true \
+            -Db_staticpic=true \
+            -DTARGET_DESKTOP=false \
             -DTARGET_IOS=true \
-            -DSRAL_WITH_NSSPEECH=true \
-            -DBUILD_TESTS=true \
-            -DBUILD_BINDINGS=true
-          meson compile -C build-device
+            -DSRAL_WITH_VOICEOVER=true \
+            -DSRAL_WITH_AVSPEECH=true \
+            -DSRAL_WITH_NSSPEECH=false
+          meson compile -C build-device-${{ matrix.variant }}
 
       - name: Configure and Compile iOS Simulator Targets
-        shell: bash
         run: |
           set -euo pipefail
-          meson setup build-sim-arm64 --cross-file ios_sim_arm64_cross.txt \
-            --buildtype=debug \
+          meson setup build-sim-arm64-${{ matrix.variant }} --cross-file ios_sim_arm64_cross.txt \
+            --buildtype=${{ matrix.variant }} \
+            -DSRAL_DEV_SANITIZERS=${{ matrix.variant == 'debug' }} \
             -Ddefault_library=static \
+            -Dwerror=true \
+            -Db_pie=true \
+            -Db_staticpic=true \
+            -DTARGET_DESKTOP=false \
             -DTARGET_IOS=true \
-            -DSRAL_WITH_NSSPEECH=true \
-            -DBUILD_TESTS=true \
-            -DBUILD_BINDINGS=true
-          meson compile -C build-sim-arm64
+            -DSRAL_WITH_VOICEOVER=true \
+            -DSRAL_WITH_AVSPEECH=true \
+            -DSRAL_WITH_NSSPEECH=false
+          meson compile -C build-sim-arm64-${{ matrix.variant }}
 
-          meson setup build-sim-x86_64 --cross-file ios_sim_x86_64_cross.txt \
-            --buildtype=debug \
+          meson setup build-sim-x86_64-${{ matrix.variant }} --cross-file ios_sim_x86_64_cross.txt \
+            --buildtype=${{ matrix.variant }} \
+            -DSRAL_DEV_SANITIZERS=${{ matrix.variant == 'debug' }} \
             -Ddefault_library=static \
+            -Dwerror=true \
+            -Db_pie=true \
+            -Db_staticpic=true \
+            -DTARGET_DESKTOP=false \
             -DTARGET_IOS=true \
-            -DSRAL_WITH_NSSPEECH=true \
-            -DBUILD_TESTS=true \
-            -DBUILD_BINDINGS=true
-          meson compile -C build-sim-x86_64
-
+            -DSRAL_WITH_VOICEOVER=true \
+            -DSRAL_WITH_AVSPEECH=true \
+            -DSRAL_WITH_NSSPEECH=false
+          meson compile -C build-sim-x86_64-${{ matrix.variant }}
+      
       - name: Assemble Apple XCFramework Architecture Staging Bundle
-        shell: bash
+        env:
+          RELEASE_TOKEN: ${{ inputs.release_version }}
         run: |
           set -euo pipefail
-          DEVICE_LIB=$(find build-device -name 'libSRAL.a' | head -n1)
-          SIM_ARM64_LIB=$(find build-sim-arm64 -name 'libSRAL.a' | head -n1)
-          SIM_X86_64_LIB=$(find build-sim-x86_64 -name 'libSRAL.a' | head -n1)
+          
+          DEVICE_LIB=$(find build-device-${{ matrix.variant }} -name 'libSRAL.a' | head -n1)
+          SIM_ARM64_LIB=$(find build-sim-arm64-${{ matrix.variant }} -name 'libSRAL.a' | head -n1)
+          SIM_X86_64_LIB=$(find build-sim-x86_64-${{ matrix.variant }} -name 'libSRAL.a' | head -n1)
           
           if [ -z "${DEVICE_LIB}" ] || [ -z "${SIM_ARM64_LIB}" ] || [ -z "${SIM_X86_64_LIB}" ]; then
-            echo "Structural Compilation Failure: Required matrix build dependencies missing." >&2
+            echo "::error::Structural Compilation Failure: Required static libraries are missing." >&2
             exit 1
           fi
           
-          VERSION_TOKEN="${{ inputs.release_version }}"
-          VERSION_TOKEN="${VERSION_TOKEN:-raw}"
-          
-          STAGING_DIR="${{ github.workspace }}/dist-ios-${VERSION_TOKEN}"
+          VERSION_TOKEN="${RELEASE_TOKEN:-raw}"
+          STAGING_DIR="${{ github.workspace }}/dist-ios-${VERSION_TOKEN}-${{ matrix.variant }}"
           rm -rf "${STAGING_DIR}"
-          mkdir -p "${STAGING_DIR}/framework/headers-device" "${STAGING_DIR}/framework/headers-sim" "${STAGING_DIR}/framework/intermediate"
           
-          lipo -create "${SIM_ARM64_LIB}" "${SIM_X86_64_LIB}" -output "${STAGING_DIR}/framework/intermediate/libSRAL_sim.a"
+          mkdir -p "${STAGING_DIR}/headers"
+          mkdir -p "${STAGING_DIR}/lib-device"
+          mkdir -p "${STAGING_DIR}/lib-sim"
           
-          H_DIR="Include"
-          if [ ! -d "${H_DIR}" ] && [ -d "include" ]; then
-            H_DIR="include"
-          fi
+          cp -f Include/SRAL.h "${STAGING_DIR}/headers/"
+          cp -f Include/Sral.hpp "${STAGING_DIR}/headers/"
           
-          cp "${H_DIR}/SRAL.h" "${H_DIR}/Sral.hpp" "${STAGING_DIR}/framework/headers-device/"
-          cp "${H_DIR}/SRAL.h" "${H_DIR}/Sral.hpp" "${STAGING_DIR}/framework/headers-sim/"
+          cp -f "${DEVICE_LIB}" "${STAGING_DIR}/lib-device/libSRAL.a"
           
-          find "${STAGING_DIR}/framework/headers-device" "${STAGING_DIR}/framework/headers-sim" -name ".*" -delete 2>/dev/null || true
+          lipo -create "${SIM_ARM64_LIB}" "${SIM_X86_64_LIB}" -output "${STAGING_DIR}/lib-sim/libSRAL.a"
           
           xcodebuild -create-xcframework \
-            -library "${DEVICE_LIB}" -headers "${STAGING_DIR}/framework/headers-device" \
-            -library "${STAGING_DIR}/framework/intermediate/libSRAL_sim.a" -headers "${STAGING_DIR}/framework/headers-sim" \
+            -library "${STAGING_DIR}/lib-device/libSRAL.a" -headers "${STAGING_DIR}/headers" \
+            -library "${STAGING_DIR}/lib-sim/libSRAL.a" -headers "${STAGING_DIR}/headers" \
             -output "${STAGING_DIR}/SRAL.xcframework"
-            
-          rm -rf "${STAGING_DIR}/framework"
+          
+          rm -rf "${STAGING_DIR}/headers" "${STAGING_DIR}/lib-device" "${STAGING_DIR}/lib-sim"
 
-      - name: Archive iOS artifact
+      - name: Archive Hardened iOS XCFramework Artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-ios
-          path: "${{ github.workspace }}/dist-ios-${{ inputs.release_version || 'raw' }}"
+          name: bundle-ios-${{ matrix.variant }}-${{ inputs.release_version || 'raw' }}
+          path: "${{ github.workspace }}/dist-ios-*"
           if-no-files-found: error

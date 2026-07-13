@@ -397,7 +397,7 @@ if option_sign
       meson.add_install_script(signtool, 'sign', '/a', '/tr', 'http://digicert.com', '/td', 'sha256', '/fd', 'sha256', slot: 'post')
       message('[SRAL SECURITY] Authenticode sign-on-install scripts registered.')
     else
-      message(WARNING '[SRAL SECURITY] signtool utility missing. Skipping Windows binary signing.')
+      warning('[SRAL SECURITY] signtool utility missing. Skipping Windows binary signing.')
     endif
     
   elif is_apple
@@ -408,7 +408,7 @@ if option_sign
         meson.add_install_script(codesign, '--force', '--options', 'runtime', '--sign', apple_identity, slot: 'post')
         message('[SRAL SECURITY] Apple Developer signing hooks integrated.')
       else
-        message(WARNING '[SRAL SECURITY] APPLE_SIGNING_IDENTITY is empty. Skipping apple codesign pass.')
+         warning('[SRAL SECURITY] APPLE_SIGNING_IDENTITY is empty. Skipping apple codesign pass.')
       endif
     endif
   endif

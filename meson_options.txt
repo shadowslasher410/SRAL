@@ -124,5 +124,7 @@ option('SRAL_SIGN_OUTPUTS', type: 'boolean', value: false,
 option('APPLE_SIGNING_IDENTITY', type: 'string', value: '', 
        description: 'Apple Developer Team ID or certificate name string pointer utilized during codesign installations')
 
-option('SRAL_DEV_SANITIZERS', type 'boolean', value: false,
-       descriotion: 'Enable development sanitizers (ASan, UBSan, etc.). Don't use on releases!')
+option('SRAL_DEV_SANITIZERS', 
+       type: 'string', 
+       value: 'msvc_debug_args += \'/fsanitize=address\'',
+       description: 'Enable development sanitizers (ASan, UBSan, etc.). Only use when build variant is debug!')

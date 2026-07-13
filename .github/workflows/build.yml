@@ -65,18 +65,23 @@ jobs:
           python-version: '3.14'
           cache: 'pip'
 
-      - name: Install Hardened Dependencies via Cryptographic Hashes
+      - name: Install Dependencies
         run: |
           set -euo pipefail
+          
           cat << 'EOF' > requirements.txt
           pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
           meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
-          ninja==1.13.0 --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978
-          ninja==1.13.0 --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa
-          ninja==1.13.0 --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff
-          ninja==1.13.0 --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1
-          ninja==1.13.0 --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
+          ninja==1.13.0 \
+            --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978 \
+            --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa \
+            --hash=sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e \
+            --hash=sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1 \
+            --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff \
+            --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
+            --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
           EOF
+      
           python -m pip install --require-hashes -r requirements.txt
           rm requirements.txt
 
@@ -122,17 +127,6 @@ jobs:
             -DBUILD_TESTS=true \
             -DBUILD_BINDINGS=true \
             -DSRAL_INSTALL_BINDING_SOURCES=true
-      
-      - name: Print Hidden Meson Log on Failure
-        if: failure() || always()
-        run: |
-          set -euo pipefail
-          echo "=== DUMPING INTERNAL MESON LOG ==="
-          if [ -f "builddir_${{ matrix.variant }}/meson-logs/meson-log.txt" ]; then
-            cat builddir_${{ matrix.variant }}/meson-logs/meson-log.txt
-          else
-            echo "builddir_${{ matrix.variant }}/meson-logs/meson-log.txt not found!"
-          fi
 
       - name: Compile and Link Targets
         run: |
@@ -178,18 +172,23 @@ jobs:
           python-version: '3.14'
           cache: 'pip'
 
-      - name: Install Hardened Dependencies via Cryptographic Hashes
+      - name: Install Dependencies
         run: |
           set -euo pipefail
+          
           cat << 'EOF' > requirements.txt
           pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
           meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
-          ninja==1.13.0 --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978
-          ninja==1.13.0 --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa
-          ninja==1.13.0 --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff
-          ninja==1.13.0 --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1
-          ninja==1.13.0 --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
+          ninja==1.13.0 \
+            --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978 \
+            --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa \
+            --hash=sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e \
+            --hash=sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1 \
+            --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff \
+            --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
+            --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
           EOF
+      
           python -m pip install --require-hashes -r requirements.txt
           rm requirements.txt
 
@@ -291,6 +290,7 @@ jobs:
           name: bundle-android-${{ matrix.abi }}-${{ matrix.variant }}
           path: "${{ github.workspace }}/dist"
           if-no-files-found: error
+
   webassembly:
     name: WebAssembly (${{ matrix.variant }})
     runs-on: ubuntu-24.04
@@ -322,22 +322,27 @@ jobs:
           python-version: '3.14'
           cache: 'pip'
 
-      - name: Install Hardened Dependencies via Cryptographic Hashes
+      - name: Install Dependencies
         run: |
           set -euo pipefail
+          
           cat << 'EOF' > requirements.txt
           pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
           meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
-          ninja==1.13.0 --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978
-          ninja==1.13.0 --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa
-          ninja==1.13.0 --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff
-          ninja==1.13.0 --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1
-          ninja==1.13.0 --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
+          ninja==1.13.0 \
+            --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978 \
+            --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa \
+            --hash=sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e \
+            --hash=sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1 \
+            --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff \
+            --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
+            --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
           EOF
+      
           python -m pip install --require-hashes -r requirements.txt
           rm requirements.txt
 
-      - name: Create WebAssembly Hardened Cross File
+      - name: Create WebAssembly Cross File
         run: |
           set -euo pipefail
           cat << 'EOF' > emscripten_cross.txt
@@ -421,18 +426,23 @@ jobs:
           python-version: '3.14'
           cache: 'pip'
 
-      - name: Install Hardened Dependencies via Cryptographic Hashes
+      - name: Install Dependencies
         run: |
           set -euo pipefail
+          
           cat << 'EOF' > requirements.txt
           pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
           meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
-          ninja==1.13.0 --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978
-          ninja==1.13.0 --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa
-          ninja==1.13.0 --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff
-          ninja==1.13.0 --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1
-          ninja==1.13.0 --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
+          ninja==1.13.0 \
+            --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978 \
+            --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa \
+            --hash=sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e \
+            --hash=sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1 \
+            --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff \
+            --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
+            --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
           EOF
+      
           python -m pip install --require-hashes -r requirements.txt
           rm requirements.txt
 
@@ -603,7 +613,7 @@ jobs:
           
           rm -rf "${STAGING_DIR}/headers" "${STAGING_DIR}/lib-device" "${STAGING_DIR}/lib-sim"
 
-      - name: Archive Hardened iOS XCFramework Artifact
+      - name: Archive iOS XCFramework Artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bundle-ios-${{ matrix.variant }}-${{ inputs.release_version || 'raw' }}

@@ -2,13 +2,6 @@ assert(meson.current_source_dir().endswith('SRC'), 'SRC/meson.build must be call
 
 root_src = meson.project_source_root()
 
-c_id = c_compiler.get_id()
-
-is_windows    = (target_machine.system() == 'windows')
-is_apple      = (target_machine.system() == 'darwin' or target_machine.system() == 'ios')
-is_android    = (target_machine.system() == 'android')
-is_emscripten = (target_machine.system() == 'emscripten')
-
 dep_sources = []
 if is_windows
   dep_sources += [
@@ -22,7 +15,7 @@ endif
 
 global_c_cpp_args = ['-Wall', '-Wextra']
 
-if c_id != 'msvc' and c_id != 'clang-cl'
+if not is_msvc_like
   global_c_cpp_args += [
     '-fstack-protector-all',
     '-fno-delete-null-pointer-checks',
@@ -78,7 +71,7 @@ cpp_exclusive_warnings = [
   '-Woverloaded-virtual',            
 ]
 
-if c_id != 'msvc' and c_id != 'clang-cl'
+if not is_msvc_like
   core_c_args   = supported_global_c_args   + c_compiler.get_supported_arguments(shared_warnings)
   core_cpp_args = supported_global_cpp_args + cpp_compiler.get_supported_arguments(shared_warnings + cpp_exclusive_warnings)
 else
@@ -89,7 +82,7 @@ endif
 core_sources = files('Engine.cpp', 'SRAL.cpp')
 
 if not is_emscripten
-  if get_option('SRAL_WITH_ACCESSKIT')
+  if opt_accesskit
     core_sources += files('ACAnnouncer.cpp')
   else
     core_c_args   += ['-DSRAL_NO_ACCESSKIT']
@@ -99,7 +92,7 @@ endif
 
 if is_windows
   core_sources += files('Encoding.cpp')
-  if get_option('SRAL_WITH_NVDA')
+  if opt_nvda
     core_sources += files('NVDA.cpp')
   else
     core_c_args   += ['-DSRAL_NO_NVDA']
@@ -124,7 +117,7 @@ if is_windows
     core_c_args   += ['-DSRAL_NO_SAPI']
     core_cpp_args += ['-DSRAL_NO_SAPI']
   endif
-  if get_option('SRAL_WITH_UIA')
+  if opt_uia
     core_sources += files('UIA.cpp')
     core_sources += files(root_src / 'Dep/UIAProvider.cpp')
   else
@@ -145,7 +138,7 @@ elif is_apple
     core_c_args   += ['-DSRAL_NO_AVSPEECH']
     core_cpp_args += ['-DSRAL_NO_AVSPEECH']
   endif
-  if target_machine.system() != 'ios' and get_option('SRAL_WITH_NSSPEECH')
+  if host_sys != 'ios' and opt_nsspeech
     core_sources += files('NSSpeech.mm')
   else
     core_c_args   += ['-DSRAL_NO_NSSPEECH']
@@ -154,6 +147,12 @@ elif is_apple
 
 elif is_android
   core_sources += files(root_src / 'Dep/AndroidContext.cpp')
+  
+  android_java_helpers = [
+    root_src / 'Dep/AndroidAccessibilityManagerHelper.java',
+    root_src / 'Dep/AndroidTTSHelper.java'
+  ]
+  
   if get_option('SRAL_WITH_ANDROID_TTS')
     core_sources += files('AndroidTextToSpeech.cpp')
   else
@@ -168,25 +167,26 @@ elif is_android
   endif
 
 elif is_emscripten
-  if get_option('SRAL_WITH_CHROMEVOX')
+  if opt_chromevox
     core_sources += files('ChromeVox.cpp')
   else
     core_c_args   += ['-DSRAL_NO_CHROMEVOX']
     core_cpp_args += ['-DSRAL_NO_CHROMEVOX']
   endif
   
-  core_c_args   += ['-DSRAL_NO_NVDA', '-DSRAL_NO_JAWS', '-DSRAL_NO_ZDSR', '-DSRAL_NO_SAPI', '-DSRAL_NO_UIA', '-DSRAL_NO_SPEECH_DISPATCHER', '-DSRAL_NO_ORCA', '-DSRAL_NO_BRLAPI']
-  core_cpp_args += ['-DSRAL_NO_NVDA', '-DSRAL_NO_JAWS', '-DSRAL_NO_ZDSR', '-DSRAL_NO_SAPI', '-DSRAL_NO_UIA', '-DSRAL_NO_SPEECH_DISPATCHER', '-DSRAL_NO_ORCA', '-DSRAL_NO_BRLAPI']
+  core_args_em = ['-DSRAL_NO_NVDA', '-DSRAL_NO_JAWS', '-DSRAL_NO_ZDSR', '-DSRAL_NO_SAPI', '-DSRAL_NO_UIA', '-DSRAL_NO_SPEECH_DISPATCHER', '-DSRAL_NO_ORCA', '-DSRAL_NO_BRLAPI']
+  core_c_args   += core_args_em
+  core_cpp_args += core_args_em
 
 else
   core_sources += files('Encoding.cpp')
-  if get_option('SRAL_WITH_SPEECH_DISPATCHER')
+  if opt_speech_dispatcher
     core_sources += files('SpeechDispatcher.cpp')
   else
     core_c_args   += ['-DSRAL_NO_SPEECH_DISPATCHER']
     core_cpp_args += ['-DSRAL_NO_SPEECH_DISPATCHER']
   endif
-  if get_option('SRAL_WITH_ORCA')
+  if opt_orca
     core_sources += files('Orca.cpp')
   else
     core_c_args   += ['-DSRAL_NO_ORCA']
@@ -194,28 +194,23 @@ else
   endif
 endif
 
-if not is_emscripten
-  core_c_args   += ['-DSRAL_NO_CHROMEVOX']
-  core_cpp_args += ['-DSRAL_NO_CHROMEVOX']
-endif
-
 supported_link_args = []
 
-if c_id != 'msvc' and c_id != 'clang-cl'
+if not is_msvc_like
   desired_link_args = [
     '-Wl,-z,relro',       
     '-Wl,-z,now',         
     '-Wl,-z,noexecstack', 
   ]
   if not is_apple
-      desired_link_args += ['-Wl,-z,defs']
+    desired_link_args += ['-Wl,-z,defs']
   else
     desired_link_args += ['-Wl,-undefined,error']
   endif
   supported_link_args = c_compiler.get_supported_link_arguments(desired_link_args)
 else
   desired_msvc_link = ['/NXCOMPAT', '/DYNAMICBASE', '/HIGHENTROPYVA']
-  if get_option('buildtype') == 'release'
+  if build_variant == 'release'
     desired_msvc_link += ['/CETCOMPAT']
   endif
   supported_link_args = c_compiler.get_supported_link_arguments(desired_msvc_link)
@@ -223,32 +218,51 @@ endif
 
 sral_target_type = build_shared_libs ? 'shared_library' : 'static_library'
 
-if get_option('default_library') == 'both'
+if get_option('default_library') == 'both' or sral_target_type == 'both_libraries'
   sral_target_type = 'both_libraries'
 endif
 
 sral_core_c_args   = core_c_args
 sral_core_cpp_args = core_cpp_args
 
-if sral_target_type == 'shared_library' or sral_target_type == 'both_libraries'
+if build_shared_libs or get_option('default_library') == 'both'
   sral_core_c_args   += ['-DSRAL_BUILDING_DLL']
   sral_core_cpp_args += ['-DSRAL_BUILDING_DLL']
 endif
 
-sral_lib = build_target('SRAL',
-  core_sources,
-  target_type: sral_target_type,
-  include_directories: [inc_dir, include_directories('../Dep')],
-  link_with: sral_deps_list,          
-  c_args: sral_core_c_args,
-  cpp_args: sral_core_cpp_args, 
-  link_args: supported_link_args,
-  dependencies: sral_dependencies,
-  pic: true,                         
-  install: true,
-  override_options: [
-    'werror=true',
-    'c_visibility=hidden',
-    'cpp_visibility=hidden'
-  ]
-)
+if get_option('default_library') == 'both'
+  sral_lib = both_libraries('SRAL',
+    core_sources,
+    include_directories: [inc_dir, include_directories('../Dep')],
+    link_with: sral_deps_list,          
+    c_args: sral_core_c_args,
+    cpp_args: sral_core_cpp_args, 
+    link_args: supported_link_args,
+    dependencies: sral_dependencies,
+    pic: true,                         
+    install: true
+  )
+elif build_shared_libs
+  sral_lib = shared_library('SRAL',
+    core_sources,
+    include_directories: [inc_dir, include_directories('../Dep')],
+    link_with: sral_deps_list,          
+    c_args: sral_core_c_args,
+    cpp_args: sral_core_cpp_args, 
+    link_args: supported_link_args,
+    dependencies: sral_dependencies,
+    install: true
+  )
+else
+  sral_lib = static_library('SRAL',
+    core_sources,
+    include_directories: [inc_dir, include_directories('../Dep')],
+    link_with: sral_deps_list,          
+    c_args: sral_core_c_args,
+    cpp_args: sral_core_cpp_args, 
+    link_args: supported_link_args,
+    dependencies: sral_dependencies,
+    pic: true,                         
+    install: true
+  )
+endif

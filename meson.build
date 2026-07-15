@@ -21,26 +21,92 @@ project(
 c_compiler = meson.get_compiler('c')
 cpp_compiler = meson.get_compiler('cpp')
 
-set_variable('build_variant', get_option('buildtype'))
+build_variant = get_option('buildtype')
 c_id = c_compiler.get_id()
-
-is_windows = (target_machine.system() == 'windows')
-is_apple = (target_machine.system() == 'darwin' or target_machine.system() == 'ios')
-is_android = (target_machine.system() == 'android')
-is_emscripten = (target_machine.system() == 'emscripten')
+is_msvc_like = (c_compiler.get_argument_syntax() == 'msvc')
+host_sys = host_machine.system()
+is_windows = (host_sys == 'windows')
+is_apple = (host_sys == 'darwin' or host_sys == 'ios')
+is_android = (host_sys == 'android')
+is_emscripten = (host_sys == 'emscripten')
 is_building_on_mac = (build_machine.system() == 'darwin')
 
-if target_machine.system() == 'ios' and not is_building_on_mac
+if host_sys == 'ios' and not is_building_on_mac
   error('[SRAL ERROR] Apple iOS device/simulator static bundles can only be cross-compiled from a macOS host machine.')
+endif
+
+kv = import('keyval')
+fs = import('fs')
+
+path_nvda       = ''
+path_speechd    = ''
+path_python     = ''
+path_emsdk      = ''
+path_ndk        = ''
+path_accesskit  = ''
+path_jdk        = ''
+
+dev_ini = files('developer_input.ini')
+
+if fs.exists('developer_input.ini')
+  dev_config = kv.load(dev_ini)
+  
+  path_nvda      = dev_config.get('nvda_install', '')
+  path_speechd   = dev_config.get('speechd_install', '')
+  path_python    = dev_config.get('python_install', '')
+  path_emsdk     = dev_config.get('emsdk_install', '')
+  path_ndk       = dev_config.get('android_ndk', '')
+  path_accesskit = dev_config.get('accesskit_install', '')
+  path_jdk       = dev_config.get('jdk_install', '')
+
+  all_paths = {
+    'NVDA SDK Remote Linkage': path_nvda,
+    'Speech Dispatcher Sockets': path_speechd,
+    'Isolated Python Environment': path_python,
+    'Emscripten WebAssembly SDK': path_emsdk,
+    'Google Android NDK Workspace': path_ndk,
+    'AccessKit Proxy Library Assets': path_accesskit,
+    'Target Host Java Development Kit': path_jdk
+  }
+
+  sral_env_config = environment()
+
+  message('--- SRAL Multi-User Developer Path Validation ---')
+  foreach name, path : all_paths
+    if path != ''
+      if fs.is_dir(path)
+        message('[VALIDATED] ' + name + ' resolved at: ' + path)    
+        if name == 'NVDA SDK Remote Linkage'
+          sral_env_config.set('NVDA_SDK_PATH', path)
+        elif name == 'Speech Dispatcher Sockets'
+          sral_env_config.set('SPEECHD_PATH', path)
+        elif name == 'Isolated Python Environment'
+          sral_env_config.set('PYTHON_PATH', path)
+        elif name == 'Emscripten WebAssembly SDK'
+          sral_env_config.set('EMSDK_PATH', path)
+        elif name == 'Google Android NDK Workspace'
+          sral_env_config.set('ANDROID_NDK_HOME', path)
+        elif name == 'AccessKit Proxy Library Assets'
+          sral_env_config.set('ACCESSKIT_PATH', path)
+        elif name == 'Target Host Java Development Kit'
+          sral_env_config.set('JAVA_HOME', path)
+        endif
+      else
+        warning('[SRAL UNRESOLVED PATH] ' + name + ' is configured in INI but does not exist at: ' + path)
+      endif
+    endif
+  endforeach
+  message('------------------------------------------------')
+  meson.add_devenv(sral_env_config)
 endif
 
 build_shared_libs = get_option('BUILD_SHARED_LIBS')
 build_tests       = get_option('BUILD_TESTS')
 build_bindings    = get_option('BUILD_BINDINGS')
 
-if c_id == 'clang' and not is_apple and not is_android
+if c_id == 'clang' and not is_msvc_like and not is_apple and not is_android
   add_project_arguments('-fno-extensions', language: ['c', 'cpp'])
-elif c_id == 'msvc' or c_id == 'clang-cl'
+elif is_msvc_like
   add_project_arguments(['/permissive-', '/Zc:__cplusplus'], language: ['c', 'cpp'])
 endif
 
@@ -111,7 +177,6 @@ if build_variant == 'release'
     if c_id == 'clang'
       release_args += ['-fsanitize=cfi', '-fvisibility=hidden']
       if is_apple or is_android
-        # Fixed: Scrub both legacy/duplicate macro definitions and unblock vendor headers
         release_args += [
           '-Wno-macro-redefined',
           '-U_LIBCPP_HARDENING_MODE',
@@ -128,27 +193,25 @@ if build_variant == 'release'
 
   add_project_arguments('-D_GLIBCXX_ASSERTIONS', language: 'cpp')
   if not is_emscripten
-    add_project_arguments(['-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_HARDENED'], language: 'cpp')
-    add_project_arguments(['-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_HARDENED'], language: 'cpp')
+    add_project_arguments('-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_HARDENED', language: 'cpp')
   endif
 
 else
   message('[SRAL] Debug variant active.')
   add_project_arguments(['-DDEBUG', '-D_DEBUG', '-DSRAL_DEBUG_TRACE_ACTIVE'], language: ['c', 'cpp'])
 
-  if c_id == 'msvc' or c_id == 'clang-cl'
+  if is_msvc_like
     msvc_debug_args = universal_msvc_args + ['/Od', '/Zi']
     add_project_arguments(cpp_compiler.get_supported_arguments(msvc_debug_args), language: ['c', 'cpp'])
     add_project_link_arguments(cpp_compiler.get_supported_link_arguments(universal_msvc_link), language: ['c', 'cpp'])
   endif
 
   if c_id == 'gcc' or c_id == 'clang'
-    debug_args = universal_gcc_clang_args + ['-O0', '-g3', '-ftrivial-auto-var-init=zero']
+    debug_args = universal_gcc_clang_args + ['-g3', '-ftrivial-auto-var-init=zero']
     if not is_emscripten
       debug_args += ['-D_FORTIFY_SOURCE=1']
     endif
     if c_id == 'clang' and (is_apple or is_android)
-      # Fixed: Synchronized parameters into debug mode block
       debug_args += [
         '-Wno-macro-redefined',
         '-U_LIBCPP_HARDENING_MODE',
@@ -163,7 +226,6 @@ else
   add_project_arguments('-D_GLIBCXX_ASSERTIONS', language: 'cpp')
   if not is_emscripten
     add_project_arguments('-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE', language: 'cpp')
-    add_project_arguments('-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE', language: 'cpp')
   endif
 endif
 
@@ -174,19 +236,18 @@ else
 endif
 
 inc_dir = include_directories('Include')
-
-public_headers = files(
-  'Include/SRAL.h',
-  'Include/Sral.hpp'
-)
+public_headers = files('Include/SRAL.h', 'Include/Sral.hpp')
 
 sral_dependencies = []
+
 if is_windows
   sral_dependencies += [
     c_compiler.find_library('ole32'),
-    c_compiler.find_library('user32'),
-    c_compiler.find_library('uiautomationcore', required: opt_uia)
+    c_compiler.find_library('user32')
   ]
+  if opt_uia
+    sral_dependencies += c_compiler.find_library('uiautomationcore')
+  endif
 
 elif is_apple
   apple_flags = ['-fobjc-arc', '-fstack-protector-all']
@@ -196,7 +257,7 @@ elif is_apple
   add_project_arguments(apple_flags, language: ['objc', 'objcpp'])
   
   sral_dependencies += dependency('appleframeworks', modules: ['Foundation', 'AVFoundation'])
-  if target_machine.system() != 'ios' and opt_nsspeech
+  if host_sys != 'ios' and opt_nsspeech
     sral_dependencies += dependency('appleframeworks', modules: ['AppKit'])
   endif
 
@@ -224,7 +285,7 @@ else
   else
     add_project_arguments('-DSRAL_NO_ORCA', language: ['c', 'cpp'])
   endif
-  
+
   if opt_brlapi
     sral_dependencies += c_compiler.find_library('brlapi', required: true)
   else
@@ -242,7 +303,7 @@ endif
 if opt_uia and is_windows
   add_project_arguments('-DSRAL_WITH_UIA', language: ['c', 'cpp'])
 endif
-if opt_nsspeech and is_apple and target_machine.system() != 'ios'
+if opt_nsspeech and is_apple and host_sys != 'ios'
   add_project_arguments('-DSRAL_WITH_NSSPEECH', language: ['c', 'cpp'])
 endif
 if opt_nvda and is_windows
@@ -286,7 +347,7 @@ if build_tests and not is_emscripten and not is_android
     )
   endif
   
-  if is_apple and target_machine.system() != 'ios'
+  if is_apple and host_sys != 'ios'
     executable('SRAL_test_cocoa',
       files('Examples/ObjC/SRALCocoaExample.m'),
       include_directories: inc_dir,
@@ -302,15 +363,7 @@ if build_bindings
   sh_exe = find_program('sh', required: false)
   cmd_exe = find_program('cmd.exe', required: false)
   echo_exe = find_program('echo', required: false)
-  echo_exe = find_program('echo', required: false)
 
- if build_bindings
-  bindings_dir = meson.current_source_dir() / 'Bindings'
-  sh_exe = find_program('sh', required: false)
-  cmd_exe = find_program('cmd.exe', required: false)
-  echo_exe = find_program('echo', required: false)
-
-  # --- C# BINDINGS ---
   dotnet_exe = find_program('dotnet', required: false)
   if get_option('SRAL_BINDING_CSHARP') and dotnet_exe.found()
     run_target('sral_csharp_binding',
@@ -320,7 +373,6 @@ if build_bindings
     run_target('sral_csharp_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'C# binding compilation skipped.'])
   endif
   
-  # --- RUST BINDINGS ---
   cargo_exe = find_program('cargo', required: false)
   if get_option('SRAL_BINDING_RUST') and cargo_exe.found()
     run_target('sral_rust_binding',
@@ -330,10 +382,9 @@ if build_bindings
     run_target('sral_rust_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Rust binding compilation skipped.'])
   endif
 
-  # --- NODE.JS BINDINGS ---
   npm_exe = find_program('npm', 'npm.cmd', required: false)
   if get_option('SRAL_BINDING_NODE') and npm_exe.found()
-    node_proj_dir = bindings_dir / 'Node.Js'
+    node_proj_dir = '@0@'.format(bindings_dir / 'Node.Js')
     if is_windows and cmd_exe.found()
       run_target('sral_nodejs_binding', command: [cmd_exe, '/c', 'cd', '/d', node_proj_dir, '&&', 'npm', 'ci', '--production', '--ignore-scripts'])
     elif sh_exe.found()
@@ -343,10 +394,9 @@ if build_bindings
     run_target('sral_nodejs_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Node.js binding generation skipped.'])
   endif
 
-  # --- GO BINDINGS ---
   go_exe = find_program('go', required: false)
   if get_option('SRAL_BINDING_GO') and go_exe.found()
-    go_proj_dir = bindings_dir / 'Go'
+    go_proj_dir = '@0@'.format(bindings_dir / 'Go')
     if is_windows and cmd_exe.found()
       run_target('sral_go_binding', command: [cmd_exe, '/c', 'cd', '/d', go_proj_dir, '&&', 'go', 'build', '-mod=readonly', './...'])
     elif sh_exe.found()
@@ -356,10 +406,9 @@ if build_bindings
     run_target('sral_go_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Go binding compilation skipped.'])
   endif
 
-  # --- DART BINDINGS ---
   dart_exe = find_program('dart', 'flutter', required: false)
   if get_option('SRAL_BINDING_DART') and dart_exe.found()
-    dart_proj_dir = bindings_dir / 'Dart'
+    dart_proj_dir = '@0@'.format(bindings_dir / 'Dart')
     if is_windows and cmd_exe.found()
       run_target('sral_dart_binding', command: [cmd_exe, '/c', 'cd', '/d', dart_proj_dir, '&&', 'dart', 'pub', 'get', '--offline'])
     elif sh_exe.found()
@@ -368,8 +417,7 @@ if build_bindings
   else
     run_target('sral_dart_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Dart binding resolution skipped.'])
   endif
-  
-  # --- LUA BINDINGS ---
+
   lua_exe = find_program('lua', 'luajit', required: false)
   if get_option('SRAL_BINDING_LUA')
     lua_proj_dir = bindings_dir / 'Lua'
@@ -382,7 +430,6 @@ if build_bindings
     run_target('sral_lua_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Lua binding execution disabled.'])
   endif
 
-  # --- PYTHON BINDINGS ---
   py_inst = python_bin
   if get_option('SRAL_BINDING_PYTHON') and py_inst.found()
     py_args = [py_inst, '-m', 'pip', 'install', bindings_dir / 'Python', '--no-index', '--no-deps']
@@ -395,6 +442,7 @@ if build_bindings
   endif
 endif
 
+configure_file(input: 'sral_config.ini', output: 'sral_config.ini', copy: true)
 
 install_headers(public_headers)
 install_data('sral_config.ini', install_dir: get_option('datadir') / 'sral')

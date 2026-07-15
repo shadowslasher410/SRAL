@@ -3,6 +3,8 @@
  * Licensed under the Apache License, Version 2.0 (found in
  * the LICENSE-APACHE file) or the MIT license (found in
  * the LICENSE-MIT file), at your option.
+ * 
+ * from accesskit-c v0.22.2
  */
 
 #ifndef ACCESSKIT_H

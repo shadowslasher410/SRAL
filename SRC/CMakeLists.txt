@@ -13,14 +13,16 @@ if(IS_WINDOWS)
 elseif(NOT IS_APPLE AND NOT IS_ANDROID AND NOT IS_EMSCRIPTEN)
     list(APPEND DEP_SOURCES "${CMAKE_SOURCE_DIR}/Dep/utf-8.c")
 endif()
+
+set(SRAL_DEPS_TARGET "")
 if(DEP_SOURCES)
     add_library(sral_deps STATIC ${DEP_SOURCES})
-    target_include_directories(sral_deps PUBLIC "${CMAKE_SOURCE_DIR}/Include")
+    target_include_directories(sral_deps PRIVATE "${CMAKE_SOURCE_DIR}/Include")
     set_target_properties(sral_deps PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    set(SRAL_DEPS_TARGET sral_deps)
 endif()
-
-set(SHARED_WARNINGS)
-set(CPP_EXCLUSIVE_WARNINGS)
+set(SHARED_WARNINGS "")
+set(CPP_EXCLUSIVE_WARNINGS "")
 
 if(NOT COMPILER_IS_MSVC_LIKE)
     list(APPEND SHARED_WARNINGS
@@ -45,6 +47,13 @@ endif()
 
 set(CORE_SOURCES Engine.cpp SRAL.cpp)
 
+if(NOT IS_EMSCRIPTEN) 
+    if(SRAL_WITH_ACCESSKIT)
+        list(APPEND CORE_SOURCES ACAnnouncer.cpp)
+    else()
+        add_compile_definitions(SRAL_NO_ACCESSKIT)
+    endif()
+endif()
 if(IS_WINDOWS)
     list(APPEND CORE_SOURCES Encoding.cpp)
     if(SRAL_WITH_NVDA)
@@ -114,7 +123,7 @@ elseif(IS_EMSCRIPTEN)
         SRAL_NO_SPEECH_DISPATCHER SRAL_NO_ORCA SRAL_NO_BRLAPI
     )
 else()
-    list(APPEND CORE_SOURCES Encoding.cpp ACAnnouncer.cpp)
+    list(APPEND CORE_SOURCES Encoding.cpp)
     if(SRAL_WITH_SPEECH_DISPATCHER)
         list(APPEND CORE_SOURCES SpeechDispatcher.cpp)
     else()
@@ -133,21 +142,23 @@ endif()
 
 if(BUILD_SHARED_LIBS)
     add_library(SRAL SHARED ${CORE_SOURCES})
-    target_compile_definitions(SRAL PRIVATE WASAPI_EXPORTS)
+    target_compile_definitions(SRAL PRIVATE SRAL_BUILDING_DLL WASAPI_EXPORTS)
 else()
     add_library(SRAL STATIC ${CORE_SOURCES})
     target_compile_definitions(SRAL PUBLIC SRAL_STATIC)
 endif()
 
-target_include_directories(SRAL PUBLIC "${CMAKE_SOURCE_DIR}/Include" PRIVATE "${CMAKE_SOURCE_DIR}/Dep")
+target_include_directories(SRAL 
+    PUBLIC "${CMAKE_SOURCE_DIR}/Include" 
+    PRIVATE "${CMAKE_SOURCE_DIR}/Dep" ${SRAL_SYS_INCLUDE_DIRS}
+)
 target_compile_options(SRAL PRIVATE ${SHARED_WARNINGS} $<$<COMPILE_LANGUAGE:CXX>:${CPP_EXCLUSIVE_WARNINGS}>)
 
-if(TARGET sral_deps)
-    target_link_libraries(SRAL PRIVATE sral_deps)
+if(SRAL_DEPS_TARGET)
+    target_link_libraries(SRAL PRIVATE ${SRAL_DEPS_TARGET})
 endif()
 
 target_link_libraries(SRAL PUBLIC ${SRAL_DEPENDENCIES})
-
 if(NOT COMPILER_IS_MSVC_LIKE)
     set(DESIRED_LINK_ARGS "-Wl,-z,relro" "-Wl,-z,now" "-Wl,-z,noexecstack")
     if(NOT IS_APPLE)

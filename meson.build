@@ -18,58 +18,39 @@ project(
   ],
 )
 
-fs = import('fs')
 c_compiler = meson.get_compiler('c')
 cpp_compiler = meson.get_compiler('cpp')
 
-build_variant = get_option('buildtype')
+set_variable('build_variant', get_option('buildtype'))
 c_id = c_compiler.get_id()
 
-is_windows    = (target_machine.system() == 'windows')
-is_apple      = (target_machine.system() == 'darwin' or target_machine.system() == 'ios')
-is_android    = (target_machine.system() == 'android')
+is_windows = (target_machine.system() == 'windows')
+is_apple = (target_machine.system() == 'darwin' or target_machine.system() == 'ios')
+is_android = (target_machine.system() == 'android')
 is_emscripten = (target_machine.system() == 'emscripten')
 is_building_on_mac = (build_machine.system() == 'darwin')
 
-target_desktop   = get_option('TARGET_DESKTOP')
-target_chromevox = get_option('TARGET_CHROMEVOX')
-target_android   = get_option('TARGET_ANDROID')
-target_ios       = get_option('TARGET_IOS')
-
-if target_ios and not is_building_on_mac
+if target_machine.system() == 'ios' and not is_building_on_mac
   error('[SRAL ERROR] Apple iOS device/simulator static bundles can only be cross-compiled from a macOS host machine.')
 endif
 
 build_shared_libs = get_option('BUILD_SHARED_LIBS')
 build_tests       = get_option('BUILD_TESTS')
 build_bindings    = get_option('BUILD_BINDINGS')
-
-version_usertarget_macos   = get_option('VERSION_USERTARGET_MACOS')
-version_usertarget_windows = get_option('VERSION_USERTARGET_WINDOWS')
-version_usertarget_android = get_option('VERSION_USERTARGET_ANDROID')
-version_usertarget_ios     = get_option('VERSION_USERTARGET_IOS')
-
-path_nvda_install      = get_option('PATH_NVDA_INSTALL')
-path_speechd_install   = get_option('PATH_SPEECHD_INSTALL')
-path_python_install    = get_option('PATH_PYTHON_INSTALL')
-path_emsdk_install     = get_option('PATH_EMSDK_INSTALL')
-path_android_ndk       = get_option('PATH_ANDROID_NDK')
-path_accesskit_install = get_option('PATH_ACCESSKIT_INSTALL')
-path_jdk_install       = get_option('PATH_JDK_INSTALL')
-
 if c_id == 'gcc' or c_id == 'clang'
   add_project_arguments('-fno-extensions', language: ['c', 'cpp'])
 elif c_id == 'msvc' or c_id == 'clang-cl'
   add_project_arguments(['/permissive-', '/Zc:__cplusplus'], language: ['c', 'cpp'])
 endif
 
-opt_chromevox         = get_option('SRAL_WITH_CHROMEVOX')
-opt_uia               = get_option('SRAL_WITH_UIA')
-opt_nsspeech          = get_option('SRAL_WITH_NSSPEECH')
-opt_nvda              = get_option('SRAL_WITH_NVDA')
+opt_accesskit = get_option('SRAL_WITH_ACCESSKIT')
+opt_chromevox = get_option('SRAL_WITH_CHROMEVOX')
+opt_uia = get_option('SRAL_WITH_UIA')
+opt_nsspeech = get_option('SRAL_WITH_NSSPEECH')
+opt_nvda = get_option('SRAL_WITH_NVDA')
 opt_speech_dispatcher = get_option('SRAL_WITH_SPEECH_DISPATCHER')
-opt_orca              = get_option('SRAL_WITH_ORCA')
-opt_brlapi            = get_option('SRAL_WITH_BRLAPI')
+opt_orca = get_option('SRAL_WITH_ORCA')
+opt_brlapi = get_option('SRAL_WITH_BRLAPI')
 
 if opt_chromevox and not is_emscripten
   error('[SRAL ERROR] SRAL_WITH_CHROMEVOX can only be enabled for WebAssembly cross-compilation.')
@@ -90,11 +71,8 @@ universal_gcc_clang_args = ['-fstack-protector-all', '-fno-delete-null-pointer-c
 if not is_emscripten
   universal_gcc_clang_args += ['-fstack-clash-protection']
 endif
-
-dev_sanitizers = get_option('SRAL_DEV_SANITIZERS')
-
-if build_variant == 'release' or build_variant == 'minsize'
-  message('[SRAL ARCHITECTURE] Hardened Production Release variant active.')
+if build_variant == 'release'
+  message('[SRAL] Release variant active.')
   add_project_arguments('-DNDEBUG', language: ['c', 'cpp'])
 
   if c_id == 'msvc' or c_id == 'clang-cl'
@@ -113,10 +91,10 @@ if build_variant == 'release' or build_variant == 'minsize'
     endif
 
     if c_compiler.has_argument('-fcf-protection=full')
-      release_args += '-fcf-protection=full'
+      release_args += ['-fcf-protection=full']
     endif
     if c_compiler.has_argument('-mbranch-protection=all')
-      release_args += '-mbranch-protection=all'
+      release_args += ['-mbranch-protection=all']
     endif
     if c_id == 'clang'
       release_args += ['-fsanitize=cfi', '-fvisibility=hidden']
@@ -132,30 +110,20 @@ if build_variant == 'release' or build_variant == 'minsize'
   endif
 
 else
-  message('[SRAL ARCHITECTURE] Hardened Library-Safe Debug variant active.')
+  message('[SRAL] Debug variant active.')
   add_project_arguments(['-DDEBUG', '-D_DEBUG', '-DSRAL_DEBUG_TRACE_ACTIVE'], language: ['c', 'cpp'])
 
   if c_id == 'msvc' or c_id == 'clang-cl'
     msvc_debug_args = universal_msvc_args + ['/Od', '/Zi']
-    if dev_sanitizers
-      msvc_debug_args += '/fsanitize=address'
-    endif
     add_project_arguments(cpp_compiler.get_supported_arguments(msvc_debug_args), language: ['c', 'cpp'])
     add_project_link_arguments(cpp_compiler.get_supported_link_arguments(universal_msvc_link), language: ['c', 'cpp'])
   endif
 
   if c_id == 'gcc' or c_id == 'clang'
     debug_args = universal_gcc_clang_args + ['-O0', '-g3', '-ftrivial-auto-var-init=zero']
-    
     if not is_emscripten
       debug_args += ['-D_FORTIFY_SOURCE=1']
-      if dev_sanitizers
-        debug_args += ['-fsanitize=address,undefined,leak', '-fno-omit-frame-pointer', '-fno-optimize-sibling-calls']
-        debug_link = c_compiler.get_supported_link_arguments(['-fsanitize=address,undefined,leak'])
-        add_project_link_arguments(debug_link, language: ['c', 'cpp'])
-      endif
     endif
-
     add_project_arguments(c_compiler.get_supported_arguments(debug_args), language: ['c', 'cpp'])
   endif
 
@@ -179,7 +147,6 @@ public_headers = files(
 )
 
 sral_dependencies = []
-
 if is_windows
   sral_dependencies += [
     c_compiler.find_library('ole32'),
@@ -190,12 +157,12 @@ if is_windows
 elif is_apple
   apple_flags = ['-fobjc-arc', '-fstack-protector-all']
   if c_compiler.has_argument('-fobjc-direct-methods')
-    apple_flags += '-fobjc-direct-methods'
+    apple_flags += ['-fobjc-direct-methods']
   endif
   add_project_arguments(apple_flags, language: ['objc', 'objcpp'])
   
   sral_dependencies += dependency('appleframeworks', modules: ['Foundation', 'AVFoundation'])
-  if not target_ios and opt_nsspeech
+  if target_machine.system() != 'ios' and opt_nsspeech
     sral_dependencies += dependency('appleframeworks', modules: ['AppKit'])
   endif
 
@@ -235,28 +202,24 @@ if not is_android and not is_emscripten
   sral_dependencies += dependency('jni', required: false)
 endif
 
+if opt_accesskit
+  add_project_arguments('-DSRAL_WITH_ACCESSKIT', language: ['c', 'cpp'])
+endif
+if opt_uia and is_windows
+  add_project_arguments('-DSRAL_WITH_UIA', language: ['c', 'cpp'])
+endif
+if opt_nsspeech and is_apple and target_machine.system() != 'ios'
+  add_project_arguments('-DSRAL_WITH_NSSPEECH', language: ['c', 'cpp'])
+endif
+if opt_nvda and is_windows
+  add_project_arguments('-DSRAL_WITH_NVDA', language: ['c', 'cpp'])
+endif
+if opt_orca
+  add_project_arguments('-DSRAL_WITH_ORCA', language: ['c', 'cpp'])
+endif
+
 python_bin = import('python').find_installation()
 
-third_party_binaries = [
-  path_accesskit_install,
-  path_nvda_install
-]
-
-foreach bin : third_party_binaries
-  if bin != '' and fs.exists(bin)
-    audit_check = run_command(python_bin, '-c', '''
-import sys, os
-file_path = sys.argv
-if os.path.isdir(file_path):
-    sys.exit(0)
-print(f"[SRAL AUDIT] Structural check pass executing on binary: {file_path}")
-''', bin, check: false)
-    
-    if audit_check.returncode() != 0
-      warning('[SRAL SECURITY WARNING] Third-party binary artifact failed baseline security audit metrics: ' + bin)
-    endif
-  endif
-endforeach
 subdir('SRC')
 
 sral_dep = declare_dependency(
@@ -289,7 +252,7 @@ if build_tests and not is_emscripten and not is_android
     )
   endif
   
-  if is_apple and not target_ios
+  if is_apple and target_machine.system() != 'ios'
     executable('SRAL_test_cocoa',
       files('Examples/ObjC/SRALCocoaExample.m'),
       include_directories: inc_dir,
@@ -301,9 +264,7 @@ if build_tests and not is_emscripten and not is_android
 endif
 
 if build_bindings
-  message('Resolving toolchains for external language wrapper modules...')
   bindings_dir = meson.current_source_dir() / 'Bindings'
-
   sh_exe = find_program('sh', required: false)
   cmd_exe = find_program('cmd.exe', required: false)
 
@@ -327,7 +288,7 @@ if build_bindings
     if is_windows and cmd_exe.found()
       run_target('sral_nodejs_binding', command: [cmd_exe, '/c', 'cd', '/d', node_proj_dir, '&&', 'npm', 'ci', '--production', '--ignore-scripts'])
     elif sh_exe.found()
-      run_target('sral_nodejs_binding', command: [sh_exe, '-c', 'cd "$1" && "$2" ci --production --ignore-scripts', 'meson_sh', node_proj_dir, npm_exe.path()])
+      run_target('sral_nodejs_binding', command: [sh_exe, '-c', 'cd "$1" && "$2" ci --production --ignore-scripts', 'meson_sh', node_proj_dir, npm_exe])
     endif
   endif
 
@@ -337,7 +298,7 @@ if build_bindings
     if is_windows and cmd_exe.found()
       run_target('sral_go_binding', command: [cmd_exe, '/c', 'cd', '/d', go_proj_dir, '&&', 'go', 'build', '-mod=readonly', './...'])
     elif sh_exe.found()
-      run_target('sral_go_binding', command: [sh_exe, '-c', 'cd "$1" && "$2" build -mod=readonly ./...', 'meson_sh', go_proj_dir, go_exe.path()])
+      run_target('sral_go_binding', command: [sh_exe, '-c', 'cd "$1" && "$2" build -mod=readonly ./...', 'meson_sh', go_proj_dir, go_exe])
     endif
   endif
 
@@ -347,7 +308,7 @@ if build_bindings
     if is_windows and cmd_exe.found()
       run_target('sral_dart_binding', command: [cmd_exe, '/c', 'cd', '/d', dart_proj_dir, '&&', 'dart', 'pub', 'get', '--offline'])
     elif sh_exe.found()
-      run_target('sral_dart_binding', command: [sh_exe, '-c', 'cd "$1" && "$2" pub get --offline', 'meson_sh', dart_proj_dir, dart_exe.path()])
+      run_target('sral_dart_binding', command: [sh_exe, '-c', 'cd "$1" && "$2" pub get --offline', 'meson_sh', dart_proj_dir, dart_exe])
     endif
   endif
   
@@ -363,17 +324,19 @@ if build_bindings
 
   py_inst = python_bin
   if get_option('SRAL_BINDING_PYTHON') and py_inst.found()
-    py_args = [py_inst.path(), '-m', 'pip', 'install', bindings_dir / 'Python', '--no-index', '--no-deps']
+    py_args = [py_inst, '-m', 'pip', 'install', bindings_dir / 'Python', '--no-index', '--no-deps']
     if py_inst.language_version().version_compare('>=3.11')
       py_args += ['--break-system-packages']
     endif
     run_target('sral_python_binding', command: py_args)
   endif
 endif
-install_headers(public_headers, install_tag: 'devel')
+
+install_headers(public_headers)
+install_data('sral_config.ini', install_dir: get_option('datadir') / 'sral')
 
 if get_option('SRAL_INSTALL_BINDING_SOURCES')
-  share_dir = 'share' / 'sral'
+  share_dir = 'share/sral'
   bind_dir = share_dir / 'bindings'
   
   install_data(files('Bindings/C#/Sral.cs', 'Bindings/C#/Example.cs', 'Bindings/C#/SRAL.csproj'), install_dir: bind_dir / 'csharp')
@@ -382,34 +345,16 @@ if get_option('SRAL_INSTALL_BINDING_SOURCES')
   install_data(files('Bindings/Python/sral.py', 'Bindings/Python/Example.py', 'Bindings/Python/pyproject.toml'), install_dir: bind_dir / 'python')
   install_data(files('Bindings/Rust/Cargo.toml'), install_dir: bind_dir / 'rust')
   install_data(files('Bindings/WebAssembly/sral_wasm.cpp', 'Bindings/WebAssembly/sral_wasm.js'), install_dir: bind_dir / 'wasm')
-  install_data(files('Dep/AndroidTTSHelper.java', 'Dep/AndroidAccessibilityManagerHelper.java', 'Dep/proguard-rules.pro'), install_dir: share_dir / 'android')
-  
   install_subdir('Bindings/Go/SRAL', install_dir: bind_dir / 'go')
   install_subdir('Bindings/Rust/src', install_dir: bind_dir / 'rust')
 endif
 
-option_sign = get_option('SRAL_SIGN_OUTPUTS')
-
-if option_sign
-  if is_windows
-    signtool = find_program('signtool', required: false)
-    if signtool.found()
-      meson.add_install_script(signtool, 'sign', '/a', '/tr', 'http://digicert.com', '/td', 'sha256', '/fd', 'sha256', slot: 'post')
-      message('[SRAL SECURITY] Authenticode sign-on-install scripts registered.')
-    else
-      warning('[SRAL SECURITY] signtool utility missing. Skipping Windows binary signing.')
-    endif
-    
-  elif is_apple
-    codesign = find_program('codesign', required: false)
-    if codesign.found()
-      apple_identity = get_option('APPLE_SIGNING_IDENTITY')
-      if apple_identity != ''
-        meson.add_install_script(codesign, '--force', '--options', 'runtime', '--sign', apple_identity, slot: 'post')
-        message('[SRAL SECURITY] Apple Developer signing hooks integrated.')
-      else
-         warning('[SRAL SECURITY] APPLE_SIGNING_IDENTITY is empty. Skipping apple codesign pass.')
-      endif
-    endif
-  endif
-endif
+pkg_mod = import('pkgconfig')
+pkg_mod.generate(
+  name: 'SRAL_Orchestrator',
+  filebase: 'sral_orchestrator',
+  description: 'Screen Reader Abstraction Layer Orchestrator Engine Core.',
+  subdirs: 'SRAL',
+  libraries: sral_dep,
+  version: '1.0.0'
+)

@@ -1,4 +1,5 @@
 name: Build
+
 on:
   push:
     branches:
@@ -22,6 +23,11 @@ on:
         required: false
         type: string
         default: ''
+      build_variant:
+        description: "Target build optimization matrix ('release' or 'debug')"
+        required: false
+        type: string
+        default: ''
 
 permissions: {}
 
@@ -34,25 +40,38 @@ defaults:
     shell: bash
 jobs:
   desktop:
-    name: Desktop (${{ matrix.os }} - ${{ matrix.variant }})
+    name: Desktop (${{ matrix.os }} - ${{ inputs.build_variant || 'dynamic' }})
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-24.04, windows-2025, macos-26]
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             name: linux-x64
-            variant: debug
-          - os: windows-latest
+          - os: windows-2025
             name: windows-x64
-            variant: release
-          - os: macos-latest
+          - os: macos-26
             name: macos-universal
-            variant: release
-
     steps:
+      - name: Parse and Resolve Runtime Build Optimization Variant
+        id: resolve-variant
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.build_variant }}" ]; then
+            echo "variant=${{ inputs.build_variant }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          REF_NAME="${{ github.ref_name }}"
+          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${{ github.ref_name }}" == "main" ]]; then
+            echo "variant=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "variant=debug" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -68,7 +87,6 @@ jobs:
       - name: Install Dependencies
         run: |
           set -euo pipefail
-          
           cat << 'EOF' > requirements.txt
           pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
           meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
@@ -81,16 +99,15 @@ jobs:
             --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
             --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
           EOF
-      
           python -m pip install --require-hashes -r requirements.txt
           rm requirements.txt
 
-      - name: Setup Visual Studio Developer Environment (Windows-Only)
+      - name: Setup Visual Studio Developer Environment
         if: runner.os == 'Windows'
         uses: mlocati/setup-msvc@ade6aff3df872d66c12a63dcacdddf0041cb2693 # v1.3.1
         with:
           architecture: x64
-
+      
       - name: Cache Linux System APT Development Packages
         if: matrix.os == 'ubuntu-24.04'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -112,18 +129,17 @@ jobs:
       - name: Configure Project Sandbox (Meson)
         env:
           WORKSPACE_PREFIX: "${{ github.workspace }}/dist"
+          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
         run: |
           set -euo pipefail
-          meson setup builddir_${{ matrix.variant }} \
-            --buildtype=${{ matrix.variant }} \
+          meson setup builddir \
+            --buildtype="$RESOLVED_VARIANT" \
             --prefix="$WORKSPACE_PREFIX" \
-            -DSRAL_DEV_SANITIZERS=${{ matrix.variant == 'debug' }} \
             -Ddefault_library=both \
             -Dwerror=true \
             -Db_lto=true \
             -Db_pie=true \
             -Db_staticpic=true \
-            -DTARGET_DESKTOP=true \
             -DBUILD_TESTS=true \
             -DBUILD_BINDINGS=true \
             -DSRAL_INSTALL_BINDING_SOURCES=true
@@ -131,21 +147,22 @@ jobs:
       - name: Compile and Link Targets
         run: |
           set -euo pipefail
-          meson compile -C builddir_${{ matrix.variant }}
+          meson compile -C builddir
 
       - name: Install into staging tree
         run: |
           set -euo pipefail
-          meson install -C builddir_${{ matrix.variant }}
+          meson install -C builddir
 
       - name: Archive artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-${{ matrix.name }}-${{ matrix.variant }}
+          name: bundle-${{ matrix.name }}-${{ steps.resolve-variant.outputs.variant }}
           path: "${{ github.workspace }}/dist"
           if-no-files-found: error
+  
   android:
-    name: Android (${{ matrix.abi }} - ${{ matrix.variant }})
+    name: Android (${{ matrix.abi }} - ${{ inputs.build_variant || 'dynamic' }})
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -153,13 +170,28 @@ jobs:
       fail-fast: false
       matrix:
         abi: [arm64-v8a, x86_64]
-        variant: [debug, release]
         include:
           - abi: arm64-v8a
             arch: aarch64
           - abi: x86_64
             arch: x86_64
     steps:
+      - name: Parse and Resolve Runtime Build Optimization Variant
+        id: resolve-variant
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.build_variant }}" ]; then
+            echo "variant=${{ inputs.build_variant }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          REF_NAME="${{ github.ref_name }}"
+          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${{ github.ref_name }}" == "main" ]]; then
+            echo "variant=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "variant=debug" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -175,7 +207,6 @@ jobs:
       - name: Install Dependencies
         run: |
           set -euo pipefail
-          
           cat << 'EOF' > requirements.txt
           pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
           meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
@@ -188,7 +219,6 @@ jobs:
             --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
             --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
           EOF
-      
           python -m pip install --require-hashes -r requirements.txt
           rm requirements.txt
 
@@ -267,153 +297,64 @@ jobs:
       - name: Configure Android Target Sandbox Options
         env:
           WORKSPACE_PREFIX: "${{ github.workspace }}/dist"
+          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
         run: |
           set -euo pipefail
-          meson setup builddir_${{ matrix.variant }} \
+          meson setup builddir \
             --cross-file android_cross.txt \
-            --buildtype=${{ matrix.variant }} \
+            --buildtype="$RESOLVED_VARIANT" \
             --prefix="$WORKSPACE_PREFIX" \
-            -DSRAL_DEV_SANITIZERS=${{ matrix.variant == 'debug' }} \
-            -DTARGET_ANDROID=true \
-            -DVERSION_MINTARGET_ANDROID=21 \
-            -DBUILD_TESTS=false \
-            -DBUILD_BINDINGS=false
-
-      - name: Compile Mobile ARM64 Architecture Shared Libraries
-        run: |
-          set -euo pipefail
-          meson compile -C builddir_${{ matrix.variant }}
-
-      - name: Archive Android artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: bundle-android-${{ matrix.abi }}-${{ matrix.variant }}
-          path: "${{ github.workspace }}/dist"
-          if-no-files-found: error
-
-  webassembly:
-    name: WebAssembly (${{ matrix.variant }})
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-    strategy:
-      fail-fast: false
-      matrix:
-        variant: [debug, release]
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-          fetch-depth: 1
-
-      - name: Setup Emscripten Toolchain
-        uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
-        with:
-          version: 6.0.2
-          actions-cache-folder: 'emsdk-cache'
-      
-      - name: Verify EMSDK Local Environment Setup
-        run: emcc -v
-
-      - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
-        with:
-          python-version: '3.14'
-          cache: 'pip'
-
-      - name: Install Dependencies
-        run: |
-          set -euo pipefail
-          
-          cat << 'EOF' > requirements.txt
-          pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
-          meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
-          ninja==1.13.0 \
-            --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978 \
-            --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa \
-            --hash=sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e \
-            --hash=sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1 \
-            --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff \
-            --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
-            --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
-          EOF
-      
-          python -m pip install --require-hashes -r requirements.txt
-          rm requirements.txt
-
-      - name: Create WebAssembly Cross File
-        run: |
-          set -euo pipefail
-          cat << 'EOF' > emscripten_cross.txt
-          [binaries]
-          c = 'emcc'
-          cpp = 'em++'
-          ar = 'emar'
-          strip = 'emstrip'
-
-          [properties]
-          c_args        = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
-          cpp_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
-          c_link_args   = ['-pthread', '-sSTACK_OVERFLOW_CHECK=2', '-sASSERTIONS=1', '-sWASM_BIGINT']
-          cpp_link_args = ['-pthread', '-sSTACK_OVERFLOW_CHECK=2', '-sASSERTIONS=1', '-sWASM_BIGINT']
-
-          [host_machine]
-          system = 'emscripten'
-          cpu_family = 'wasm32'
-          cpu = 'wasm32'
-          endian = 'little'
-          EOF
-
-      - name: Configure WebAssembly Cross Compilation Pass
-        env:
-          WORKSPACE_PREFIX: "${{ github.workspace }}/dist"
-        run: |
-          set -euo pipefail
-          source $EMSDK_NODE/../../emsdk_env.sh
-          meson setup builddir_${{ matrix.variant }} \
-            --cross-file emscripten_cross.txt \
-            --buildtype=${{ matrix.variant }} \
-            --prefix="$WORKSPACE_PREFIX" \
-            -DSRAL_DEV_SANITIZERS=false \
-            -Ddefault_library=static \
+            -Ddefault_library=both \
             -Dwerror=true \
             -Db_lto=true \
             -Db_pie=true \
             -Db_staticpic=true \
-            -DTARGET_DESKTOP=false \
-            -DTARGET_CHROMEVOX=true \
-            -DSRAL_WITH_CHROMEVOX=true \
-            -DSRAL_INSTALL_BINDING_SOURCES=true
+            -DBUILD_TESTS=false \
+            -DBUILD_BINDINGS=false
 
-      - name: Compile Static Object Graph
+      - name: Compile Mobile Android Architecture Shared Libraries
         run: |
           set -euo pipefail
-          source $EMSDK_NODE/../../emsdk_env.sh
-          meson compile -C builddir_${{ matrix.variant }}
+          meson compile -C builddir
 
-      - name: Install into staging tree
+      - name: Install Android Assets into Staging Tree
         run: |
           set -euo pipefail
-          source $EMSDK_NODE/../../emsdk_env.sh
-          meson install -C builddir_${{ matrix.variant }}
+          meson install -C builddir
 
-      - name: Archive WebAssembly artifact
+      - name: Archive Android artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-wasm-${{ matrix.variant }}
+          name: bundle-android-${{ matrix.abi }}-${{ steps.resolve-variant.outputs.variant }}
           path: "${{ github.workspace }}/dist"
           if-no-files-found: error
+  
   ios:
-    name: iOS Framework (${{ matrix.variant }})
+    name: iOS Framework (macos-26 - ${{ inputs.build_variant || 'dynamic' }})
     runs-on: macos-26
     strategy:
       fail-fast: false
       matrix:
-        variant: [debug, release]
+        placeholder: [0]
     permissions:
       contents: read
     steps:
+      - name: Parse and Resolve Runtime Build Optimization Variant
+        id: resolve-variant
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.build_variant }}" ]; then
+            echo "variant=${{ inputs.build_variant }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          REF_NAME="${{ github.ref_name }}"
+          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${{ github.ref_name }}" == "main" ]]; then
+            echo "variant=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "variant=debug" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout code
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -429,7 +370,6 @@ jobs:
       - name: Install Dependencies
         run: |
           set -euo pipefail
-          
           cat << 'EOF' > requirements.txt
           pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
           meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
@@ -442,7 +382,6 @@ jobs:
             --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
             --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
           EOF
-      
           python -m pip install --require-hashes -r requirements.txt
           rm requirements.txt
 
@@ -528,53 +467,48 @@ jobs:
           EOF
 
       - name: Configure and Compile iOS Device Target
+        env:
+          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
         run: |
           set -euo pipefail
-          meson setup build-device-${{ matrix.variant }} --cross-file ios_device_cross.txt \
-            --buildtype=${{ matrix.variant }} \
-            -DSRAL_DEV_SANITIZERS=${{ matrix.variant == 'debug' }} \
+          meson setup build-device --cross-file ios_device_cross.txt \
+            --buildtype="$RESOLVED_VARIANT" \
             -Ddefault_library=static \
             -Dwerror=true \
             -Db_lto=true \
             -Db_pie=true \
             -Db_staticpic=true \
-            -DTARGET_DESKTOP=false \
-            -DTARGET_IOS=true \
             -DSRAL_WITH_VOICEOVER=true \
             -DSRAL_WITH_AVSPEECH=true \
             -DSRAL_WITH_NSSPEECH=false
-          meson compile -C build-device-${{ matrix.variant }}
+          meson compile -C build-device
 
       - name: Configure and Compile iOS Simulator Targets
+        env:
+          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
         run: |
           set -euo pipefail
-          meson setup build-sim-arm64-${{ matrix.variant }} --cross-file ios_sim_arm64_cross.txt \
-            --buildtype=${{ matrix.variant }} \
-            -DSRAL_DEV_SANITIZERS=${{ matrix.variant == 'debug' }} \
+          meson setup build-sim-arm64 --cross-file ios_sim_arm64_cross.txt \
+            --buildtype="$RESOLVED_VARIANT" \
             -Ddefault_library=static \
             -Dwerror=true \
             -Db_pie=true \
             -Db_staticpic=true \
-            -DTARGET_DESKTOP=false \
-            -DTARGET_IOS=true \
             -DSRAL_WITH_VOICEOVER=true \
             -DSRAL_WITH_AVSPEECH=true \
             -DSRAL_WITH_NSSPEECH=false
-          meson compile -C build-sim-arm64-${{ matrix.variant }}
+          meson compile -C build-sim-arm64
 
-          meson setup build-sim-x86_64-${{ matrix.variant }} --cross-file ios_sim_x86_64_cross.txt \
-            --buildtype=${{ matrix.variant }} \
-            -DSRAL_DEV_SANITIZERS=${{ matrix.variant == 'debug' }} \
+          meson setup build-sim-x86_64 --cross-file ios_sim_x86_64_cross.txt \
+            --buildtype="$RESOLVED_VARIANT" \
             -Ddefault_library=static \
             -Dwerror=true \
             -Db_pie=true \
             -Db_staticpic=true \
-            -DTARGET_DESKTOP=false \
-            -DTARGET_IOS=true \
             -DSRAL_WITH_VOICEOVER=true \
             -DSRAL_WITH_AVSPEECH=true \
             -DSRAL_WITH_NSSPEECH=false
-          meson compile -C build-sim-x86_64-${{ matrix.variant }}
+          meson compile -C build-sim-x86_64
       
       - name: Assemble Apple XCFramework Architecture Staging Bundle
         env:
@@ -582,17 +516,16 @@ jobs:
         run: |
           set -euo pipefail
           
-          DEVICE_LIB=$(find build-device-${{ matrix.variant }} -name 'libSRAL.a' | head -n1)
-          SIM_ARM64_LIB=$(find build-sim-arm64-${{ matrix.variant }} -name 'libSRAL.a' | head -n1)
-          SIM_X86_64_LIB=$(find build-sim-x86_64-${{ matrix.variant }} -name 'libSRAL.a' | head -n1)
+          DEVICE_LIB=$(find build-device -name 'libSRAL.a' | head -n1)
+          SIM_ARM64_LIB=$(find build-sim-arm64 -name 'libSRAL.a' | head -n1)
+          SIM_X86_64_LIB=$(find build-sim-x86_64 -name 'libSRAL.a' | head -n1)
           
           if [ -z "${DEVICE_LIB}" ] || [ -z "${SIM_ARM64_LIB}" ] || [ -z "${SIM_X86_64_LIB}" ]; then
             echo "::error::Structural Compilation Failure: Required static libraries are missing." >&2
             exit 1
           fi
           
-          VERSION_TOKEN="${RELEASE_TOKEN:-raw}"
-          STAGING_DIR="${{ github.workspace }}/dist-ios-${VERSION_TOKEN}-${{ matrix.variant }}"
+          STAGING_DIR="${{ github.workspace }}/dist"
           rm -rf "${STAGING_DIR}"
           
           mkdir -p "${STAGING_DIR}/headers"
@@ -616,6 +549,132 @@ jobs:
       - name: Archive iOS XCFramework Artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-ios-${{ matrix.variant }}-${{ inputs.release_version || 'raw' }}
-          path: "${{ github.workspace }}/dist-ios-*"
+          name: bundle-macos-universal-${{ steps.resolve-variant.outputs.variant }}
+          path: "${{ github.workspace }}/dist"
+          if-no-files-found: error
+
+  webassembly:
+    name: WebAssembly (${{ inputs.build_variant || 'dynamic' }})
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        placeholder: [0]
+    steps:
+      - name: Parse and Resolve Runtime Build Optimization Variant
+        id: resolve-variant
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.build_variant }}" ]; then
+            echo "variant=${{ inputs.build_variant }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          
+          REF_NAME="${{ github.ref_name }}"
+          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${{ github.ref_name }}" == "main" ]]; then
+            echo "variant=release" >> "$GITHUB_OUTPUT"
+          else
+            echo "variant=debug" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Setup Emscripten Toolchain
+        uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
+        with:
+          version: 6.0.2
+          actions-cache-folder: 'emsdk-cache'
+      
+      - name: Verify EMSDK Local Environment Setup
+        run: emcc -v
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: '3.14'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          set -euo pipefail
+          cat << 'EOF' > requirements.txt
+          pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
+          meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
+          ninja==1.13.0 \
+            --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978 \
+            --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa \
+            --hash=sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e \
+            --hash=sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1 \
+            --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff \
+            --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
+            --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
+          EOF
+          python -m pip install --require-hashes -r requirements.txt
+          rm requirements.txt
+
+      - name: Create WebAssembly Cross File
+        run: |
+          set -euo pipefail
+          cat << 'EOF' > emscripten_cross.txt
+          [binaries]
+          c = 'emcc'
+          cpp = 'em++'
+          ar = 'emar'
+          strip = 'emstrip'
+
+          [properties]
+          c_args        = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
+          cpp_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
+          c_link_args   = ['-pthread', '-sSTACK_OVERFLOW_CHECK=2', '-sASSERTIONS=1', '-sWASM_BIGINT']
+          cpp_link_args = ['-pthread', '-sSTACK_OVERFLOW_CHECK=2', '-sASSERTIONS=1', '-sWASM_BIGINT']
+
+          [host_machine]
+          system = 'emscripten'
+          cpu_family = 'wasm32'
+          cpu = 'wasm32'
+          endian = 'little'
+          EOF
+
+      - name: Configure WebAssembly Cross Compilation Pass
+        env:
+          WORKSPACE_PREFIX: "${{ github.workspace }}/dist"
+          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
+        run: |
+          set -euo pipefail
+          source $EMSDK_NODE/../../emsdk_env.sh
+          meson setup builddir \
+            --cross-file emscripten_cross.txt \
+            --buildtype="$RESOLVED_VARIANT" \
+            --prefix="$WORKSPACE_PREFIX" \
+            -Ddefault_library=static \
+            -Dwerror=true \
+            -Db_lto=true \
+            -Db_pie=true \
+            -Db_staticpic=true \
+            -DSRAL_WITH_CHROMEVOX=true \
+            -DSRAL_INSTALL_BINDING_SOURCES=true
+
+      - name: Compile Static Object Graph
+        run: |
+          set -euo pipefail
+          source $EMSDK_NODE/../../emsdk_env.sh
+          meson compile -C builddir
+
+      - name: Install into staging tree
+        run: |
+          set -euo pipefail
+          source $EMSDK_NODE/../../emsdk_env.sh
+          meson install -C builddir
+
+      - name: Archive WebAssembly artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundle-wasm-${{ steps.resolve-variant.outputs.variant }}
+          path: "${{ github.workspace }}/dist"
           if-no-files-found: error

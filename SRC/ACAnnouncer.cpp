@@ -238,6 +238,7 @@ void ACAnnouncer::BackgroundWorkerLoop(std::stop_token stop_token) {
 		accesskit_tree_update_push_node(update_raw, active_id, announcement_raw);
 		accesskit_tree_update_push_node(update_raw, inactive_id, placeholder_raw);
 
+		m_active_update_packet.store(update_raw, std::memory_order_release);
 		bool status = false;
 
 #if defined(_WIN32)

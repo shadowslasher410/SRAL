@@ -23,7 +23,7 @@ struct accesskit_unix_adapter;
 struct accesskit_tree_update;
 struct accesskit_action_request;
 
-#include "Dep/accesskit.h"
+#include "accesskit.h"
 #include <mutex>
 #include <thread>
 #include <atomic>
@@ -41,16 +41,16 @@ public:
 	ACAnnouncer(ACAnnouncer&& other) noexcept;
 	ACAnnouncer& operator=(ACAnnouncer&& other) noexcept;
 
-	bool InitializeWithContext(void* platform_window_or_context);
+	bool InitializeWithContext(void*);
 
-	bool Speak(const char* speech_text, bool interrupt) override;
-	bool SpeakSsml(const char* ssml, bool interrupt) override { return false; }
-	void* SpeakToMemory(const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override { return nullptr; }
+	bool Speak(const char*, bool) override;
+	bool SpeakSsml(const char*, bool) override { return false; }
+	void* SpeakToMemory(const char*, uint64_t*, int*, int*, int*) override { return nullptr; }
 
 	bool SetParameter(int param, const void* value) override { return false; }
 	bool GetParameter(int param, void* value) override { return false; }
 
-	bool Braille(const char* text) override { return false; }
+	bool Braille(const char*) override { return false; }
 	bool StopSpeech() override;
 	bool PauseSpeech() override { return false; }
 	bool ResumeSpeech() override { return false; }
@@ -66,8 +66,8 @@ public:
 	[[nodiscard]] int GetKeyFlags() override { return HANDLE_NONE; }
 	
 	[[nodiscard]] static uint64_t GetVoiceCount() { return 0; }
-	[[nodiscard]] static const char* GetVoiceName(uint64_t index) { return nullptr; }
-	static bool SetVoice(uint64_t index) { return false; }
+	[[nodiscard]] static const char* GetVoiceName(uint64_t) { return nullptr; }
+	static bool SetVoice(uint64_t) { return false; }
 
 private:
 	struct alignas(destructive_alignment) SpeechTask {
@@ -80,10 +80,10 @@ private:
 	void HandleActionRequest(struct accesskit_action_request* request) noexcept;
 	
 	[[nodiscard]] struct accesskit_tree_update* InterceptUpdatePayload() noexcept;
-	static void OnActionRequestCallback(struct accesskit_action_request* request, void* userdata);
-	static struct accesskit_tree_update* ProvideUpdateCallback(void* userdata);
+	static void OnActionRequestCallback(struct accesskit_action_request*, void*);
+	static struct accesskit_tree_update* ProvideUpdateCallback(void*);
 
-	void BackgroundWorkerLoop(std::stop_token stop_token);
+	void BackgroundWorkerLoop(std::stop_token);
 	[[nodiscard]] bool IsScreenReaderActive() noexcept;
 	
 	static constexpr size_t RING_BUFFER_SIZE = 128;

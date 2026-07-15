@@ -35,9 +35,6 @@ concurrency:
   group: build-${{ github.ref }}-${{ inputs.release_version || github.sha }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_call' }}
 
-defaults:
-  run:
-    shell: bash
 jobs:
   desktop:
     name: Desktop (${{ matrix.os }} - ${{ inputs.build_variant || 'dynamic' }})
@@ -58,6 +55,7 @@ jobs:
     steps:
       - name: Parse and Resolve Runtime Build Optimization Variant
         id: resolve-variant
+        shell: bash
         run: |
           set -euo pipefail
           if [ -n "${{ inputs.build_variant }}" ]; then
@@ -85,6 +83,7 @@ jobs:
           cache: 'pip'
 
       - name: Install Dependencies
+        shell: bash
         run: |
           set -euo pipefail
           cat << 'EOF' > requirements.txt
@@ -103,7 +102,7 @@ jobs:
           rm requirements.txt
 
       - name: Setup Visual Studio Developer Environment
-        if: runner.os == 'Windows'
+        if: matrix.os == 'windows-2025'
         uses: mlocati/setup-msvc@ade6aff3df872d66c12a63dcacdddf0041cb2693 # v1.3.1
         with:
           architecture: x64
@@ -119,6 +118,7 @@ jobs:
 
       - name: Install dependencies (Linux System Headers)
         if: matrix.os == 'ubuntu-24.04'
+        shell: bash
         run: |
           set -euo pipefail
           export DEBIAN_FRONTEND=noninteractive
@@ -130,44 +130,13 @@ jobs:
         env:
           WORKSPACE_PREFIX: "${{ github.workspace }}/dist"
           RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
-        run: |
-          set -euo pipefail
-          
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            export PATH=$(echo "$PATH" | sed -e 's|/c/Program Files/Git/usr/bin:||g' -e 's|C:\\Program Files\\Git\\usr\\bin;||g')
-          fi
-
-          meson setup builddir \
-            --buildtype="$RESOLVED_VARIANT" \
-            --prefix="$WORKSPACE_PREFIX" \
-            -Ddefault_library=both \
-            -Dwerror=true \
-            -Db_lto=true \
-            -Db_pie=true \
-            -Db_staticpic=true \
-            -DBUILD_TESTS=true \
-            -DBUILD_BINDINGS=true \
-            -DSRAL_INSTALL_BINDING_SOURCES=true
+        run: meson setup builddir --buildtype="${{ steps.resolve-variant.outputs.variant }}" --prefix="${{ github.workspace }}/dist" -Ddefault_library=both -Dwerror=true -Db_lto=true -Db_pie=true -Db_staticpic=true -DBUILD_TESTS=true -DBUILD_BINDINGS=true -DSRAL_INSTALL_BINDING_SOURCES=true
 
       - name: Compile and Link Targets
-        run: |
-          set -euo pipefail
-          
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            export PATH=$(echo "$PATH" | sed -e 's|/c/Program Files/Git/usr/bin:||g' -e 's|C:\\Program Files\\Git\\usr\\bin;||g')
-          fi
-
-          meson compile -C builddir
+        run: meson compile -C builddir
 
       - name: Install into staging tree
-        run: |
-          set -euo pipefail
-          
-          if [ "$RUNNER_OS" = "Windows" ]; then
-            export PATH=$(echo "$PATH" | sed -e 's|/c/Program Files/Git/usr/bin:||g' -e 's|C:\\Program Files\\Git\\usr\\bin;||g')
-          fi
-
-          meson install -C builddir
+        run: meson install -C builddir
 
       - name: Archive artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -190,6 +159,9 @@ jobs:
             arch: aarch64
           - abi: x86_64
             arch: x86_64
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Parse and Resolve Runtime Build Optimization Variant
         id: resolve-variant
@@ -356,6 +328,7 @@ jobs:
           name: bundle-android-${{ matrix.abi }}-${{ steps.resolve-variant.outputs.variant }}
           path: "${{ github.workspace }}/dist"
           if-no-files-found: error
+
   
   ios:
     name: iOS Framework (macos-26 - ${{ inputs.build_variant || 'dynamic' }})
@@ -505,7 +478,94 @@ jobs:
           cpu = 'x86_64'
           endian = 'little'
           EOF
+      
+      - name: Configure and Compile iOS Device Target
+        env:
+          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
+        run: |
+          set -euo pipefail
+          meson setup build-device --cross-file ios_device_cross.txt \
+            --buildtype="$RESOLVED_VARIANT" \
+            -Ddefault_library=static \
+            -Dwerror=true \
+            -Db_lto=true \
+            -Db_pie=true \
+            -Db_staticpic=true \
+            -DSRAL_WITH_VOICEOVER=true \
+            -DSRAL_WITH_AVSPEECH=true \
+            -DSRAL_WITH_NSSPEECH=false
+          meson compile -C build-device
 
+      - name: Configure and Compile iOS Simulator Targets
+        env:
+          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
+        run: |
+          set -euo pipefail
+          meson setup build-sim-arm64 --cross-file ios_sim_arm64_cross.txt \
+            --buildtype="$RESOLVED_VARIANT" \
+            -Ddefault_library=static \
+            -Dwerror=true \
+            -Db_pie=true \
+            -Db_staticpic=true \
+            -DSRAL_WITH_VOICEOVER=true \
+            -DSRAL_WITH_AVSPEECH=true \
+            -DSRAL_WITH_NSSPEECH=false
+          meson compile -C build-sim-arm64
+
+          meson setup build-sim-x86_64 --cross-file ios_sim_x86_64_cross.txt \
+            --buildtype="$RESOLVED_VARIANT" \
+            -Ddefault_library=static \
+            -Dwerror=true \
+            -Db_pie=true \
+            -Db_staticpic=true \
+            -DSRAL_WITH_VOICEOVER=true \
+            -DSRAL_WITH_AVSPEECH=true \
+            -DSRAL_WITH_NSSPEECH=false
+          meson compile -C build-sim-x86_64
+      
+      - name: Assemble Apple XCFramework Architecture Staging Bundle
+        run: |
+          set -euo pipefail
+          
+          DEVICE_LIB=$(find build-device -name 'libSRAL.a' | head -n1)
+          SIM_ARM64_LIB=$(find build-sim-arm64 -name 'libSRAL.a' | head -n1)
+          SIM_X86_64_LIB=$(find build-sim-x86_64 -name 'libSRAL.a' | head -n1)
+          
+          if [ -z "${DEVICE_LIB}" ] || [ -z "${SIM_ARM64_LIB}" ] || [ -z "${SIM_X86_64_LIB}" ]; then
+            echo "::error::Structural Compilation Failure: Required static libraries are missing." >&2
+            exit 1
+          fi
+          
+          STAGING_DIR="${{ github.workspace }}/dist"
+          rm -rf "${STAGING_DIR}"
+          
+          mkdir -p "${STAGING_DIR}/headers"
+          mkdir -p "${STAGING_DIR}/lib-device"
+          mkdir -p "${STAGING_DIR}/lib-sim"
+          
+          cp -f Include/SRAL.h "${STAGING_DIR}/headers/"
+          cp -f Include/Sral.hpp "${STAGING_DIR}/headers/"
+          
+          cp -f "${DEVICE_LIB}" "${STAGING_DIR}/lib-device/libSRAL.a"
+          
+          # Combine the ARM64 and X86_64 Simulator static libraries into a fat slice bundle
+          lipo -create "${SIM_ARM64_LIB}" "${SIM_X86_64_LIB}" -output "${STAGING_DIR}/lib-sim/libSRAL.a"
+          
+          # Generate the final native XCFramework bundle
+          xcodebuild -create-xcframework \
+            -library "${STAGING_DIR}/lib-device/libSRAL.a" -headers "${STAGING_DIR}/headers" \
+            -library "${STAGING_DIR}/lib-sim/libSRAL.a" -headers "${STAGING_DIR}/headers" \
+            -output "${STAGING_DIR}/SRAL.xcframework"
+          
+          rm -rf "${STAGING_DIR}/headers" "${STAGING_DIR}/lib-device" "${STAGING_DIR}/lib-sim"
+
+      - name: Archive iOS XCFramework Artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundle-ios-xcframework-${{ steps.resolve-variant.outputs.variant }}
+          path: "${{ github.workspace }}/dist"
+          if-no-files-found: error
+ 
   webassembly:
     name: WebAssembly (${{ inputs.build_variant || 'dynamic' }})
     runs-on: ubuntu-24.04
@@ -515,6 +575,9 @@ jobs:
       fail-fast: false
       matrix:
         placeholder: [0]
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Parse and Resolve Runtime Build Optimization Variant
         id: resolve-variant
@@ -600,7 +663,6 @@ jobs:
           RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
         run: |
           set -euo pipefail
-          source $EMSDK_NODE/../../emsdk_env.sh
           meson setup builddir \
             --cross-file emscripten_cross.txt \
             --buildtype="$RESOLVED_VARIANT" \
@@ -616,13 +678,11 @@ jobs:
       - name: Compile Static Object Graph
         run: |
           set -euo pipefail
-          source $EMSDK_NODE/../../emsdk_env.sh
           meson compile -C builddir
 
       - name: Install into staging tree
         run: |
           set -euo pipefail
-          source $EMSDK_NODE/../../emsdk_env.sh
           meson install -C builddir
 
       - name: Archive WebAssembly artifact

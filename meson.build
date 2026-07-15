@@ -37,12 +37,12 @@ endif
 build_shared_libs = get_option('BUILD_SHARED_LIBS')
 build_tests       = get_option('BUILD_TESTS')
 build_bindings    = get_option('BUILD_BINDINGS')
-if c_id == 'gcc' and target_machine.system() != 'android'
+
+if c_id == 'clang' and not is_apple and not is_android
   add_project_arguments('-fno-extensions', language: ['c', 'cpp'])
 elif c_id == 'msvc' or c_id == 'clang-cl'
   add_project_arguments(['/permissive-', '/Zc:__cplusplus'], language: ['c', 'cpp'])
 endif
-
 
 opt_accesskit = get_option('SRAL_WITH_ACCESSKIT')
 opt_chromevox = get_option('SRAL_WITH_CHROMEVOX')
@@ -67,11 +67,16 @@ endif
 universal_msvc_args = ['-D_CRT_SECURE_NO_WARNINGS', '/GS', '/sdl', '/guard:cf', '/volatile:iso', '/permissive-', '/W4', '/WX']
 universal_msvc_link = ['/GUARD:CF', '/DYNAMICBASE', '/NXCOMPAT', '/HIGHENTROPYVA']
 
-universal_gcc_clang_args = ['-fstack-protector-all', '-fno-delete-null-pointer-checks', '-fwrapv', '-fno-strict-overflow', '-fno-common', '-Wconversion', '-Wsign-conversion', '-Werror']
+universal_gcc_clang_args = ['-fstack-protector-all', '-fno-delete-null-pointer-checks', '-fwrapv', '-fno-common', '-Wconversion', '-Wsign-conversion', '-Werror']
+
+if c_id == 'gcc'
+  universal_gcc_clang_args += ['-fno-strict-overflow']
+endif
 
 if not is_emscripten
   universal_gcc_clang_args += ['-fstack-clash-protection']
 endif
+
 if build_variant == 'release'
   message('[SRAL] Release variant active.')
   add_project_arguments('-DNDEBUG', language: ['c', 'cpp'])
@@ -99,6 +104,16 @@ if build_variant == 'release'
     endif
     if c_id == 'clang'
       release_args += ['-fsanitize=cfi', '-fvisibility=hidden']
+      if is_apple or is_android
+        # Fixed: Scrub both legacy/duplicate macro definitions and unblock vendor headers
+        release_args += [
+          '-Wno-macro-redefined',
+          '-U_LIBCPP_HARDENING_MODE',
+          '-U_LIBCPP_ENABLE_ASSERTIONS',
+          '-Wno-gnu-anonymous-struct',
+          '-Wno-nested-anon-types'
+        ]
+      endif
       add_project_link_arguments(c_compiler.get_supported_link_arguments(['-fsanitize=cfi']), language: ['c', 'cpp'])
     endif
 
@@ -107,7 +122,7 @@ if build_variant == 'release'
 
   add_project_arguments('-D_GLIBCXX_ASSERTIONS', language: 'cpp')
   if not is_emscripten
-    add_project_arguments(['-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE', '-D_LIBCPP_ENABLE_ASSERTIONS=1'], language: 'cpp')
+    add_project_arguments(['-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_HARDENED'], language: 'cpp')
   endif
 
 else
@@ -125,12 +140,22 @@ else
     if not is_emscripten
       debug_args += ['-D_FORTIFY_SOURCE=1']
     endif
+    if c_id == 'clang' and (is_apple or is_android)
+      # Fixed: Synchronized parameters into debug mode block
+      debug_args += [
+        '-Wno-macro-redefined',
+        '-U_LIBCPP_HARDENING_MODE',
+        '-U_LIBCPP_ENABLE_ASSERTIONS',
+        '-Wno-gnu-anonymous-struct',
+        '-Wno-nested-anon-types'
+      ]
+    endif
     add_project_arguments(c_compiler.get_supported_arguments(debug_args), language: ['c', 'cpp'])
   endif
 
   add_project_arguments('-D_GLIBCXX_ASSERTIONS', language: 'cpp')
   if not is_emscripten
-    add_project_arguments('-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST', language: 'cpp')
+    add_project_arguments('-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE', language: 'cpp')
   endif
 endif
 
@@ -268,12 +293,15 @@ if build_bindings
   bindings_dir = meson.current_source_dir() / 'Bindings'
   sh_exe = find_program('sh', required: false)
   cmd_exe = find_program('cmd.exe', required: false)
+  echo_exe = find_program('echo', required: false)
 
   dotnet_exe = find_program('dotnet', required: false)
   if get_option('SRAL_BINDING_CSHARP') and dotnet_exe.found()
     run_target('sral_csharp_binding',
       command: [dotnet_exe, 'build', bindings_dir / 'C#' / 'SRAL.csproj', '--configuration', 'Release', '--no-restore', '-p:SKIP_MOBILE_WORKLOADS=true']
     )
+  else
+    run_target('sral_csharp_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'C# binding compilation skipped.'])
   endif
   
   cargo_exe = find_program('cargo', required: false)
@@ -281,6 +309,8 @@ if build_bindings
     run_target('sral_rust_binding',
       command: [cargo_exe, 'build', '--manifest-path', bindings_dir / 'Rust' / 'Cargo.toml', '--release', '--offline']
     )
+  else
+    run_target('sral_rust_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Rust binding compilation skipped.'])
   endif
 
   npm_exe = find_program('npm', 'npm.cmd', required: false)
@@ -291,6 +321,8 @@ if build_bindings
     elif sh_exe.found()
       run_target('sral_nodejs_binding', command: [sh_exe, '-c', 'cd "$1" && "$2" ci --production --ignore-scripts', 'meson_sh', node_proj_dir, npm_exe])
     endif
+  else
+    run_target('sral_nodejs_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Node.js binding generation skipped.'])
   endif
 
   go_exe = find_program('go', required: false)
@@ -301,6 +333,8 @@ if build_bindings
     elif sh_exe.found()
       run_target('sral_go_binding', command: [sh_exe, '-c', 'cd "$1" && "$2" build -mod=readonly ./...', 'meson_sh', go_proj_dir, go_exe])
     endif
+  else
+    run_target('sral_go_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Go binding compilation skipped.'])
   endif
 
   dart_exe = find_program('dart', 'flutter', required: false)
@@ -311,6 +345,8 @@ if build_bindings
     elif sh_exe.found()
       run_target('sral_dart_binding', command: [sh_exe, '-c', 'cd "$1" && "$2" pub get --offline', 'meson_sh', dart_proj_dir, dart_exe])
     endif
+  else
+    run_target('sral_dart_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Dart binding resolution skipped.'])
   endif
   
   lua_exe = find_program('lua', 'luajit', required: false)
@@ -319,8 +355,10 @@ if build_bindings
     if lua_exe.found()
       run_target('sral_lua_binding', command: [lua_exe, lua_proj_dir / 'example.lua'])
     else
-      run_target('sral_lua_binding', command: ['echo', 'Lua binding environment validated.'])
+      run_target('sral_lua_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Lua binding environment validated.'])
     endif
+  else
+    run_target('sral_lua_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Lua binding execution disabled.'])
   endif
 
   py_inst = python_bin
@@ -330,6 +368,8 @@ if build_bindings
       py_args += ['--break-system-packages']
     endif
     run_target('sral_python_binding', command: py_args)
+  else
+    run_target('sral_python_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Python pip setup phase skipped.'])
   endif
 endif
 

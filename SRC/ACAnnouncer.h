@@ -23,7 +23,7 @@ struct accesskit_unix_adapter;
 struct accesskit_tree_update;
 struct accesskit_action_request;
 
-#include "Dep/accesskit.h"
+#include "accesskit.h"
 #include <mutex>
 #include <thread>
 #include <atomic>

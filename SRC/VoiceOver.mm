@@ -127,7 +127,7 @@ void VoiceOver::BackgroundWorkerLoop() noexcept {
 #if APPLE_ACCESSIBILITY_SUPPORTED
 			@autoreleasepool {
 				std::string rawPayload = cmd.payload;
-				bool interruptAction = cmd.interrupt;
+				[[maybe_unused]] bool interruptAction = cmd.interrupt;
 
 				if (cmd.type == CommandType::Stop) {
 					dispatch_async(dispatch_get_main_queue(), ^{

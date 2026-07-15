@@ -304,6 +304,13 @@ if build_bindings
   echo_exe = find_program('echo', required: false)
   echo_exe = find_program('echo', required: false)
 
+ if build_bindings
+  bindings_dir = meson.current_source_dir() / 'Bindings'
+  sh_exe = find_program('sh', required: false)
+  cmd_exe = find_program('cmd.exe', required: false)
+  echo_exe = find_program('echo', required: false)
+
+  # --- C# BINDINGS ---
   dotnet_exe = find_program('dotnet', required: false)
   if get_option('SRAL_BINDING_CSHARP') and dotnet_exe.found()
     run_target('sral_csharp_binding',
@@ -311,10 +318,9 @@ if build_bindings
     )
   else
     run_target('sral_csharp_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'C# binding compilation skipped.'])
-  else
-    run_target('sral_csharp_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'C# binding compilation skipped.'])
   endif
   
+  # --- RUST BINDINGS ---
   cargo_exe = find_program('cargo', required: false)
   if get_option('SRAL_BINDING_RUST') and cargo_exe.found()
     run_target('sral_rust_binding',
@@ -322,10 +328,9 @@ if build_bindings
     )
   else
     run_target('sral_rust_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Rust binding compilation skipped.'])
-  else
-    run_target('sral_rust_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Rust binding compilation skipped.'])
   endif
 
+  # --- NODE.JS BINDINGS ---
   npm_exe = find_program('npm', 'npm.cmd', required: false)
   if get_option('SRAL_BINDING_NODE') and npm_exe.found()
     node_proj_dir = bindings_dir / 'Node.Js'
@@ -336,10 +341,9 @@ if build_bindings
     endif
   else
     run_target('sral_nodejs_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Node.js binding generation skipped.'])
-  else
-    run_target('sral_nodejs_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Node.js binding generation skipped.'])
   endif
 
+  # --- GO BINDINGS ---
   go_exe = find_program('go', required: false)
   if get_option('SRAL_BINDING_GO') and go_exe.found()
     go_proj_dir = bindings_dir / 'Go'
@@ -350,10 +354,9 @@ if build_bindings
     endif
   else
     run_target('sral_go_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Go binding compilation skipped.'])
-  else
-    run_target('sral_go_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Go binding compilation skipped.'])
   endif
 
+  # --- DART BINDINGS ---
   dart_exe = find_program('dart', 'flutter', required: false)
   if get_option('SRAL_BINDING_DART') and dart_exe.found()
     dart_proj_dir = bindings_dir / 'Dart'
@@ -364,10 +367,9 @@ if build_bindings
     endif
   else
     run_target('sral_dart_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Dart binding resolution skipped.'])
-  else
-    run_target('sral_dart_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Dart binding resolution skipped.'])
   endif
   
+  # --- LUA BINDINGS ---
   lua_exe = find_program('lua', 'luajit', required: false)
   if get_option('SRAL_BINDING_LUA')
     lua_proj_dir = bindings_dir / 'Lua'
@@ -375,14 +377,12 @@ if build_bindings
       run_target('sral_lua_binding', command: [lua_exe, lua_proj_dir / 'example.lua'])
     else
       run_target('sral_lua_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Lua binding environment validated.'])
-      run_target('sral_lua_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Lua binding environment validated.'])
     endif
-  else
-    run_target('sral_lua_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Lua binding execution disabled.'])
   else
     run_target('sral_lua_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Lua binding execution disabled.'])
   endif
 
+  # --- PYTHON BINDINGS ---
   py_inst = python_bin
   if get_option('SRAL_BINDING_PYTHON') and py_inst.found()
     py_args = [py_inst, '-m', 'pip', 'install', bindings_dir / 'Python', '--no-index', '--no-deps']
@@ -392,10 +392,9 @@ if build_bindings
     run_target('sral_python_binding', command: py_args)
   else
     run_target('sral_python_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Python pip setup phase skipped.'])
-  else
-    run_target('sral_python_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Python pip setup phase skipped.'])
   endif
 endif
+
 
 install_headers(public_headers)
 install_data('sral_config.ini', install_dir: get_option('datadir') / 'sral')

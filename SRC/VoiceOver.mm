@@ -136,7 +136,7 @@ void VoiceOver::BackgroundWorkerLoop() noexcept {
 #elif TARGET_OS_OSX
 						id targetElement = NSApp ? (id)NSApp : (id)[NSApplication sharedApplication];
 						NSDictionary* userInfo = @{NSAccessibilityAnnouncementKey : @"",
-												   NSAccessibilityAnnouncementPriorityKey : @(NSAccessibilityPriorityHigh)};
+												   NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)};
 						NSAccessibilityPostNotificationWithUserInfo(targetElement, NSAccessibilityAnnouncementRequestedNotification, userInfo);
 #endif
 					});
@@ -157,7 +157,7 @@ void VoiceOver::BackgroundWorkerLoop() noexcept {
 #elif TARGET_OS_OSX
 							id targetElement = NSApp ? (id)NSApp : (id)[NSApplication sharedApplication];
 							NSDictionary* userInfo = @{NSAccessibilityAnnouncementKey : msg,
-													   NSAccessibilityAnnouncementPriorityKey : @(NSAccessibilityPriorityHigh)};
+													   NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)};
 							NSAccessibilityPostNotificationWithUserInfo(targetElement, NSAccessibilityAnnouncementRequestedNotification, userInfo);
 #endif
 						});

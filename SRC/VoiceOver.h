@@ -36,7 +36,7 @@ public:
 
 	[[nodiscard]] bool Speak(const char* text, bool interrupt) override;
 	[[nodiscard]] bool SpeakSsml(const char* ssml, bool interrupt) override { return Speak(ssml, interrupt); }
-	bool Braille(const char* text) override { return false; }
+	bool Braille(const char*) override { return false; }
 
 	[[nodiscard]] bool StopSpeech() override;
 	[[nodiscard]] bool IsSpeaking() override;

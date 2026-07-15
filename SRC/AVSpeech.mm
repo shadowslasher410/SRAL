@@ -3,7 +3,7 @@
 
 #if TARGET_OS_OSX || TARGET_OS_IPHONE
 
-#import "AvSpeech.h"
+#import "AVSpeech.h"
 #import "../Include/SRAL.h"
 
 #import <AVFoundation/AVFoundation.h>
@@ -269,7 +269,7 @@ namespace Sral {
             std::memcpy(task->text.data(), text.data(), max_copy);
             task->text[max_copy] = '\0';
         } else {
-            task->text = '\0';
+            task->text[0] = '\0';
         }
 
         task->type = type;

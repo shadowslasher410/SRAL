@@ -124,7 +124,7 @@ jobs:
           export DEBIAN_FRONTEND=noninteractive
           sudo -E apt-get update -y
           sudo -E apt-get install -y --no-install-recommends \
-            libspeechd-dev libdbus-1-dev libatspi2-dev brltty libbrlapi-dev
+            libspeechd-dev libdbus-1-dev libatspi2.0-dev brltty libbrlapi-dev
 
       - name: Configure Project Sandbox (Meson)
         env:
@@ -132,6 +132,11 @@ jobs:
           RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
         run: |
           set -euo pipefail
+          
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export PATH=$(echo "$PATH" | sed -e 's|/c/Program Files/Git/usr/bin:||g' -e 's|C:\\Program Files\\Git\\usr\\bin;||g')
+          fi
+
           meson setup builddir \
             --buildtype="$RESOLVED_VARIANT" \
             --prefix="$WORKSPACE_PREFIX" \
@@ -147,11 +152,21 @@ jobs:
       - name: Compile and Link Targets
         run: |
           set -euo pipefail
+          
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export PATH=$(echo "$PATH" | sed -e 's|/c/Program Files/Git/usr/bin:||g' -e 's|C:\\Program Files\\Git\\usr\\bin;||g')
+          fi
+
           meson compile -C builddir
 
       - name: Install into staging tree
         run: |
           set -euo pipefail
+          
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export PATH=$(echo "$PATH" | sed -e 's|/c/Program Files/Git/usr/bin:||g' -e 's|C:\\Program Files\\Git\\usr\\bin;||g')
+          fi
+
           meson install -C builddir
 
       - name: Archive artifact
@@ -273,19 +288,32 @@ jobs:
             exit 1
           fi
           
+          case "$ARCH" in
+            aarch64) TRIPLE="aarch64-linux-android" ;;
+            arm)     TRIPLE="armv7a-linux-androideabi" ;;
+            x86_64)  TRIPLE="x86_64-linux-android" ;;
+            x86)     TRIPLE="i686-linux-android" ;;
+            *)       echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
+          esac
+          
           API_FLOOR="21"
           HOST_PLATFORM="linux-x86_64"
           TOOLCHAIN_BIN="$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin"
+          SYSROOT_PATH="$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/sysroot"
           
           cat << EOF > android_cross.txt
           [binaries]
-          c   = '$TOOLCHAIN_BIN/$ARCH-linux-android$API_FLOOR-clang'
-          cpp = '$TOOLCHAIN_BIN/$ARCH-linux-android$API_FLOOR-clang++'
-          ar  = '$TOOLCHAIN_BIN/llvm-ar'
+          c     = '$TOOLCHAIN_BIN/${TRIPLE}${API_FLOOR}-clang'
+          cpp   = '$TOOLCHAIN_BIN/${TRIPLE}${API_FLOOR}-clang++'
+          ar    = '$TOOLCHAIN_BIN/llvm-ar'
           strip = '$TOOLCHAIN_BIN/llvm-strip'
 
           [properties]
-          sys_root = '$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/sysroot'
+          sys_root = '$SYSROOT_PATH'
+
+          [built-in options]
+          c_args   = ['--sysroot=$SYSROOT_PATH', '-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+          cpp_args = ['--sysroot=$SYSROOT_PATH', '-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
 
           [host_machine]
           system = 'android'
@@ -398,12 +426,16 @@ jobs:
           [binaries]
           c = ['clang', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=26.0']
           cpp = ['clang++', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=26.0']
+          objc = ['clang', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=26.0']
+          objcpp = ['clang++', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=26.0']
           ar = 'ar'
           strip = 'strip'
 
-          [properties]
+          [built-in options]
           c_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
           cpp_args    = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+          objc_args   = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+          objcpp_args = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
 
           [host_machine]
           system = 'ios'
@@ -425,12 +457,16 @@ jobs:
           [binaries]
           c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios26.0-simulator']
           cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios26.0-simulator']
+          objc = ['clang', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios26.0-simulator']
+          objcpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios26.0-simulator']
           ar = 'ar'
           strip = 'strip'
 
-          [properties]
+          [built-in options]
           c_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
           cpp_args    = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+          objc_args   = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+          objcpp_args = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
 
           [host_machine]
           system = 'ios'
@@ -452,12 +488,16 @@ jobs:
           [binaries]
           c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios26.0-simulator']
           cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios26.0-simulator']
+          objc = ['clang', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios26.0-simulator']
+          objcpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios26.0-simulator']
           ar = 'ar'
           strip = 'strip'
 
-          [properties]
+          [built-in options]
           c_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
           cpp_args    = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+          objc_args   = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+          objcpp_args = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
 
           [host_machine]
           system = 'ios'
@@ -465,93 +505,6 @@ jobs:
           cpu = 'x86_64'
           endian = 'little'
           EOF
-
-      - name: Configure and Compile iOS Device Target
-        env:
-          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
-        run: |
-          set -euo pipefail
-          meson setup build-device --cross-file ios_device_cross.txt \
-            --buildtype="$RESOLVED_VARIANT" \
-            -Ddefault_library=static \
-            -Dwerror=true \
-            -Db_lto=true \
-            -Db_pie=true \
-            -Db_staticpic=true \
-            -DSRAL_WITH_VOICEOVER=true \
-            -DSRAL_WITH_AVSPEECH=true \
-            -DSRAL_WITH_NSSPEECH=false
-          meson compile -C build-device
-
-      - name: Configure and Compile iOS Simulator Targets
-        env:
-          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
-        run: |
-          set -euo pipefail
-          meson setup build-sim-arm64 --cross-file ios_sim_arm64_cross.txt \
-            --buildtype="$RESOLVED_VARIANT" \
-            -Ddefault_library=static \
-            -Dwerror=true \
-            -Db_pie=true \
-            -Db_staticpic=true \
-            -DSRAL_WITH_VOICEOVER=true \
-            -DSRAL_WITH_AVSPEECH=true \
-            -DSRAL_WITH_NSSPEECH=false
-          meson compile -C build-sim-arm64
-
-          meson setup build-sim-x86_64 --cross-file ios_sim_x86_64_cross.txt \
-            --buildtype="$RESOLVED_VARIANT" \
-            -Ddefault_library=static \
-            -Dwerror=true \
-            -Db_pie=true \
-            -Db_staticpic=true \
-            -DSRAL_WITH_VOICEOVER=true \
-            -DSRAL_WITH_AVSPEECH=true \
-            -DSRAL_WITH_NSSPEECH=false
-          meson compile -C build-sim-x86_64
-      
-      - name: Assemble Apple XCFramework Architecture Staging Bundle
-        env:
-          RELEASE_TOKEN: ${{ inputs.release_version }}
-        run: |
-          set -euo pipefail
-          
-          DEVICE_LIB=$(find build-device -name 'libSRAL.a' | head -n1)
-          SIM_ARM64_LIB=$(find build-sim-arm64 -name 'libSRAL.a' | head -n1)
-          SIM_X86_64_LIB=$(find build-sim-x86_64 -name 'libSRAL.a' | head -n1)
-          
-          if [ -z "${DEVICE_LIB}" ] || [ -z "${SIM_ARM64_LIB}" ] || [ -z "${SIM_X86_64_LIB}" ]; then
-            echo "::error::Structural Compilation Failure: Required static libraries are missing." >&2
-            exit 1
-          fi
-          
-          STAGING_DIR="${{ github.workspace }}/dist"
-          rm -rf "${STAGING_DIR}"
-          
-          mkdir -p "${STAGING_DIR}/headers"
-          mkdir -p "${STAGING_DIR}/lib-device"
-          mkdir -p "${STAGING_DIR}/lib-sim"
-          
-          cp -f Include/SRAL.h "${STAGING_DIR}/headers/"
-          cp -f Include/Sral.hpp "${STAGING_DIR}/headers/"
-          
-          cp -f "${DEVICE_LIB}" "${STAGING_DIR}/lib-device/libSRAL.a"
-          
-          lipo -create "${SIM_ARM64_LIB}" "${SIM_X86_64_LIB}" -output "${STAGING_DIR}/lib-sim/libSRAL.a"
-          
-          xcodebuild -create-xcframework \
-            -library "${STAGING_DIR}/lib-device/libSRAL.a" -headers "${STAGING_DIR}/headers" \
-            -library "${STAGING_DIR}/lib-sim/libSRAL.a" -headers "${STAGING_DIR}/headers" \
-            -output "${STAGING_DIR}/SRAL.xcframework"
-          
-          rm -rf "${STAGING_DIR}/headers" "${STAGING_DIR}/lib-device" "${STAGING_DIR}/lib-sim"
-
-      - name: Archive iOS XCFramework Artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: bundle-macos-universal-${{ steps.resolve-variant.outputs.variant }}
-          path: "${{ github.workspace }}/dist"
-          if-no-files-found: error
 
   webassembly:
     name: WebAssembly (${{ inputs.build_variant || 'dynamic' }})
@@ -628,7 +581,7 @@ jobs:
           ar = 'emar'
           strip = 'emstrip'
 
-          [properties]
+          [built-in options]
           c_args        = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
           cpp_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
           c_link_args   = ['-pthread', '-sSTACK_OVERFLOW_CHECK=2', '-sASSERTIONS=1', '-sWASM_BIGINT']

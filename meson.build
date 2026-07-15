@@ -37,11 +37,12 @@ endif
 build_shared_libs = get_option('BUILD_SHARED_LIBS')
 build_tests       = get_option('BUILD_TESTS')
 build_bindings    = get_option('BUILD_BINDINGS')
-if c_id == 'gcc' or c_id == 'clang'
+if c_id == 'gcc' and target_machine.system() != 'android'
   add_project_arguments('-fno-extensions', language: ['c', 'cpp'])
 elif c_id == 'msvc' or c_id == 'clang-cl'
   add_project_arguments(['/permissive-', '/Zc:__cplusplus'], language: ['c', 'cpp'])
 endif
+
 
 opt_accesskit = get_option('SRAL_WITH_ACCESSKIT')
 opt_chromevox = get_option('SRAL_WITH_CHROMEVOX')

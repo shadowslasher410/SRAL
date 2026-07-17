@@ -50,7 +50,7 @@ public:
 	[[nodiscard]] bool SetParameter(int param, const void* value) override;
 	[[nodiscard]] bool GetParameter(int param, void* value) override;
 
-	[[nodiscard]] bool Braille(const char* text) override;
+	[[nodiscard]] bool Braille(const char*) override;
 	[[nodiscard]] bool StopSpeech() override;
 	[[nodiscard]] bool PauseSpeech() override;
 	[[nodiscard]] bool ResumeSpeech() override;

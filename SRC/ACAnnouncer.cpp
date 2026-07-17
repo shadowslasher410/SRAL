@@ -239,33 +239,31 @@ void ACAnnouncer::BackgroundWorkerLoop(std::stop_token stop_token) {
 		accesskit_tree_update_push_node(update_raw, inactive_id, placeholder_raw);
 
 		m_active_update_packet.store(update_raw, std::memory_order_release);
-		bool status = false;
 
 #if defined(_WIN32)
-		status = accesskit_windows_adapter_update_if_active(
+		accesskit_windows_adapter_update_if_active(
 			static_cast<accesskit_windows_adapter*>(current_adapter), ProvideUpdateCallback, this);
 #elif defined(__APPLE__)
 #if TARGET_OS_IPHONE
-		status = accesskit_ios_adapter_update_if_active(
+		accesskit_ios_adapter_update_if_active(
 			static_cast<accesskit_ios_adapter*>(current_adapter), ProvideUpdateCallback, this);
 #else
-		status = accesskit_macos_adapter_update_if_active(
+		accesskit_macos_adapter_update_if_active(
 			static_cast<accesskit_macos_adapter*>(current_adapter), ProvideUpdateCallback, this);
 #endif
 #elif defined(__ANDROID__)
-		status = accesskit_android_adapter_update_if_active(
+		accesskit_android_adapter_update_if_active(
 			static_cast<accesskit_android_adapter*>(current_adapter), ProvideUpdateCallback, this);
 #else
-		status = accesskit_unix_adapter_update_if_active(
+		accesskit_unix_adapter_update_if_active(
 			static_cast<accesskit_unix_adapter*>(current_adapter), ProvideUpdateCallback, this);
 #endif
 
-		if (!status) {
-			struct accesskit_tree_update* leaked_packet =
-				m_active_update_packet.exchange(nullptr, std::memory_order_acq_rel);
-			if (leaked_packet) {
-				accesskit_tree_update_free(leaked_packet);
-			}
+		struct accesskit_tree_update* leftover_packet =
+			m_active_update_packet.exchange(nullptr, std::memory_order_acq_rel);
+			
+		if (leftover_packet) {
+			accesskit_tree_update_free(leftover_packet);
 		}
 
 		task.sequence.store(current_tail + RING_BUFFER_SIZE, std::memory_order_release);

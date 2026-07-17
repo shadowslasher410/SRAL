@@ -190,8 +190,8 @@ private:
         }
 
         INPUT inputs[2] = {
-            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_SHIFT, .dwFlags = 0}},
-            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_SHIFT, .dwFlags = KEYEVENTF_KEYUP}}
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_SHIFT, .wScan = 0, .dwFlags = 0, .time = 0, .dwExtraInfo = 0}},
+            {.type = INPUT_KEYBOARD, .ki = {.wVk = VK_SHIFT, .wScan = 0, .dwFlags = KEYEVENTF_KEYUP, .time = 0, .dwExtraInfo = 0}}
         };
         ::SendInput(2, inputs, sizeof(INPUT));
     }
@@ -219,6 +219,8 @@ private:
                 break;
             case CmdType::ResumeCmd:
                 HandlePauseResume(false, state);
+                break;
+            case CmdType::None:
                 break;
             default:
                 break;

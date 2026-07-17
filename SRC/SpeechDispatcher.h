@@ -115,28 +115,10 @@ private:
     std::vector<std::unique_ptr<char[]>> m_string_pool;
     const char* AddString(const char* text);
     void ClearStringPool() noexcept;
-    void ClearVoiceList() noexcept {
-        if (m_voiceList) {
-#if defined(__linux__) && !defined(__ANDROID__)
-            free_spd_modules(reinterpret_cast<char**>(m_voiceList));
-#endif
-            m_voiceList = nullptr;
-        }
-        m_voiceCount = 0;
-    }
-
-    void RefreshVoiceList() noexcept {
-        ClearVoiceList();
-        if (!speech) return;
-#if defined(__linux__) && !defined(__ANDROID__)
-        m_voiceList = spd_list_synthesis_voices(speech);
-        if (!m_voiceList) return;
-        while (m_voiceList[m_voiceCount] != nullptr) {
-            ++m_voiceCount;
-        }
-#endif
-    }
+    void ClearVoiceList() noexcept;
+    void RefreshVoiceList();
 };
+
 
 } // namespace Sral
 

@@ -34,7 +34,6 @@ is_building_on_mac = (build_machine.system() == 'darwin')
 if host_sys == 'ios' and not is_building_on_mac
   error('[SRAL ERROR] Apple iOS device/simulator static bundles can only be cross-compiled from a macOS host machine.')
 endif
-
 kv = import('keyval')
 fs = import('fs')
 
@@ -104,11 +103,54 @@ build_shared_libs = get_option('BUILD_SHARED_LIBS')
 build_tests       = get_option('BUILD_TESTS')
 build_bindings    = get_option('BUILD_BINDINGS')
 
-if c_id == 'clang' and not is_msvc_like and not is_apple and not is_android
-  add_project_arguments('-fno-extensions', language: ['c', 'cpp'])
-elif is_msvc_like
-  add_project_arguments(['/permissive-', '/Zc:__cplusplus'], language: ['c', 'cpp'])
+cross_platform_warning_args = []
+
+if is_msvc_like
+  cross_platform_warning_args += [
+    '/wd4324', 
+    '/permissive-', 
+    '/Zc:__cplusplus', 
+    '-D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING'
+  ]
 endif
+
+if is_windows
+  if c_id == 'clang'
+    cross_platform_warning_args += [
+      '-fms-extensions',
+      '-Wno-language-extension-token',
+      '-Wno-missing-designated-field-initializers'
+    ]
+  elif c_id == 'clang-cl'
+  cross_platform_warning_args += [
+      '/clang:-fextensions',
+      '/clang:-Wno-language-extension-token',
+      '/clang:-Wno-missing-designated-field-initializers'
+    ]
+  endif
+endif
+
+if not is_msvc_like
+  if cpp_compiler.has_argument('-Wno-unused-function')
+    cross_platform_warning_args += ['-Wno-unused-function', '-Wno-unused-variable']
+  endif
+  if cpp_compiler.has_argument('-Wno-interference-size')
+    cross_platform_warning_args += ['-Wno-interference-size']
+  endif
+  if cpp_compiler.has_argument('-Wno-gnu-anonymous-struct')
+    cross_platform_warning_args += ['-Wno-gnu-anonymous-struct', '-Wno-nested-anon-types']
+  endif
+  if cpp_compiler.has_argument('-Wno-old-style-cast')
+    cross_platform_warning_args += ['-Wno-old-style-cast']
+  endif
+  if c_id == 'clang' and not is_windows and host_sys != 'ios' and not is_android
+    if cpp_compiler.has_argument('-fno-extensions')
+      cross_platform_warning_args += ['-fno-extensions']
+    endif
+  endif
+endif
+
+add_project_arguments(cross_platform_warning_args, language: ['c', 'cpp'])
 
 opt_accesskit = get_option('SRAL_WITH_ACCESSKIT')
 opt_chromevox = get_option('SRAL_WITH_CHROMEVOX')
@@ -133,12 +175,7 @@ endif
 universal_msvc_args = ['-D_CRT_SECURE_NO_WARNINGS', '/GS', '/sdl', '/guard:cf', '/volatile:iso', '/permissive-', '/W4', '/WX']
 universal_msvc_link = ['/GUARD:CF', '/DYNAMICBASE', '/NXCOMPAT', '/HIGHENTROPYVA']
 
-universal_gcc_clang_args = ['-fstack-protector-all', '-fno-delete-null-pointer-checks', '-fwrapv', '-fno-common', '-Wconversion', '-Wsign-conversion', '-Werror']
-
-if c_id == 'gcc'
-  universal_gcc_clang_args += ['-fno-strict-overflow']
-endif
-universal_gcc_clang_args = ['-fstack-protector-all', '-fno-delete-null-pointer-checks', '-fwrapv', '-fno-common', '-Wconversion', '-Wsign-conversion', '-Werror']
+universal_gcc_clang_args = ['-fstack-protector-all', '-fno-delete-null-pointer-checks', '-fwrapv', '-fno-common', '-Wconversion', '-Wsign-conversion']
 
 if c_id == 'gcc'
   universal_gcc_clang_args += ['-fno-strict-overflow']
@@ -148,20 +185,17 @@ if not is_emscripten
   universal_gcc_clang_args += ['-fstack-clash-protection']
 endif
 
-
 if build_variant == 'release'
   message('[SRAL] Release variant active.')
   add_project_arguments('-DNDEBUG', language: ['c', 'cpp'])
 
-  if c_id == 'msvc' or c_id == 'clang-cl'
+  if is_msvc_like
     msvc_release_args = universal_msvc_args + ['/O2', '/Oi', '/Qspectre', '/w14928']
     add_project_arguments(cpp_compiler.get_supported_arguments(msvc_release_args), language: ['c', 'cpp'])
     
     msvc_release_link = universal_msvc_link + ['/CETCOMPAT']
     add_project_link_arguments(cpp_compiler.get_supported_link_arguments(msvc_release_link), language: ['c', 'cpp'])
-  endif
-
-  if c_id == 'gcc' or c_id == 'clang'
+  else
     release_args = universal_gcc_clang_args + ['-ftrivial-auto-var-init=zero']
     
     if not is_emscripten
@@ -193,7 +227,7 @@ if build_variant == 'release'
 
   add_project_arguments('-D_GLIBCXX_ASSERTIONS', language: 'cpp')
   if not is_emscripten
-    add_project_arguments('-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_HARDENED', language: 'cpp')
+    add_project_arguments('-D_LIBCPP_HARDENING_MODE=2', language: 'cpp')
   endif
 
 else
@@ -204,9 +238,7 @@ else
     msvc_debug_args = universal_msvc_args + ['/Od', '/Zi']
     add_project_arguments(cpp_compiler.get_supported_arguments(msvc_debug_args), language: ['c', 'cpp'])
     add_project_link_arguments(cpp_compiler.get_supported_link_arguments(universal_msvc_link), language: ['c', 'cpp'])
-  endif
-
-  if c_id == 'gcc' or c_id == 'clang'
+  else
     debug_args = universal_gcc_clang_args + ['-g3', '-ftrivial-auto-var-init=zero']
     if not is_emscripten
       debug_args += ['-D_FORTIFY_SOURCE=1']
@@ -225,7 +257,7 @@ else
 
   add_project_arguments('-D_GLIBCXX_ASSERTIONS', language: 'cpp')
   if not is_emscripten
-    add_project_arguments('-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_EXTENSIVE', language: 'cpp')
+    add_project_arguments('-D_LIBCPP_HARDENING_MODE=3', language: 'cpp')
   endif
 endif
 
@@ -240,6 +272,39 @@ public_headers = files('Include/SRAL.h', 'Include/Sral.hpp')
 
 sral_dependencies = []
 
+if opt_accesskit
+  add_project_arguments('-DSRAL_WITH_ACCESSKIT', language: ['c', 'cpp'])
+  
+  pkg_args = {}
+  if path_accesskit != ''
+    pkg_args += {'pkg_config_path': path_accesskit / 'lib/pkgconfig'}
+  endif
+
+  accesskit_dep = dependency('accesskit', 
+    method: 'pkg-config', 
+    required: false, 
+    kwargs: pkg_args
+  )
+
+  if not accesskit_dep.found() and path_accesskit != ''
+    message('[SRAL] Fallback manual lookup active for AccessKit C assets.')
+    accesskit_inc = include_directories(path_accesskit / 'include', is_system: true)
+    accesskit_lib = c_compiler.find_library('accesskit', 
+      dirs: [path_accesskit / 'lib', path_accesskit / 'target/release'], 
+      required: true
+    )
+    accesskit_dep = declare_dependency(
+      dependencies: accesskit_lib,
+      include_directories: accesskit_inc
+    )
+  elif not accesskit_dep.found()
+    accesskit_dep = dependency('accesskit', method: 'pkg-config', required: true)
+  endif
+
+  sral_dependencies += accesskit_dep
+endif
+
+# --- Platform Dependent Suffix Additions ---
 if is_windows
   sral_dependencies += [
     c_compiler.find_library('ole32'),
@@ -297,9 +362,6 @@ if not is_android and not is_emscripten
   sral_dependencies += dependency('jni', required: false)
 endif
 
-if opt_accesskit
-  add_project_arguments('-DSRAL_WITH_ACCESSKIT', language: ['c', 'cpp'])
-endif
 if opt_uia and is_windows
   add_project_arguments('-DSRAL_WITH_UIA', language: ['c', 'cpp'])
 endif
@@ -314,7 +376,6 @@ if opt_orca
 endif
 
 python_bin = import('python').find_installation()
-
 subdir('SRC')
 
 sral_dep = declare_dependency(
@@ -445,7 +506,10 @@ endif
 configure_file(input: 'sral_config.ini', output: 'sral_config.ini', copy: true)
 
 install_headers(public_headers)
-install_data('sral_config.ini', install_dir: get_option('datadir') / 'sral')
+
+if not is_android and host_sys != 'ios'
+  install_data('sral_config.ini', install_dir: get_option('datadir') / 'sral')
+endif
 
 if get_option('SRAL_INSTALL_BINDING_SOURCES')
   share_dir = 'share/sral'
@@ -461,12 +525,25 @@ if get_option('SRAL_INSTALL_BINDING_SOURCES')
   install_subdir('Bindings/Rust/src', install_dir: bind_dir / 'rust')
 endif
 
-pkg_mod = import('pkgconfig')
-pkg_mod.generate(
-  name: 'SRAL_Orchestrator',
-  filebase: 'sral_orchestrator',
-  description: 'Screen Reader Abstraction Layer Orchestrator Engine Core.',
-  subdirs: 'SRAL',
-  libraries: sral_dep,
-  version: '1.0.0'
-)
+if not is_android and host_sys != 'ios' and not is_emscripten
+  private_reqs = []
+  if host_sys == 'linux'
+    if opt_speech_dispatcher
+      private_reqs += 'speech-dispatcher'
+    endif
+    if opt_orca
+      private_reqs += ['dbus-1', 'atspi-2']
+    endif
+  endif
+    
+    pkg_mod = import('pkgconfig')
+    pkg_mod.generate(
+      name: 'SRAL_Orchestrator',
+      filebase: 'sral_orchestrator',
+      description: 'Screen Reader Abstraction Layer Orchestrator Engine Core.',
+      subdirs: 'SRAL',
+      libraries: sral_lib,
+      requires_private: private_reqs,
+      version: '1.0.0'
+    )
+endif

@@ -161,7 +161,6 @@ bool Orca::Speak(std::string_view text, bool interrupt) {
 #endif
 }
 
-// cppcheck-suppress functionStatic
 bool Orca::Speak(std::nullptr_t, bool) noexcept {
 	return false;
 }
@@ -170,16 +169,14 @@ bool Orca::SpeakSsml(std::string_view ssml, bool interrupt) {
 	return Speak(ssml, interrupt);
 }
 
-// cppcheck-suppress functionStatic
 bool Orca::SpeakSsml(std::nullptr_t, bool) noexcept {
 	return false;
 }
 
-bool Orca::Braille(std::string_view text) {
+bool Orca::Braille(std::string_view) {
 	return false;
 }
 
-// cppcheck-suppress functionStatic
 bool Orca::Braille(std::nullptr_t) noexcept {
 	return false;
 }

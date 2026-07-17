@@ -106,7 +106,8 @@ public:
 	NotificationClient() noexcept : refCount(1), defaultDeviceChangeCount(0), deviceStateChangeCount(0) {}
 
 	ULONG STDMETHODCALLTYPE AddRef() override {
-		return refCount.fetch_add(1, std::memory_order_relaxed) + 1;
+		return static_cast<ULONG>(refCount.fetch_add(1, std::memory_order_relaxed)) + 1;
+
 	}
 
 	ULONG STDMETHODCALLTYPE Release() override {

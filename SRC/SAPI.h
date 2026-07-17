@@ -19,7 +19,7 @@ public:
 		const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override;
 	bool SetParameter(int param, const void* value) override;
 	bool GetParameter(int param, void* value) override;
-
+	bool Braille(const char*) override { return false; }
 	bool StopSpeech() override;
 	bool PauseSpeech() override;
 	bool ResumeSpeech() override;

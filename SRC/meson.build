@@ -26,7 +26,7 @@ if not is_msvc_like
   ]
   
   if not is_emscripten
-    global_c_cpp_args += ['-D_FORTIFY_SOURCE=3', '-fstack-clash-protection']
+    global_c_cpp_args += ['-fstack-clash-protection']
   endif
 
   if c_compiler.has_argument('-fcf-protection=full')
@@ -45,38 +45,36 @@ if dep_sources.length() > 0
   sral_deps_lib = static_library('sral_deps',
     dep_sources,
     include_directories: inc_dir,
-    c_args: supported_global_c_args,
+    c_args: supported_global_c_args + cross_platform_warning_args,
+    cpp_args: supported_global_cpp_args + cross_platform_warning_args,
     pic: true
   )
   sral_deps_list += [sral_deps_lib]
 endif
-
 shared_warnings = [
-  '-Wformat=2',                      
+  '-Wformat=2',
   '-Wformat-security',
-  '-Werror=format-security',         
-  '-Wconversion',                    
-  '-Wsign-conversion',               
-  '-Wshadow',                        
-  '-Wundef',                         
-  '-Wcast-qual',                     
-  '-Wswitch-enum',                   
-  '-Wnull-dereference',              
+  '-Werror=format-security',
+  '-Wconversion',
+  '-Wsign-conversion',
+  '-Wshadow',
+  '-Wundef',
+  '-Wcast-qual',
+  '-Wswitch-enum',
+  '-Wnull-dereference',
 ]
 
-cpp_exclusive_warnings = [
-  '-Wold-style-cast',                
-  '-Wnon-virtual-dtor',              
-  '-Wctor-dtor-privacy',             
-  '-Woverloaded-virtual',            
+cpp_exclusive_warnings = [     
+  '-Wctor-dtor-privacy',
+  '-Woverloaded-virtual',
 ]
 
 if not is_msvc_like
-  core_c_args   = supported_global_c_args   + c_compiler.get_supported_arguments(shared_warnings)
-  core_cpp_args = supported_global_cpp_args + cpp_compiler.get_supported_arguments(shared_warnings + cpp_exclusive_warnings)
+  core_c_args   = supported_global_c_args   + c_compiler.get_supported_arguments(shared_warnings) + cross_platform_warning_args
+  core_cpp_args = supported_global_cpp_args + cpp_compiler.get_supported_arguments(shared_warnings + cpp_exclusive_warnings) + cross_platform_warning_args
 else
-  core_c_args   = supported_global_c_args
-  core_cpp_args = supported_global_cpp_args
+  core_c_args   = supported_global_c_args + cross_platform_warning_args
+  core_cpp_args = supported_global_cpp_args + cross_platform_warning_args
 endif
 
 core_sources = files('Engine.cpp', 'SRAL.cpp')
@@ -89,7 +87,6 @@ if not is_emscripten
     core_cpp_args += ['-DSRAL_NO_ACCESSKIT']
   endif
 endif
-
 if is_windows
   core_sources += files('Encoding.cpp')
   if opt_nvda
@@ -165,7 +162,6 @@ elif is_android
     core_c_args   += ['-DSRAL_NO_ANDROID_ACCESSIBILITY']
     core_cpp_args += ['-DSRAL_NO_ANDROID_ACCESSIBILITY']
   endif
-
 elif is_emscripten
   if opt_chromevox
     core_sources += files('ChromeVox.cpp')
@@ -193,7 +189,6 @@ else
     core_cpp_args += ['-DSRAL_NO_ORCA']
   endif
 endif
-
 supported_link_args = []
 
 if not is_msvc_like
@@ -202,9 +197,10 @@ if not is_msvc_like
     '-Wl,-z,now',         
     '-Wl,-z,noexecstack', 
   ]
-  if not is_apple
+
+  if not is_apple and not is_emscripten
     desired_link_args += ['-Wl,-z,defs']
-  else
+  elif is_apple
     desired_link_args += ['-Wl,-undefined,error']
   endif
   supported_link_args = c_compiler.get_supported_link_arguments(desired_link_args)
@@ -216,32 +212,41 @@ else
   supported_link_args = c_compiler.get_supported_link_arguments(desired_msvc_link)
 endif
 
-sral_target_type = build_shared_libs ? 'shared_library' : 'static_library'
-
-if get_option('default_library') == 'both' or sral_target_type == 'both_libraries'
-  sral_target_type = 'both_libraries'
-endif
-
 sral_core_c_args   = core_c_args
 sral_core_cpp_args = core_cpp_args
+
+sral_core_objc_args   = []
+sral_core_objcpp_args = []
+if is_apple
+  sral_core_objc_args   = core_c_args
+  sral_core_objcpp_args = core_cpp_args
+endif
 
 if build_shared_libs or get_option('default_library') == 'both'
   sral_core_c_args   += ['-DSRAL_BUILDING_DLL']
   sral_core_cpp_args += ['-DSRAL_BUILDING_DLL']
+  if is_apple
+    sral_core_objc_args   += ['-DSRAL_BUILDING_DLL']
+    sral_core_objcpp_args += ['-DSRAL_BUILDING_DLL']
+  endif
 endif
 
 if get_option('default_library') == 'both'
-  sral_lib = both_libraries('SRAL',
+  sral_both_target = both_libraries('SRAL',
     core_sources,
     include_directories: [inc_dir, include_directories('../Dep')],
     link_with: sral_deps_list,          
     c_args: sral_core_c_args,
     cpp_args: sral_core_cpp_args, 
+    objc_args: sral_core_objc_args,
+    objcpp_args: sral_core_objcpp_args,
     link_args: supported_link_args,
     dependencies: sral_dependencies,
     pic: true,                         
     install: true
   )
+
+  sral_lib = sral_both_target.get_shared_lib()
 elif build_shared_libs
   sral_lib = shared_library('SRAL',
     core_sources,
@@ -249,6 +254,8 @@ elif build_shared_libs
     link_with: sral_deps_list,          
     c_args: sral_core_c_args,
     cpp_args: sral_core_cpp_args, 
+    objc_args: sral_core_objc_args,
+    objcpp_args: sral_core_objcpp_args,
     link_args: supported_link_args,
     dependencies: sral_dependencies,
     install: true
@@ -260,6 +267,8 @@ else
     link_with: sral_deps_list,          
     c_args: sral_core_c_args,
     cpp_args: sral_core_cpp_args, 
+    objc_args: sral_core_objc_args,
+    objcpp_args: sral_core_objcpp_args,
     link_args: supported_link_args,
     dependencies: sral_dependencies,
     pic: true,                         

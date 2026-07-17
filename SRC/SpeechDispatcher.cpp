@@ -232,6 +232,7 @@ bool SpeechDispatcher::SpeakSsml(const char* ssml, bool interrupt) {
     m_ring_bell.notify_one();
     return true;
 }
+
 bool SpeechDispatcher::StopSpeech() noexcept {
     if (!is_active.load(std::memory_order_relaxed)) return false;
 
@@ -455,6 +456,7 @@ void SpeechDispatcher::BackgroundWorkerLoop(std::stop_token stop_token) noexcept
         m_tail.store(current_tail + 1, std::memory_order_release);
     }
 }
+
 bool SpeechDispatcher::GetActive() noexcept {
 #if defined(__linux__) && !defined(__ANDROID__)
     std::lock_guard<std::mutex> lock(speechd_mutex);
@@ -610,7 +612,7 @@ void SpeechDispatcher::RefreshVoiceList() {
 void SpeechDispatcher::ClearVoiceList() noexcept {
 #if defined(__linux__) && !defined(__ANDROID__)
     if (m_voiceList) {
-        free_spd_modules(reinterpret_cast<char**>(m_voiceList));
+        free_spd_modules(static_cast<char**>(static_cast<void*>(m_voiceList)));
         m_voiceList = nullptr;
         m_voiceCount = 0;
     }

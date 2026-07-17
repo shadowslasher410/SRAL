@@ -209,11 +209,11 @@ static char* trim(char* data, unsigned long* size, const WAVEFORMATEX* wfx, int 
 	}
 
 	int trimmedSize = (endIndex - startIndex + 1) * samplesPerFrame;
-	char* trimmedData = new (std::nothrow) char[trimmedSize];
+	char* trimmedData = new (std::nothrow) char[static_cast<size_t>(trimmedSize)];
 	if (trimmedData) [[likely]] {
-		std::memcpy(trimmedData, data + (startIndex * samplesPerFrame), trimmedSize);
+		std::memcpy(trimmedData, data + (startIndex * samplesPerFrame), static_cast<size_t>(trimmedSize));
 	}
-	*size = trimmedSize;
+	*size = static_cast<unsigned long>(trimmedSize);
 	return trimmedData;
 }
 
@@ -433,7 +433,7 @@ void* Sapi::SpeakToMemory(
 	if (channels)
 		*channels = instance->channels;
 	if (sample_rate)
-		*sample_rate = instance->sample_rate;
+		*sample_rate = static_cast<int>(instance->sample_rate);
 	if (bits_per_sample)
 		*bits_per_sample = instance->bits_per_sample;
 	return final_ptr;
@@ -467,7 +467,7 @@ bool Sapi::SetParameter(int param, const void* value) {
         return status;
     }
     case SRAL_PARAM_VOICE_INDEX: {
-        int result = blastspeak_set_voice(&*instance, *reinterpret_cast<const int*>(value));
+        int result = blastspeak_set_voice(&*instance, *reinterpret_cast<const unsigned int*>(value));
         if (result) {
             this->voiceIndex = *reinterpret_cast<const int*>(value);
             return true;
@@ -511,10 +511,10 @@ bool Sapi::GetParameter(int param, void* value) {
 			
 			bufDesc[0] = '\0'; bufLang[0] = '\0'; bufGend[0] = '\0'; bufVend[0] = '\0';
 
-			(void)blastspeak_get_voice_description(&*instance, index, bufDesc, sizeof(bufDesc));
-			(void)blastspeak_get_voice_languages(&*instance, index, bufLang, sizeof(bufLang));
-			(void)blastspeak_get_voice_attribute(&*instance, index, "Gender", bufGend, sizeof(bufGend));
-			(void)blastspeak_get_voice_attribute(&*instance, index, "Vendor", bufVend, sizeof(bufVend));
+			(void)blastspeak_get_voice_description(&*instance, static_cast<unsigned int>(index), bufDesc, sizeof(bufDesc));
+			(void)blastspeak_get_voice_languages(&*instance, static_cast<unsigned int>(index), bufLang, sizeof(bufLang));
+			(void)blastspeak_get_voice_attribute(&*instance, static_cast<unsigned int>(index), "Gender", bufGend, sizeof(bufGend));
+			(void)blastspeak_get_voice_attribute(&*instance, static_cast<unsigned int>(index), "Vendor", bufVend, sizeof(bufVend));
 
 			voiceProperties[index].name = AddString(bufDesc);
 			voiceProperties[index].language = AddString(bufLang);

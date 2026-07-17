@@ -3,6 +3,7 @@
 #include <string_view>
 #include <array>
 #include <climits>
+#include <cstring>
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
@@ -61,13 +62,14 @@ bool UnicodeConvert(std::string_view input, std::wstring& output) {
 
 	while (ptr < end) {
 		char32_t c32 = 0;
-		size_t rc = mbrtoc32(&c32, ptr, end - ptr, &state);
+		size_t rc = mbrtoc32(&c32, ptr, static_cast<size_t>(end - ptr), &state);
 		
 		if (rc == static_cast<size_t>(-1) || rc == static_cast<size_t>(-2)) [[unlikely]] {
 			return false;
 		}
 		if (rc == 0) {
 			rc = 1;
+		}
 
 		if (converted_chars >= current_capacity) {
 			if (current_dest == stack_buffer.data()) {
@@ -91,6 +93,7 @@ bool UnicodeConvert(std::string_view input, std::wstring& output) {
 	return true;
 #endif
 }
+
 bool UnicodeConvert(std::wstring_view input, std::string& output) {
 	output.clear();
 	if (input.empty()) {

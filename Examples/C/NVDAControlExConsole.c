@@ -110,7 +110,8 @@ int main(void) {
 	DWORD oldMode = 0;
 	if (hStdin != INVALID_HANDLE_VALUE && hStdin != NULL) {
 		(void)GetConsoleMode(hStdin, &oldMode);
-		(void)SetConsoleMode(hStdin, oldMode & ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT));
+		(void)SetConsoleMode(hStdin, oldMode & (DWORD)(~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT)));
+
 	}
 
 	printf("Welcome to NVDA Controller Extended Console!\n");

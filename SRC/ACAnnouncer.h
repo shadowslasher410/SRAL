@@ -47,8 +47,8 @@ public:
 	bool SpeakSsml(const char*, bool) override { return false; }
 	void* SpeakToMemory(const char*, uint64_t*, int*, int*, int*) override { return nullptr; }
 
-	bool SetParameter(int param, const void* value) override { return false; }
-	bool GetParameter(int param, void* value) override { return false; }
+	bool SetParameter(int, const void*) override { return false; }
+	bool GetParameter(int, void*) override { return false; }
 
 	bool Braille(const char*) override { return false; }
 	bool StopSpeech() override;

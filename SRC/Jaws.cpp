@@ -182,6 +182,8 @@ void Jaws::WorkerThreadLoop(std::stop_token stopToken, std::shared_ptr<RuntimeCo
                 (void)localJawsApi->StopSpeech();
                 break;
             }
+            case CmdType::None:
+                break;
             default:
                 break;
         }
@@ -190,7 +192,7 @@ void Jaws::WorkerThreadLoop(std::stop_token stopToken, std::shared_ptr<RuntimeCo
     g_jawsConnected.store(false, std::memory_order_relaxed);
     localJawsApi = nullptr;
     CoUninitialize();
-    
 }
+
 
 } // namespace Sral

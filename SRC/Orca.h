@@ -41,13 +41,10 @@ public:
 		return Braille(text ? std::string_view(text) : std::string_view()); 
 	}
 
-	// cppcheck-suppress functionStatic
 	[[nodiscard]] bool Speak(std::nullptr_t, bool) noexcept;
 
-	// cppcheck-suppress functionStatic
 	[[nodiscard]] bool SpeakSsml(std::nullptr_t, bool) noexcept;
 
-	// cppcheck-suppress functionStatic
 	bool Braille(std::nullptr_t) noexcept;
 
 	[[nodiscard]] bool StopSpeech() override final;

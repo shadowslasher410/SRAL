@@ -1,23 +1,17 @@
-      - name: Create WebAssembly Cross File
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat << 'EOF' > emscripten_cross.txt
-          [binaries]
-          c = 'emcc'
-          cpp = 'em++'
-          ar = 'emar'
+ [binaries]
+c = 'emcc'
+cpp = 'em++'
+ar = 'emar'
+strip = 'emstrip'
 
-          [built-in options]
-          c_args = ['-pthread', '-Wno-error=unused-command-line-argument']
-          cpp_args = ['-pthread', '-Wno-error=unused-command-line-argument']
-          c_link_args = ['-pthread', '-sWASM=1', '-sSIDE_MODULE=1']
-          cpp_link_args = ['-pthread', '-sWASM=1', '-sSIDE_MODULE=1']
-          default_library = 'static'
+[built-in options]
+c_args        = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
+cpp_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
+c_link_args   = ['-pthread', '-sSTACK_OVERFLOW_CHECK=2', '-sASSERTIONS=1', '-sWASM_BIGINT']
+cpp_link_args = ['-pthread', '-sSTACK_OVERFLOW_CHECK=2', '-sASSERTIONS=1', '-sWASM_BIGINT']
 
-          [host_machine]
-          system = 'emscripten'
-          cpu_family = 'wasm32'
-          cpu = 'wasm32'
-          endian = 'little'
-          EOF
+[host_machine]
+system = 'emscripten'
+cpu_family = 'wasm32'
+cpu = 'wasm32'
+endian = 'little'

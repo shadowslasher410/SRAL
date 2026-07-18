@@ -6,7 +6,7 @@
 #if defined(_WIN32)
     #if defined(SRAL_STATIC)
         #define WASAPI_API
-    #elif defined(WASAPI_EXPORTS)
+    #elif defined(SRAL_BUILDING_DLL)
         #define WASAPI_API __declspec(dllexport)
     #else
         #define WASAPI_API __declspec(dllimport)

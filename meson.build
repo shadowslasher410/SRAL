@@ -8,13 +8,13 @@ project(
     'cpp_std=c++20',
     'default_library=both',
     'warning_level=3',
-    'b_pie=true',                   
-    'b_staticpic=true',             
-    'b_lto=true',                   
-    'b_lundef=true',                
-    'b_asneeded=true',              
-    'b_pgo=off',                    
-    'werror=true'                   
+    'b_pie=true',
+    'b_staticpic=true',
+    'b_lto=true',
+    'b_lundef=true',
+    'b_asneeded=true',
+    'b_pgo=off',
+    'werror=true'
   ],
 )
 
@@ -161,6 +161,84 @@ opt_speech_dispatcher = get_option('SRAL_WITH_SPEECH_DISPATCHER')
 opt_orca = get_option('SRAL_WITH_ORCA')
 opt_brlapi = get_option('SRAL_WITH_BRLAPI')
 
+if opt_accesskit
+  if is_emscripten
+    message('[SRAL] "AccessKit is unsupported on Emscripten/WASM.')
+    opt_accesskit = false
+  else
+    if is_windows and path_accesskit != ''
+      ak_check = c_compiler.find_library('accesskit', dirs: [path_accesskit], required: false)
+    else
+      ak_check = c_compiler.find_library('accesskit', required: false)
+    endif
+
+    if not ak_check.found() and is_windows and path_accesskit != ''
+      ak_check = c_compiler.find_library('accesskit', required: false)
+    endif
+
+    if ak_check.found()
+      opt_accesskit = true
+    else
+      opt_accesskit = false
+    endif
+  endif
+endif
+
+if opt_nvda and is_windows
+  if path_nvda != ''
+    nvda_check = c_compiler.find_library('nvdaControllerClient', dirs: [path_nvda], required: false)
+  else
+    nvda_check = c_compiler.find_library('nvdaControllerClient', required: false)
+  endif
+  
+  if not nvda_check.found() and is_windows and path_nvda != ''
+    ak_check = c_compiler.find_library('nvdaControllerClient', required: false)
+    opt_nvda = false
+  endif
+
+  if nvda_check.found()
+    opt_nvda = true
+  else
+    opt_nvda = false
+  endif
+endif
+
+if opt_speech_dispatcher and host_sys == 'linux'
+  if path_speechd != ''
+    speechd_dep = c_compiler.find_library('speechd', dirs: [path_speechd], required: false)
+  else
+    speechd_dep = c_compiler.find_library('speechd', required: false)
+  endif
+  
+   if not speechd_dep.found() and host_sys == 'linux' and path_speechd != ''
+      speechd_dep = c_compiler.find_library('speechd', required: false)
+  endif
+
+  if speechd_dep.found()
+    opt_speech_dispatcher = true
+  else
+    opt_speech_dispatcher = false
+  endif
+endif
+
+if opt_chromevox and is_emscripten
+  if path_emsdk != ''
+    emcc_check = find_program('emcc', dirs: [path_emsdk], required: false)
+  else
+    emcc_check = find_program('emcc', required: false)
+  endif
+
+  if not emcc_check.found() and path_emsdk != ''
+    emcc_check = find_program('emcc', required: false)
+  endif
+
+  if emcc_check.found()
+    opt_chromevox = true
+  else
+    opt_chromevox = false
+  endif
+endif
+
 if opt_chromevox and not is_emscripten
   error('[SRAL ERROR] SRAL_WITH_CHROMEVOX can only be enabled for WebAssembly cross-compilation.')
 endif
@@ -260,7 +338,6 @@ else
     add_project_arguments('-D_LIBCPP_HARDENING_MODE=3', language: 'cpp')
   endif
 endif
-
 if opt_chromevox
   add_project_arguments('-DSRAL_WITH_CHROMEVOX', language: ['c', 'cpp'])
 else
@@ -272,39 +349,6 @@ public_headers = files('Include/SRAL.h', 'Include/Sral.hpp')
 
 sral_dependencies = []
 
-if opt_accesskit
-  add_project_arguments('-DSRAL_WITH_ACCESSKIT', language: ['c', 'cpp'])
-  
-  pkg_args = {}
-  if path_accesskit != ''
-    pkg_args += {'pkg_config_path': path_accesskit / 'lib/pkgconfig'}
-  endif
-
-  accesskit_dep = dependency('accesskit', 
-    method: 'pkg-config', 
-    required: false, 
-    kwargs: pkg_args
-  )
-
-  if not accesskit_dep.found() and path_accesskit != ''
-    message('[SRAL] Fallback manual lookup active for AccessKit C assets.')
-    accesskit_inc = include_directories(path_accesskit / 'include', is_system: true)
-    accesskit_lib = c_compiler.find_library('accesskit', 
-      dirs: [path_accesskit / 'lib', path_accesskit / 'target/release'], 
-      required: true
-    )
-    accesskit_dep = declare_dependency(
-      dependencies: accesskit_lib,
-      include_directories: accesskit_inc
-    )
-  elif not accesskit_dep.found()
-    accesskit_dep = dependency('accesskit', method: 'pkg-config', required: true)
-  endif
-
-  sral_dependencies += accesskit_dep
-endif
-
-# --- Platform Dependent Suffix Additions ---
 if is_windows
   sral_dependencies += [
     c_compiler.find_library('ole32'),
@@ -362,6 +406,18 @@ if not is_android and not is_emscripten
   sral_dependencies += dependency('jni', required: false)
 endif
 
+if opt_accesskit
+  add_project_arguments('-DSRAL_WITH_ACCESSKIT', language: ['c', 'cpp'])
+  if is_windows and path_accesskit != ''
+    accesskit_lib = c_compiler.find_library('accesskit', dirs: [path_accesskit], required: true)
+    sral_dependencies += accesskit_lib
+  else
+    accesskit_lib = c_compiler.find_library('accesskit')
+    sral_dependencies += accesskit_lib
+  endif
+else 
+  add_project_arguments('-DSRAL_NO_ACCESSKIT', language: ['c', 'cpp'])
+endif
 if opt_uia and is_windows
   add_project_arguments('-DSRAL_WITH_UIA', language: ['c', 'cpp'])
 endif
@@ -418,7 +474,6 @@ if build_tests and not is_emscripten and not is_android
     )
   endif
 endif
-
 if build_bindings
   bindings_dir = meson.current_source_dir() / 'Bindings'
   sh_exe = find_program('sh', required: false)
@@ -502,7 +557,6 @@ if build_bindings
     run_target('sral_python_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Python pip setup phase skipped.'])
   endif
 endif
-
 configure_file(input: 'sral_config.ini', output: 'sral_config.ini', copy: true)
 
 install_headers(public_headers)
@@ -535,15 +589,15 @@ if not is_android and host_sys != 'ios' and not is_emscripten
       private_reqs += ['dbus-1', 'atspi-2']
     endif
   endif
-    
-    pkg_mod = import('pkgconfig')
-    pkg_mod.generate(
-      name: 'SRAL_Orchestrator',
-      filebase: 'sral_orchestrator',
-      description: 'Screen Reader Abstraction Layer Orchestrator Engine Core.',
-      subdirs: 'SRAL',
-      libraries: sral_lib,
-      requires_private: private_reqs,
-      version: '1.0.0'
-    )
+
+  pkg_mod = import('pkgconfig')
+  pkg_mod.generate(
+    name: 'SRAL_Orchestrator',
+    filebase: 'sral_orchestrator',
+    description: 'Screen Reader Abstraction Layer Orchestrator Engine Core.',
+    subdirs: 'SRAL',
+    libraries: sral_lib,
+    requires_private: private_reqs,
+    version: '1.0.0'
+  )
 endif

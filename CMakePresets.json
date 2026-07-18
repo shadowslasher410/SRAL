@@ -11,10 +11,8 @@
       "cacheVariables": {
         "BUILD_BINDINGS": "ON",
         "BUILD_TESTS": "ON",
-        "TARGET_DESKTOP": "ON",
-        "TARGET_CHROMEVOX": "OFF",
-        "TARGET_ANDROID": "OFF",
-        "TARGET_IOS": "OFF"
+        "SRAL_WITH_CHROMEVOX": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
     {
@@ -27,75 +25,74 @@
       }
     },
     {
+      "name": "base-chromevox",
+      "displayName": "Base ChromeVox Environment Scope",
+      "hidden": true,
+      "generator": "Ninja",
+      "environment": {
+        "EMSDK": "$hostEnv{EMSDK}",
+        "PATH": "$hostEnv{EMSDK}/upstream/emscripten;$hostEnv{PATH}"
+      }
+    },
+    {
       "name": "base-chromevox-release",
       "displayName": "Base ChromeVox Release Template",
       "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "environment": {
-        "EMSDK": ""
-      },
+      "inherits": "base-chromevox",
+      "binaryDir": "${sourceDir}/build/wasm-release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "PATH_EMSDK_INSTALL": "",
-        "TARGET_DESKTOP": "OFF",
-        "TARGET_CHROMEVOX": "ON",
-        "TARGET_ANDROID": "OFF",
-        "TARGET_IOS": "OFF"
+        "PATH_EMSDK_INSTALL": "$env{EMSDK}",
+        "SRAL_WITH_CHROMEVOX": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
     {
       "name": "base-chromevox-debug",
       "displayName": "Base ChromeVox Debug Template",
       "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "environment": {
-        "EMSDK": ""
-      },
+      "inherits": "base-chromevox",
+      "binaryDir": "${sourceDir}/build/wasm-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "PATH_EMSDK_INSTALL": "",
-        "TARGET_DESKTOP": "OFF",
-        "TARGET_CHROMEVOX": "ON",
-        "TARGET_ANDROID": "OFF",
-        "TARGET_IOS": "OFF"
+        "PATH_EMSDK_INSTALL": "$env{EMSDK}",
+        "SRAL_WITH_CHROMEVOX": "ON",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "base-android-env",
+      "displayName": "Base Android Environment Scope",
+      "hidden": true,
+      "generator": "Ninja",
+      "environment": {
+        "ANDROID_NDK_HOME": "$hostEnv{ANDROID_NDK_HOME}"
       }
     },
     {
       "name": "base-android-release",
       "displayName": "Base Android Release Template",
       "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "environment": {
-        "ANDROID_NDK_HOME": ""
-      },
+      "inherits": "base-android-env",
+      "binaryDir": "${sourceDir}/build/android-arm64",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "PATH_ANDROID_NDK": "",
-        "TARGET_DESKTOP": "OFF",
-        "TARGET_CHROMEVOX": "OFF",
-        "TARGET_ANDROID": "ON",
-        "TARGET_IOS": "OFF"
+        "PATH_ANDROID_NDK": "$env{ANDROID_NDK_HOME}",
+        "SRAL_WITH_CHROMEVOX": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
     {
       "name": "base-android-debug",
       "displayName": "Base Android Debug Template",
       "hidden": true,
-      "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/${presetName}",
-      "environment": {
-        "ANDROID_NDK_HOME": ""
-      },
+      "inherits": "base-android-env",
+      "binaryDir": "${sourceDir}/build/android-arm64-debug",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
-        "PATH_ANDROID_NDK": "",
-        "TARGET_DESKTOP": "OFF",
-        "TARGET_CHROMEVOX": "OFF",
-        "TARGET_ANDROID": "ON",
-        "TARGET_IOS": "OFF"
+        "PATH_ANDROID_NDK": "$env{ANDROID_NDK_HOME}",
+        "SRAL_WITH_CHROMEVOX": "OFF",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
     },
     {
@@ -105,10 +102,7 @@
       "generator": "Xcode",
       "binaryDir": "${sourceDir}/build/${presetName}",
       "cacheVariables": {
-        "TARGET_DESKTOP": "OFF",
-        "TARGET_CHROMEVOX": "OFF",
-        "TARGET_ANDROID": "OFF",
-        "TARGET_IOS": "ON",
+        "SRAL_WITH_CHROMEVOX": "OFF",
         "CMAKE_SYSTEM_NAME": "iOS",
         "CMAKE_OSX_SYSROOT": "iphoneos",
         "BUILD_SHARED_LIBS": "OFF"
@@ -135,9 +129,8 @@
       "name": "desktop-debug",
       "displayName": "Desktop Debug",
       "description": "Static library layout containing debug symbols with windows-safe address sanitizers.",
-      "inherits": "base-desktop",
+      "inherits": "base-desktop-debug",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE": "Debug",
         "BUILD_SHARED_LIBS": "OFF",
         "CMAKE_C_FLAGS_DEBUG": "-g -O1 -fsanitize=address -fno-omit-frame-pointer",
         "CMAKE_CXX_FLAGS_DEBUG": "-g -O1 -fsanitize=address -fno-omit-frame-pointer -D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING",
@@ -180,7 +173,7 @@
         "SRAL_COMPILE_AS_WASM": "ON",
         "BUILD_SHARED_LIBS": "OFF",
         "PATH_EMSDK_INSTALL": "$env{EMSDK}",
-        "CMAKE_C_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3  -fstack-protector-strong -ftrivial-auto-var-init=pattern -Wall -Wextra -Wformat-security",
+        "CMAKE_C_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -fstack-protector-strong -ftrivial-auto-var-init=pattern -Wall -Wextra -Wformat-security",
         "CMAKE_CXX_FLAGS_RELEASE": "-O2 -D_FORTIFY_SOURCE=3 -fstack-protector-strong -ftrivial-auto-var-init=pattern -Wall -Wextra -Wformat-security"
       }
     },
@@ -209,10 +202,6 @@
       "binaryDir": "${sourceDir}/build/android-arm64",
       "toolchainFile": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
       "cacheVariables": {
-        "TARGET_DESKTOP": "OFF",
-        "TARGET_CHROMEVOX": "OFF",
-        "TARGET_ANDROID": "ON",
-        "TARGET_IOS": "OFF",
         "ANDROID_ABI": "arm64-v8a",
         "ANDROID_PLATFORM": "android-21",
         "BUILD_SHARED_LIBS": "ON",
@@ -232,10 +221,6 @@
       "binaryDir": "${sourceDir}/build/android-arm64-debug",
       "toolchainFile": "$env{ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake",
       "cacheVariables": {
-        "TARGET_DESKTOP": "OFF",
-        "TARGET_CHROMEVOX": "OFF",
-        "TARGET_ANDROID": "ON",
-        "TARGET_IOS": "OFF",
         "ANDROID_ABI": "arm64-v8a",
         "ANDROID_PLATFORM": "android-21",
         "BUILD_SHARED_LIBS": "ON",

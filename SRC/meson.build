@@ -264,14 +264,14 @@ else
   sral_lib = static_library('SRAL',
     core_sources,
     include_directories: [inc_dir, include_directories('../Dep')],
-    link_with: sral_deps_list,          
+    link_with: sral_deps_list,
     c_args: sral_core_c_args,
     cpp_args: sral_core_cpp_args, 
     objc_args: sral_core_objc_args,
     objcpp_args: sral_core_objcpp_args,
     link_args: supported_link_args,
     dependencies: sral_dependencies,
-    pic: true,                         
+    pic: true,
     install: true
   )
 endif

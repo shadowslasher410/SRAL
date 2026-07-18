@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 4.3.1)
 
 project(SRAL_Orchestrator LANGUAGES C CXX)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_WARN_ON_ABSOLUTE_INSTALL_DESTINATION ON)
 set(CMAKE_DIRECTORY_LABELS "SRAL_Root_Orchestrator")
 
@@ -23,7 +24,7 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR)
     )
 endif()
 
-set(INI_FILE "${CMAKE_CURRENT_SOURCE_DIR}/sral_config.ini")
+set(INI_FILE "${CMAKE_CURRENT_SOURCE_DIR}/developer_input.ini")
 if(EXISTS "${INI_FILE}")
     file(STRINGS "${INI_FILE}" INI_LINES)
     foreach(LINE ${INI_LINES})
@@ -141,8 +142,8 @@ if(MSVC OR (CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_SIMULATE_ID STR
 else()
     set(COMPILER_IS_MSVC_LIKE FALSE)
 endif()
-if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
-    message(STATUS "[SRAL ARCHITECTURE] Ultimate Hardened Release variant optimization active.")
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    message(STATUS "[SRAL] Release variant active.")
     add_compile_definitions(NDEBUG) 
     
     if(COMPILER_IS_MSVC_LIKE)
@@ -177,7 +178,7 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel"
     endif()
 
 else()
-    message(STATUS "[SRAL ARCHITECTURE] Hardened Library-Safe Debug variant active.")
+    message(STATUS "[SRAL] Debug variant active.")
     add_compile_definitions(DEBUG _DEBUG SRAL_DEBUG_TRACE_ACTIVE)
 
     if(COMPILER_IS_MSVC_LIKE)
@@ -296,6 +297,92 @@ foreach(BIN ${THIRD_PARTY_BINARIES})
         endif()
     endif()
 endforeach()
+
+set(ACCESSKIT_INCLUDES "")
+set(ACCESSKIT_LIBS "")
+
+if(SRAL_WITH_ACCESSKIT)
+
+    if(NOT "${PATH_ACCESSKIT_INSTALL}" STREQUAL "")
+        find_path(ACCESSKIT_INCLUDE_DIR 
+            NAMES accesskit.h 
+            PATHS "${PATH_ACCESSKIT_INSTALL}/include" 
+            NO_DEFAULT_PATH
+        )
+    else()
+        find_path(ACCESSKIT_INCLUDE_DIR 
+            NAMES accesskit.h 
+            ENV PATH
+            PATH_SUFFIXES include
+        )
+    endif()
+
+    if(IS_WINDOWS)
+        set(AK_LIB_NAME accesskit_winapi)
+    else()
+        set(AK_LIB_NAME accesskit)
+    endif()
+
+    if(NOT "${PATH_ACCESSKIT_INSTALL}" STREQUAL "")
+        set(AK_SEARCH_SUFFIXES lib)
+        if(IS_ANDROID)
+            set(AK_SEARCH_SUFFIXES "lib/${ANDROID_ABI}")
+        endif()
+
+        find_library(ACCESSKIT_CORE_LIB 
+            NAMES ${AK_LIB_NAME} 
+            PATHS "${PATH_ACCESSKIT_INSTALL}" 
+            PATH_SUFFIXES ${AK_SEARCH_SUFFIXES}
+            NO_DEFAULT_PATH
+        )
+    else()
+        set(AK_SEARCH_SUFFIXES lib bin)
+        if(IS_ANDROID)
+            set(AK_SEARCH_SUFFIXES "lib/${ANDROID_ABI}")
+        endif()
+
+        find_library(ACCESSKIT_CORE_LIB 
+            NAMES ${AK_LIB_NAME} 
+            ENV PATH
+            PATH_SUFFIXES ${AK_SEARCH_SUFFIXES}
+        )
+    endif()
+
+    if(NOT ACCESSKIT_INCLUDE_DIR OR NOT ACCESSKIT_CORE_LIB)
+        set(SRAL_WITH_ACCESSKIT OFF CACHE BOOL "Enable AccessKit accessibility provider backend" FORCE)
+        set(ACCESSKIT_INCLUDE_DIR "")
+        set(ACCESSKIT_CORE_LIB "")
+        
+        message(STATUS "-------------------------------------------------------------------------------")
+        message(STATUS "[SRAL AUTO-TOGGLE] AccessKit dependencies were NOT discovered locally or via PATH.")
+        message(STATUS "[SRAL AUTO-TOGGLE] Forcing option SRAL_WITH_ACCESSKIT to OFF.")
+        message(STATUS "[SRAL AUTO-TOGGLE] Class stubs will compile safely without AccessKit dependencies.")
+        message(STATUS "-------------------------------------------------------------------------------")
+    endif()
+endif()
+
+if(SRAL_WITH_ACCESSKIT)
+    add_compile_definitions(SRAL_WITH_ACCESSKIT)
+    set(ACCESSKIT_INCLUDES "${ACCESSKIT_INCLUDE_DIR}")
+    list(APPEND SRAL_SYS_INCLUDE_DIRS ${ACCESSKIT_INCLUDES})
+
+    if(IS_ANDROID)
+        list(APPEND ACCESSKIT_LIBS "${ACCESSKIT_CORE_LIB}" log android)
+    elseif(NOT IS_WINDOWS AND NOT IS_APPLE)
+        list(APPEND ACCESSKIT_LIBS "${ACCESSKIT_CORE_LIB}" pthread)
+    else()
+        list(APPEND ACCESSKIT_LIBS "${ACCESSKIT_CORE_LIB}")
+    endif()
+
+    list(APPEND SRAL_DEPENDENCIES ${ACCESSKIT_LIBS})
+    message(STATUS "[SRAL] AccessKit headers found at: ${ACCESSKIT_INCLUDES}")
+    message(STATUS "[SRAL] AccessKit binary linked smoothly: ${ACCESSKIT_CORE_LIB}")
+else()
+    add_compile_definitions(SRAL_NO_ACCESSKIT)
+endif()
+
+set(SRAL_SYS_INCLUDE_DIRS ${SRAL_SYS_INCLUDE_DIRS} CACHE INTERNAL "System include folder paths")
+set(SRAL_DEPENDENCIES ${SRAL_DEPENDENCIES} CACHE INTERNAL "Target linkage libraries")
 
 add_subdirectory(SRC)
 if(BUILD_TESTS AND NOT IS_EMSCRIPTEN AND NOT IS_ANDROID)

@@ -247,7 +247,7 @@ void WasapiPlayer::processAudioLoop() {
     }
 }
 
-        HRESULT WasapiPlayer::writeFramesToWasapi(const unsigned char* data, UINT32 totalFrames, unsigned int chunkId) {
+HRESULT WasapiPlayer::writeFramesToWasapi(const unsigned char* data, UINT32 totalFrames, unsigned int chunkId) {
     UINT32 remainingFrames = totalFrames;
     HRESULT hr = S_OK;
 
@@ -465,8 +465,6 @@ void WasapiPlayer::completeStop() {
 
 HRESULT WasapiPlayer::sync() {
     while (true) {
-        // FIX: Evaluated dynamically inside loop to verify hardware states 
-        // across sudden device-swap zeroing events. Prevents permanent thread deadlocks.
         const auto [sentMs, currentPlayState] = [this]() {
             std::lock_guard<std::mutex> lock(queueMutex);
             return std::make_pair(framesToMs(sentFrames), playState);
@@ -545,5 +543,34 @@ HRESULT WasapiPlayer::setChannelVolume(unsigned int channel, float level) {
             hr = streamVolume->SetChannelVolume(channel, level);
         }
     }
+    
+    streamVolume = nullptr; 
+    return hr;
+}
+
+HRESULT WasapiPlayer::setVolume(float volume) {
+    if (!client) {
+        return E_UNEXPECTED;
+    }
+    
+    volume = std::max(0.0f, std::min(volume, 1.0f));
+    
+    IAudioStreamVolumePtr streamVolume = nullptr;
+    HRESULT hr = client->GetService(__uuidof(IAudioStreamVolume), reinterpret_cast<void**>(&streamVolume));
+    if (FAILED(hr)) {
+        return hr;
+    }
+
+    UINT32 channelCount = 0;
+    hr = streamVolume->GetChannelCount(&channelCount);
+    if (FAILED(hr)) {
+        streamVolume = nullptr;
+        return hr;
+    }
+
+    std::vector<float> volumes(channelCount, volume);
+    hr = streamVolume->SetAllVolumes(channelCount, volumes.data());
+    
+    streamVolume = nullptr;
     return hr;
 }

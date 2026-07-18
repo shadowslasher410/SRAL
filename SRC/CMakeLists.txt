@@ -196,3 +196,27 @@ install(TARGETS SRAL
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
 )
+
+
+if(IS_APPLE AND SRAL_WITH_ACCESSKIT)
+    target_sources(SRAL PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/AppleAccessibility.mm")
+    
+    set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/AppleAccessibility.mm" PROPERTIES
+        COMPILE_FLAGS "-fobjc-arc -fstack-protector-all"
+    )
+endif()
+
+if(IS_WINDOWS AND BUILD_SHARED_LIBS AND SRAL_WITH_ACCESSKIT)
+    get_filename_component(AK_BIN_DIR "${PATH_ACCESSKIT_INSTALL}/bin" ABSOLUTE)
+    
+    if(EXISTS "${AK_BIN_DIR}/accesskit_winapi.dll")
+        add_custom_command(TARGET SRAL POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${AK_BIN_DIR}/accesskit_winapi.dll"
+                "$<TARGET_FILE_DIR:SRAL>/accesskit_winapi.dll"
+            COMMENT "[SRAL POST-BUILD] Deploying AccessKit runtime runtime dependencies straight to library build container..."
+        )
+    else()
+        message(STATUS "[SRAL WARNING] Precompiled 'accesskit_winapi.dll' was not discovered inside unzipped workspace bin path: ${AK_BIN_DIR}")
+    endif()
+endif()

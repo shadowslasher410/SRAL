@@ -557,12 +557,12 @@ if build_bindings
     run_target('sral_python_binding', command: [echo_exe.found() ? echo_exe : 'echo', 'Python pip setup phase skipped.'])
   endif
 endif
-configure_file(input: 'sral_config.ini', output: 'sral_config.ini', copy: true)
+configure_file(input: 'developer_input.ini', output: 'developer_input.ini', copy: true)
 
 install_headers(public_headers)
 
 if not is_android and host_sys != 'ios'
-  install_data('sral_config.ini', install_dir: get_option('datadir') / 'sral')
+  install_data('developer_input.ini', install_dir: get_option('datadir') / 'sral')
 endif
 
 if get_option('SRAL_INSTALL_BINDING_SOURCES')

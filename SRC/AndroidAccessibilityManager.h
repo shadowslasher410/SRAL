@@ -22,14 +22,14 @@ public:
 	AndroidAccessibilityManager(AndroidAccessibilityManager&&) noexcept = delete;
 	AndroidAccessibilityManager& operator=(AndroidAccessibilityManager&&) noexcept = delete;
 	bool Speak(const char* speech_text, bool interrupt) override;
-	bool SpeakSsml(const char* ssml, bool interrupt) override { return false; }
+	bool SpeakSsml(const char*, bool) override { return false; }
 	void* SpeakToMemory(
-		const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override {
+		const char*, uint64_t*, int*, int*, int*) override {
 		return nullptr;
 	}
-	bool SetParameter(int param, const void* value) override { return false; }
-	bool GetParameter(int param, void* value) override { return false; }
-	bool Braille(const char* text) override { return false; }
+	bool SetParameter(int, const void*) override { return false; }
+	bool GetParameter(int, void*) override { return false; }
+	bool Braille(const char*) override { return false; }
 	bool StopSpeech() override;
 	bool PauseSpeech() override { return false; }
 	bool ResumeSpeech() override { return false; }
@@ -40,8 +40,8 @@ public:
 	[[nodiscard]] int GetFeatures() override { return SRAL_SUPPORTS_SPEECH; }
 	[[nodiscard]] int GetKeyFlags() override { return HANDLE_NONE; }
 	[[nodiscard]] uint64_t GetVoiceCount() { return 0; }
-	[[nodiscard]] const char* GetVoiceName(uint64_t index) { return nullptr; }
-	bool SetVoice(uint64_t index) { return false; }
+	[[nodiscard]] const char* GetVoiceName(uint64_t) { return nullptr; }
+	bool SetVoice(uint64_t) { return false; }
 	[[nodiscard]] bool IsSpeaking() override { return GetActive(); }
 	[[nodiscard]] int GetCategory() override { return SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER; }
 

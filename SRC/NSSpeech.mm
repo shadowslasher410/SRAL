@@ -1,3 +1,6 @@
+
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+
 #if defined(__APPLE__) || defined(__MACH__)
 #include <TargetConditionals.h>
 
@@ -12,7 +15,7 @@
 #include <mutex>
 #include <semaphore>
 #include <thread>
-#include "NsSpeech.h"
+#include "NSSpeech.h"
 
 class NSSpeechSynthesizerWrapper;
 
@@ -199,6 +202,8 @@ class NSSpeechSynthesizerWrapper final {
           case CmdType::SetVolumeCmd:
             wrapper->ExecuteSetVolume(cmd.paramVal);
             break;
+          case CmdType::None:
+            break;
           default:
             break;
         }
@@ -279,9 +284,9 @@ namespace Sral {
 static std::atomic<NSSpeechSynthesizerWrapper*> g_sral_speech_obj{nullptr};
 static std::mutex g_lifecycle_mutex;
 
-void* NsSpeech::obj = nullptr;
+void* NSSpeech::obj = nullptr;
 
-bool NsSpeech::Initialize() {
+bool NSSpeech::Initialize() {
   std::lock_guard<std::mutex> lock(g_lifecycle_mutex);
   if (g_sral_speech_obj.load() != nullptr) return true;
 
@@ -298,7 +303,7 @@ bool NsSpeech::Initialize() {
   return true;
 }
 
-bool NsSpeech::Uninitialize() {
+bool NSSpeech::Uninitialize() {
   std::lock_guard<std::mutex> lock(g_lifecycle_mutex);
   NSSpeechSynthesizerWrapper* localObj = g_sral_speech_obj.exchange(nullptr);
   if (localObj) {
@@ -309,7 +314,7 @@ bool NsSpeech::Uninitialize() {
   return true;
 }
 
-bool NsSpeech::Speak(const char* text, bool interrupt) {
+bool NSSpeech::Speak(const char* text, bool interrupt) {
   NSSpeechSynthesizerWrapper* localObj = g_sral_speech_obj.load();
   if (!localObj || !text) return false;
 
@@ -324,7 +329,7 @@ bool NsSpeech::Speak(const char* text, bool interrupt) {
   return NSSpeechSynthesizerWrapper::PushCommand(cmd);
 }
 
-bool NsSpeech::StopSpeech() {
+bool NSSpeech::StopSpeech() {
   NSSpeechSynthesizerWrapper* localObj = g_sral_speech_obj.load();
   if (!localObj) return false;
   NSSpeechSynthesizerWrapper::Command cmd{};
@@ -332,14 +337,14 @@ bool NsSpeech::StopSpeech() {
   return NSSpeechSynthesizerWrapper::PushCommand(cmd);
 }
 
-bool NsSpeech::IsSpeaking() {
+bool NSSpeech::IsSpeaking() {
   NSSpeechSynthesizerWrapper* localObj = g_sral_speech_obj.load();
   return localObj ? localObj->IsSpeaking() : false;
 }
 
-bool NsSpeech::GetActive() { return g_sral_speech_obj.load() != nullptr; }
+bool NSSpeech::GetActive() { return g_sral_speech_obj.load() != nullptr; }
 
-bool NsSpeech::SetParameter(int param, const void* value) {
+bool NSSpeech::SetParameter(int param, const void* value) {
   NSSpeechSynthesizerWrapper* localObj = g_sral_speech_obj.load();
   if (!localObj || !value) return false;
 
@@ -361,7 +366,7 @@ bool NsSpeech::SetParameter(int param, const void* value) {
   return NSSpeechSynthesizerWrapper::PushCommand(cmd);
 }
 
-bool NsSpeech::GetParameter(int param, void* value) {
+bool NSSpeech::GetParameter(int param, void* value) {
   NSSpeechSynthesizerWrapper* localObj = g_sral_speech_obj.load();
   if (!localObj || !value) return false;
 
@@ -382,3 +387,5 @@ bool NsSpeech::GetParameter(int param, void* value) {
 
 #endif /* TARGET_OS_OSX */
 #endif /* defined(__APPLE__) || defined(__MACH__) */
+
+#pragma clang diagnostic pop

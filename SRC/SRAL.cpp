@@ -187,7 +187,7 @@ static void output_thread() {
 
 #if defined(__ANDROID__)
 	JNIEnv* local_env = nullptr;
-	JavaVM* jvm = GetAndroidJavaVM();
+	JavaVM* jvm = Sral::GetAndroidJavaVM();
 	bool attached_here = false;
 	if (jvm) {
 		if (jvm->GetEnv(reinterpret_cast<void**>(&local_env), JNI_VERSION_1_6) == JNI_EDETACHED) {
@@ -372,15 +372,15 @@ SRAL_API bool SRAL_Initialize(int engines_exclude) {
 	g_engines[SRAL_ENGINE_VOICE_OVER] = std::make_shared<Sral::VoiceOver>();
 	g_engines[SRAL_ENGINE_AV_SPEECH] = std::make_shared<Sral::AvSpeech>();
 #ifndef SRAL_NO_NSSPEECH
-	g_engines[SRAL_ENGINE_NS_SPEECH] = std::make_shared<Sral::NsSpeech>();
+	g_engines[SRAL_ENGINE_NS_SPEECH] = std::make_shared<Sral::NSSpeech>();
 #endif
 
 #elif defined(__ANDROID__)
 #ifndef SRAL_NO_ANDROID_ACCESSIBILITY
-	g_engines[SRAL_ENGINE_ANDROID_ACCESSIBILITY] = std::make_shared<Sral::AndroidAccessibilityManager>();
+	g_engines[SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER] = std::make_shared<Sral::AndroidAccessibilityManager>();
 #endif
 #ifndef SRAL_NO_ANDROID_TTS
-	g_engines[SRAL_ENGINE_ANDROID_TTS] = std::make_shared<Sral::AndroidTextToSpeech>();
+	g_engines[SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH] = std::make_shared<Sral::AndroidTextToSpeech>();
 #endif
 
 #elif defined(__EMSCRIPTEN__)

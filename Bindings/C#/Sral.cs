@@ -42,7 +42,7 @@ namespace SralCSharp
 		SpeechDispatcher = 1 << 7,
 		Orca = 1 << 8,
 		VoiceOver = 1 << 9,
-		NsSpeech = 1 << 10,
+		NSSpeech = 1 << 10,
 		AvSpeech = 1 << 11,
 		AndroidAccessibilityManager = 1 << 12,
 		AndroidTextToSpeech = 1 << 13,

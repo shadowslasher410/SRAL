@@ -18,7 +18,7 @@ public:
 
 	NSSpeech(const NSSpeech&) = delete;
 	NSSpeech& operator=(const NSSpeech&) = delete;
-	NSSpeech(NsSpeech&&) = delete;
+	NSSpeech(NSSpeech&&) = delete;
 	NSSpeech& operator=(NSSpeech&&) = delete;
 
 	[[nodiscard]] bool Speak(const char* text, bool interrupt) override;

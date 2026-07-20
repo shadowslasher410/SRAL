@@ -115,6 +115,7 @@ bool ChromeVox::Uninitialize() {
 bool ChromeVox::GetActive() {
 	return is_active.load(std::memory_order_acquire);
 }
+
 bool ChromeVox::Speak(const char* speech_text, bool interrupt) {
 	if (!speech_text || !is_active.load(std::memory_order_acquire)) [[unlikely]] {
 		return false;
@@ -292,18 +293,6 @@ int ChromeVox::GetFeatures() {
 		return SRAL_SUPPORTS_SPEECH | SRAL_SUPPORTS_BRAILLE;
 	}
 	return SRAL_SUPPORTS_SPEECH;
-}
-
-int ChromeVox::GetNumber() {
-	return SRAL_ENGINE_CHROMEVOX;
-}
-
-int ChromeVox::GetCategory() {
-	return SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE;
-}
-
-int ChromeVox::GetKeyFlags() {
-	return HANDLE_NONE;
 }
 
 } // namespace Sral

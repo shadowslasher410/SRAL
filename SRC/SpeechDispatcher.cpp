@@ -116,10 +116,24 @@ bool SpeechDispatcher::Initialize() {
 	if (address == nullptr)
 		return false;
 
+	char* error_result = nullptr;
 	speech = spd_open2(
-		"SRAL", nullptr, nullptr, SPD_MODE_SINGLE, address, true, &SpeechDispatcher::SpeechNotificationCallback);
-	if (speech == nullptr)
+		"SRAL", 
+		nullptr, 
+		nullptr, 
+		SPD_MODE_SINGLE, 
+		address, 
+		1,
+		&error_result,
+		&SpeechDispatcher::SpeechNotificationCallback
+	);
+	
+	if (speech == nullptr) {
+		if (error_result) {
+			free(error_result);
+		}
 		return false;
+	}
 
 	spd_set_data_mode(speech, SPD_DATA_SSML);
 
@@ -537,7 +551,10 @@ bool SpeechDispatcher::GetParameter(int param, void* value) {
 		}
 
 		m_voice_strings.clear();
-		m_voice_strings.reserve(m_voiceCount * 4);
+		
+		if (m_voiceCount > 0) {
+			m_voice_strings.reserve(static_cast<size_t>(m_voiceCount) * 4);
+		}
 
 		auto AddVoiceString = [this](const char* str) -> const char* {
 			if (!str)
@@ -625,7 +642,7 @@ bool SpeechDispatcher::ResumeSpeech() noexcept {
 #endif
 }
 
-void SpeechDispatcher::SpeechNotificationCallback(size_t msg_id, size_t client_id, int type) noexcept {
+void SpeechDispatcher::SpeechNotificationCallback(size_t msg_id, size_t client_id, SPDNotificationType type) noexcept {
 	(void)client_id;
 #if defined(__linux__) && !defined(__ANDROID__)
 	if (type == SPD_EVENT_END || type == SPD_EVENT_CANCEL) {
@@ -638,6 +655,7 @@ void SpeechDispatcher::SpeechNotificationCallback(size_t msg_id, size_t client_i
 	(void)type;
 #endif
 }
+
 
 void SpeechDispatcher::RefreshVoiceList() {
 #if defined(__linux__) && !defined(__ANDROID__)

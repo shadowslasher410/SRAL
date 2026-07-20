@@ -113,62 +113,89 @@ build_shared_libs = get_option('BUILD_SHARED_LIBS')
 build_tests = get_option('BUILD_TESTS')
 build_bindings = get_option('BUILD_BINDINGS')
 
-cross_platform_warning_args = []
+c_warning_args = []
+cpp_warning_args = []
 
 if is_windows
   if is_msvc_like
-    cross_platform_warning_args += ['/wd4668']
+    c_warning_args += ['/wd4668']
+    cpp_warning_args += ['/wd4668']
   else
-    cross_platform_warning_args += ['-Wno-undef']
+    c_warning_args += ['-Wno-undef']
+    cpp_warning_args += ['-Wno-undef']
   endif
 endif
 
 if is_msvc_like
-  cross_platform_warning_args += [
+  msvc_cpp_flags = [
     '/wd4324',
     '/permissive-',
     '/Zc:__cplusplus',
     '-D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING',
   ]
+  cpp_warning_args += msvc_cpp_flags
 endif
 
 if is_windows
   if c_id == 'clang'
-    cross_platform_warning_args += [
+    clang_win_flags = [
       '-fms-extensions',
       '-Wno-language-extension-token',
       '-Wno-missing-designated-field-initializers',
     ]
+    c_warning_args += clang_win_flags
+    cpp_warning_args += clang_win_flags
   elif c_id == 'clang-cl'
-    cross_platform_warning_args += [
+    clang_cl_win_flags = [
       '/clang:-fextensions',
       '/clang:-Wno-language-extension-token',
       '/clang:-Wno-missing-designated-field-initializers',
     ]
+    c_warning_args += clang_cl_win_flags
+    cpp_warning_args += clang_cl_win_flags
   endif
 endif
 
 if not is_msvc_like
-  if cpp_compiler.has_argument('-Wno-unused-function')
-    cross_platform_warning_args += ['-Wno-unused-function', '-Wno-unused-variable']
+  if c_compiler.has_argument('-Wno-unused-function')
+    c_warning_args += ['-Wno-unused-function', '-Wno-unused-variable']
   endif
-  if cpp_compiler.has_argument('-Wno-interference-size')
-    cross_platform_warning_args += ['-Wno-interference-size']
+  if cpp_compiler.has_argument('-Wno-unused-function')
+    cpp_warning_args += ['-Wno-unused-function', '-Wno-unused-variable']
+  endif
+
+  if c_compiler.has_argument('-Wno-gnu-anonymous-struct')
+    c_warning_args += ['-Wno-gnu-anonymous-struct', '-Wno-nested-anon-types']
   endif
   if cpp_compiler.has_argument('-Wno-gnu-anonymous-struct')
-    cross_platform_warning_args += ['-Wno-gnu-anonymous-struct', '-Wno-nested-anon-types']
+    cpp_warning_args += ['-Wno-gnu-anonymous-struct', '-Wno-nested-anon-types']
+  endif
+
+  if cpp_compiler.has_argument('-Wno-interference-size')
+    cpp_warning_args += ['-Wno-interference-size']
   endif
   if cpp_compiler.has_argument('-Wno-old-style-cast')
-    cross_platform_warning_args += ['-Wno-old-style-cast']
+    cpp_warning_args += ['-Wno-old-style-cast']
   endif
+
   if c_id == 'clang' and not is_windows and host_sys != 'ios' and not is_android
+    if c_compiler.has_argument('-fno-extensions')
+      c_warning_args += ['-fno-extensions']
+    endif
     if cpp_compiler.has_argument('-fno-extensions')
-      cross_platform_warning_args += ['-fno-extensions']
+      cpp_warning_args += ['-fno-extensions']
     endif
   endif
 endif
 
-add_project_arguments(cross_platform_warning_args, language: ['c', 'cpp'])
+if is_emscripten
+  if cpp_compiler.has_argument('-Wdollar-in-identifier-extension')
+    cpp_warning_args += ['-Wdollar-in-identifier-extension']
+  endif
+endif
+
+add_project_arguments(c_warning_args, language: 'c')
+add_project_arguments(cpp_warning_args, language: 'cpp')
 
 opt_accesskit = get_option('SRAL_WITH_ACCESSKIT')
 opt_chromevox = get_option('SRAL_WITH_CHROMEVOX')
@@ -461,8 +488,20 @@ elif is_apple
   endif
   add_project_arguments(apple_flags, language: ['objc', 'objcpp'])
 
+  if opt_nsspeech
+    if cpp_compiler.has_argument('-Wno-deprecated-declarations')
+      add_project_arguments('-Wno-deprecated-declarations', language: ['cpp', 'objcpp'])
+    endif
+    if c_compiler.has_argument('-Wno-deprecated-declarations')
+      add_project_arguments('-Wno-deprecated-declarations', language: ['c', 'objc'])
+    endif
+  endif
+  
   sral_dependencies += dependency('appleframeworks', modules: ['Foundation', 'AVFoundation'])
-  if host_sys != 'ios' and opt_nsspeech
+  
+  if host_sys == 'ios'
+    sral_dependencies += dependency('appleframeworks', modules: ['UIKit'])
+  elif host_sys != 'ios' and opt_nsspeech
     sral_dependencies += dependency('appleframeworks', modules: ['AppKit'])
   endif
 

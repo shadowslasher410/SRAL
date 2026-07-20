@@ -268,7 +268,7 @@ jobs:
             *)       echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
           esac
 
-          API_FLOOR="21"
+          API_FLOOR="24"
           HOST_PLATFORM="linux-x86_64"
           TOOLCHAIN_BIN="$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin"
           SYSROOT_PATH="$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/sysroot"

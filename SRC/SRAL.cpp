@@ -2,6 +2,7 @@
 
 #define SRAL_EXPORT
 #include "../Include/SRAL.h"
+
 #include "Engine.h"
 
 #if defined(SRAL_WITH_ACCESSKIT)
@@ -10,6 +11,7 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+
 #include <tlhelp32.h>
 
 #ifndef SRAL_NO_JAWS
@@ -30,8 +32,9 @@
 
 #elif defined(__APPLE__)
 #include <TargetConditionals.h>
-#include "VoiceOver.h"
+
 #include "AVSpeech.h"
+#include "VoiceOver.h"
 
 #ifndef SRAL_NO_NSSPEECH
 #include "NSSpeech.h"
@@ -39,6 +42,7 @@
 
 #elif defined(__ANDROID__)
 #include <jni.h>
+
 #include "../Dep/AndroidContext.h"
 
 #ifndef SRAL_NO_ANDROID_ACCESSIBILITY
@@ -58,6 +62,7 @@
 
 #ifndef SRAL_NO_ORCA
 #include <dbus/dbus.h>
+
 #include "Orca.h"
 #endif
 #ifndef SRAL_NO_SPEECH_DISPATCHER
@@ -90,7 +95,7 @@ private:
 	std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
 };
 
-static std::shared_ptr<Sral::Engine> g_currentEngine{ nullptr };
+static std::shared_ptr<Sral::Engine> g_currentEngine{nullptr};
 static std::map<SRAL_Engines, std::shared_ptr<Sral::Engine>> g_engines;
 
 static std::mutex g_sralEngineMutex;
@@ -124,8 +129,8 @@ static void trigger_output_thread_safely();
 static void speech_engine_update() noexcept;
 
 extern "C" {
-	bool PlatformRegisterKeyboardHooks(void);
-	void PlatformUnregisterKeyboardHooks(void);
+bool PlatformRegisterKeyboardHooks(void);
+void PlatformUnregisterKeyboardHooks(void);
 }
 
 #if defined(_WIN32)
@@ -146,9 +151,11 @@ static BOOL IsNarratorRunningFast(void) noexcept {
 }
 
 static BOOL FindProcess(const wchar_t* name) {
-	if (!name) return FALSE;
+	if (!name)
+		return FALSE;
 	HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-	if (!is_kernel_handle_valid(hProcessSnap)) return FALSE;
+	if (!is_kernel_handle_valid(hProcessSnap))
+		return FALSE;
 
 	PROCESSENTRY32W pe32;
 	std::memset(&pe32, 0, sizeof(PROCESSENTRY32W));
@@ -208,7 +215,8 @@ static void output_thread() {
 			has_item = true;
 		}
 
-		if (!has_item) break;
+		if (!has_item)
+			break;
 
 		s_timer.restart();
 		while (s_timer.elapsed() < static_cast<uint64_t>(current_output.time) &&
@@ -259,10 +267,11 @@ static void trigger_output_thread_safely() {
 }
 
 static void speech_engine_update() noexcept {
-	if (!g_initialized) return;
+	if (!g_initialized)
+		return;
 	std::shared_ptr<Sral::Engine> current = std::atomic_load(&g_currentEngine);
 	const int category = current ? current->GetCategory() : static_cast<int>(SRAL_ENGINE_CATEGORY_UNKNOWN);
-	
+
 	if (!current || !current->GetActive() || category == SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE ||
 		category == SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER) {
 
@@ -270,18 +279,19 @@ static void speech_engine_update() noexcept {
 
 #if defined(_WIN32) && !defined(SRAL_NO_UIA)
 		narratorActive = (IsNarratorRunningFast() == TRUE);
-		
+
 		if (!narratorActive) {
 			static std::atomic<ULONGLONG> s_lastSnapTime{0};
 			const ULONGLONG now = ::GetTickCount64();
 			const ULONGLONG last = s_lastSnapTime.load(std::memory_order_relaxed);
-			
+
 			if (now - last >= 500) {
 				s_lastSnapTime.store(now, std::memory_order_relaxed);
 				if (FindProcess(L"narrator.exe") == TRUE) {
 					narratorActive = true;
 				}
-			} else {
+			}
+			else {
 				if (current && current->GetNumber() == SRAL_ENGINE_UIA) {
 					narratorActive = true;
 				}
@@ -307,7 +317,6 @@ static void speech_engine_update() noexcept {
 		}
 	}
 }
-
 
 extern "C" {
 
@@ -393,7 +402,8 @@ SRAL_API bool SRAL_Initialize(int engines_exclude) {
 
 	bool success = false;
 	for (const auto& [value, ptr] : g_engines) {
-		if (!ptr) [[unlikely]] continue;
+		if (!ptr) [[unlikely]]
+			continue;
 		if (!ptr->Initialize()) {
 			g_enginesFailedToInitialize |= static_cast<int>(value);
 		}
@@ -411,9 +421,9 @@ SRAL_API bool SRAL_Initialize(int engines_exclude) {
 		return false;
 	}
 	g_excludes = engines_exclude;
-	
-	(void)g_enginesFailedToInitialize; 
-	
+
+	(void)g_enginesFailedToInitialize;
+
 	return g_initialized;
 }
 
@@ -550,31 +560,32 @@ SRAL_API int SRAL_GetEngineFeatures(int engine) {
 }
 
 SRAL_API bool SRAL_SetEngineParameter(int engine, int param, const void* value) {
-	#if defined(__ANDROID__)
-		if (param == SRAL_PARAM_ANDROID_JNI_ENV) {
-			void* non_const_val = const_cast<void*>(value);
-			return Sral::SetAndroidJNIEnv(static_cast<JNIEnv*>(non_const_val));
-		}
-		if (param == SRAL_PARAM_ANDROID_ACTIVITY) {
-			void* non_const_val = const_cast<void*>(value);
-			return Sral::SetAndroidActivity(static_cast<jobject>(non_const_val));
-		}
-	#else
-		(void)param;
-		(void)value;
-	#endif
+#if defined(__ANDROID__)
+	if (param == SRAL_PARAM_ANDROID_JNI_ENV) {
+		void* non_const_val = const_cast<void*>(value);
+		return Sral::SetAndroidJNIEnv(static_cast<JNIEnv*>(non_const_val));
+	}
+	if (param == SRAL_PARAM_ANDROID_ACTIVITY) {
+		void* non_const_val = const_cast<void*>(value);
+		return Sral::SetAndroidActivity(static_cast<jobject>(non_const_val));
+	}
+#else
+	(void)param;
+	(void)value;
+#endif
 
-		if (engine == 0) {
-			std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-			return active ? active->SetParameter(param, value) : false;
-		}
-		std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-		return e ? e->SetParameter(param, value) : false;
+	if (engine == 0) {
+		std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
+		return active ? active->SetParameter(param, value) : false;
+	}
+	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
+	return e ? e->SetParameter(param, value) : false;
 }
 
 SRAL_API bool SRAL_GetEngineParameter(int engine, int param, void* value) {
 	if (engine == 0) {
-		std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);;
+		std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
+		;
 		return active ? active->GetParameter(param, value) : false;
 	}
 	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
@@ -591,15 +602,13 @@ SRAL_API bool SRAL_SpeakEx(int engine, const char* text, bool interrupt) {
 		return e->Speak(text, interrupt);
 	}
 
-	QueuedOutput qout{
-		.text = std::string(text ? text : ""),
+	QueuedOutput qout{.text = std::string(text ? text : ""),
 		.interrupt = interrupt,
 		.braille = false,
 		.speak = true,
 		.ssml = false,
 		.time = static_cast<int>(g_lastDelayTime.load(std::memory_order_relaxed)),
-		.engine = e
-	};
+		.engine = e};
 
 	{
 		std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
@@ -628,15 +637,13 @@ SRAL_API bool SRAL_SpeakSsmlEx(int engine, const char* ssml, bool interrupt) {
 		return e->SpeakSsml(ssml, interrupt);
 	}
 
-	QueuedOutput qout{
-		.text = std::string(ssml ? ssml : ""),
+	QueuedOutput qout{.text = std::string(ssml ? ssml : ""),
 		.interrupt = interrupt,
 		.braille = false,
 		.speak = true,
 		.ssml = true,
 		.time = static_cast<int>(g_lastDelayTime.load(std::memory_order_relaxed)),
-		.engine = e
-	};
+		.engine = e};
 
 	{
 		std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
@@ -722,72 +729,69 @@ SRAL_API bool SRAL_IsSpeakingEx(int engine) {
 }
 
 SRAL_API void SRAL_Delay(int time) {
-	#if not defined (__ANDROID__)
-		if (!SRAL_IsInitialized()) {
-			return;
-		}
-		g_lastDelayTime.store(static_cast<uint64_t>(time), std::memory_order_relaxed);
-		g_delayOperation.store(true, std::memory_order_release);
-	#else
-		(void)time;
-	#endif
+#if not defined(__ANDROID__)
+	if (!SRAL_IsInitialized()) {
+		return;
+	}
+	g_lastDelayTime.store(static_cast<uint64_t>(time), std::memory_order_relaxed);
+	g_delayOperation.store(true, std::memory_order_release);
+#else
+	(void)time;
+#endif
 }
 
 SRAL_API bool SRAL_DelayOutput(int time, const char* text, bool interrupt) {
-	#if defined(__ANDROID__)
-		speech_engine_update();
-		std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-		if (!active) {
-			return false;
-		}
-		return SRAL_DelayOutputEx(active->GetNumber(), time, text, interrupt);
-	#else
-		(void)time;
-		(void)text;
-		(void)interrupt;
+#if defined(__ANDROID__)
+	speech_engine_update();
+	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
+	if (!active) {
 		return false;
-	#endif
+	}
+	return SRAL_DelayOutputEx(active->GetNumber(), time, text, interrupt);
+#else
+	(void)time;
+	(void)text;
+	(void)interrupt;
+	return false;
+#endif
 }
 
 SRAL_API bool SRAL_DelayOutputEx(int engine, int time, const char* text, bool interrupt) {
-	#if defined(__ANDROID__)
-		if (time < 0 || !SRAL_IsInitialized()) {
-			return false;
-		}
-
-		std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-		if (!e) [[unlikely]] {
-			return false;
-		}
-
-		QueuedOutput qout{
-			.text = std::string(text ? text : ""),
-			.interrupt = interrupt,
-			.braille = false,
-			.speak = true,
-			.ssml = false,
-			.time = time,
-			.engine = e
-		};
-
-		{
-			std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
-			g_delayedOutputs.push_back(std::move(qout));
-		}
-
-		if (!g_outputThreadRunning.load(std::memory_order_acquire)) {
-			trigger_output_thread_safely();
-		}
-		return true;
-	#else
-		(void)engine;
-		(void)time;
-		(void)text;
-		(void)interrupt;
+#if defined(__ANDROID__)
+	if (time < 0 || !SRAL_IsInitialized()) {
 		return false;
-	#endif
-}
+	}
 
+	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
+	if (!e) [[unlikely]] {
+		return false;
+	}
+
+	QueuedOutput qout{.text = std::string(text ? text : ""),
+		.interrupt = interrupt,
+		.braille = false,
+		.speak = true,
+		.ssml = false,
+		.time = time,
+		.engine = e};
+
+	{
+		std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
+		g_delayedOutputs.push_back(std::move(qout));
+	}
+
+	if (!g_outputThreadRunning.load(std::memory_order_acquire)) {
+		trigger_output_thread_safely();
+	}
+	return true;
+#else
+	(void)engine;
+	(void)time;
+	(void)text;
+	(void)interrupt;
+	return false;
+#endif
+}
 
 SRAL_API int SRAL_GetAvailableEngines(void) {
 	if (g_engines.empty()) {
@@ -842,7 +846,8 @@ SRAL_API int SRAL_GetAssistiveTechEngines(void) {
 	}
 	int mask = 0;
 	for (const auto& [value, ptr] : g_engines) {
-		if (!ptr) continue;
+		if (!ptr)
+			continue;
 		const int category = ptr->GetCategory();
 		if (category == SRAL_ENGINE_CATEGORY_SCREEN_READER || category == SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER) {
 			mask |= static_cast<int>(value);
@@ -853,23 +858,40 @@ SRAL_API int SRAL_GetAssistiveTechEngines(void) {
 
 SRAL_API const char* SRAL_GetEngineName(int engine) {
 	switch (static_cast<SRAL_Engines>(engine)) {
-	case SRAL_ENGINE_NONE: return "None";
-	case SRAL_ENGINE_NVDA: return "NVDA";
-	case SRAL_ENGINE_SAPI: return "SAPI";
-	case SRAL_ENGINE_JAWS: return "JAWS";
-	case SRAL_ENGINE_SPEECH_DISPATCHER: return "Speech Dispatcher";
-	case SRAL_ENGINE_UIA: return "UIA";
-	case SRAL_ENGINE_AV_SPEECH: return "AV Speech";
-	case SRAL_ENGINE_NS_SPEECH: return "NS Speech";
-	case SRAL_ENGINE_NARRATOR: return "Narrator";
-	case SRAL_ENGINE_VOICE_OVER: return "Voice Over";
-	case SRAL_ENGINE_ZDSR: return "ZDSR";
-	case SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH: return "Android TTS";
-	case SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER: return "Android AccessibilityManager";
-	case SRAL_ENGINE_CHROMEVOX: return "ChromeVox";
-	case SRAL_ENGINE_ORCA: return "Orca";
-	case SRAL_ENGINE_ACCESSKIT: return "AccessKit";
-	default: return "Unknown";
+	case SRAL_ENGINE_NONE:
+		return "None";
+	case SRAL_ENGINE_NVDA:
+		return "NVDA";
+	case SRAL_ENGINE_SAPI:
+		return "SAPI";
+	case SRAL_ENGINE_JAWS:
+		return "JAWS";
+	case SRAL_ENGINE_SPEECH_DISPATCHER:
+		return "Speech Dispatcher";
+	case SRAL_ENGINE_UIA:
+		return "UIA";
+	case SRAL_ENGINE_AV_SPEECH:
+		return "AV Speech";
+	case SRAL_ENGINE_NS_SPEECH:
+		return "NS Speech";
+	case SRAL_ENGINE_NARRATOR:
+		return "Narrator";
+	case SRAL_ENGINE_VOICE_OVER:
+		return "Voice Over";
+	case SRAL_ENGINE_ZDSR:
+		return "ZDSR";
+	case SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH:
+		return "Android TTS";
+	case SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER:
+		return "Android AccessibilityManager";
+	case SRAL_ENGINE_CHROMEVOX:
+		return "ChromeVox";
+	case SRAL_ENGINE_ORCA:
+		return "Orca";
+	case SRAL_ENGINE_ACCESSKIT:
+		return "AccessKit";
+	default:
+		return "Unknown";
 	}
 }
 
@@ -894,7 +916,7 @@ static LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
 		const KBDLLHOOKSTRUCT* const pKeyInfo = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
 		if (pKeyInfo) [[likely]] {
 			const bool is_control = (pKeyInfo->vkCode == VK_LCONTROL || pKeyInfo->vkCode == VK_RCONTROL);
-			const bool is_shift   = (pKeyInfo->vkCode == VK_LSHIFT   || pKeyInfo->vkCode == VK_RSHIFT);
+			const bool is_shift = (pKeyInfo->vkCode == VK_LSHIFT || pKeyInfo->vkCode == VK_RSHIFT);
 
 			if (wParam == WM_KEYDOWN) {
 				if (is_control) {
@@ -911,7 +933,8 @@ static LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam
 							int is_paused = 0;
 							if (ptr->GetParameter(SRAL_PARAM_ENGINE_IS_PAUSED, &is_paused) && is_paused) {
 								(void)ptr->ResumeSpeech();
-							} else {
+							}
+							else {
 								(void)ptr->PauseSpeech();
 							}
 						}
@@ -943,20 +966,22 @@ static DBusHandlerResult ProcessAtSpiKeyEvent(DBusConnection* conn, DBusMessage*
 
 			if (dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_UINT32) {
 				dbus_message_iter_get_basic(&iter, &type);
-				
+
 				if (dbus_message_iter_next(&iter) && dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_INT32) {
 					dbus_message_iter_get_basic(&iter, &id);
-					
+
 					if (dbus_message_iter_next(&iter) && dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_INT32) {
 						dbus_message_iter_get_basic(&iter, &hw_code);
-						
+
 						if (dbus_message_iter_next(&iter) && dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_INT32) {
 							dbus_message_iter_get_basic(&iter, &modifiers);
-							
-							if (dbus_message_iter_next(&iter) && dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_INT32) {
+
+							if (dbus_message_iter_next(&iter) &&
+								dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_INT32) {
 								dbus_message_iter_get_basic(&iter, &timestamp);
-								
-								if (dbus_message_iter_next(&iter) && dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_STRING) {
+
+								if (dbus_message_iter_next(&iter) &&
+									dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_STRING) {
 									dbus_message_iter_get_basic(&iter, &event_string);
 								}
 							}
@@ -968,7 +993,7 @@ static DBusHandlerResult ProcessAtSpiKeyEvent(DBusConnection* conn, DBusMessage*
 			if (event_string) [[likely]] {
 				const std::string_view key_name(event_string);
 				const bool is_control = (key_name == "Control_L" || key_name == "Control_R");
-				const bool is_shift   = (key_name == "Shift_L"   || key_name == "Shift_R");
+				const bool is_shift = (key_name == "Shift_L" || key_name == "Shift_R");
 
 				if (type == 0) { // Key Down
 					if (is_control) {
@@ -987,7 +1012,8 @@ static DBusHandlerResult ProcessAtSpiKeyEvent(DBusConnection* conn, DBusMessage*
 								int is_paused = 0;
 								if (ptr->GetParameter(SRAL_PARAM_ENGINE_IS_PAUSED, &is_paused) && is_paused) {
 									(void)ptr->ResumeSpeech();
-								} else {
+								}
+								else {
 									(void)ptr->PauseSpeech();
 								}
 							}

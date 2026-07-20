@@ -459,7 +459,7 @@ class Program
 				{
 					int eVal = (int)flag;
 					string name = Sral.GetEngineName(eVal);
-					
+
 					if (name != "Unknown Engine")
 					{
 						SralEngineCategory category = Sral.SRAL_GetEngineCategory(eVal);
@@ -510,7 +510,7 @@ class Program
 			Console.WriteLine($"Platform derived pure Text-to-Speech engines bitmask: 0x{ttsMask:X}");
 			Console.WriteLine($"Platform derived active Assistive Tech engines bitmask: 0x{atMask:X}");
 			Sral.SRAL_SetEnginesExclude(originalEnginesToExclude);
-			
+
 			TestSection("Unregister Keyboard Hooks");
 			Sral.SRAL_UnregisterKeyboardHooks();
 			Console.WriteLine("SRAL_UnregisterKeyboardHooks called. Hooks should now be inactive (if they were active).");
@@ -536,7 +536,7 @@ class Program
 			ErrorHandlingDemo();
 
 			PromptUser("All tests complete. Press Enter to exit.");
-		} 
+		}
 
 		static void ErrorHandlingDemo()
 		{

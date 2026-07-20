@@ -1,3 +1,5 @@
+#include "AndroidAccessibilityManager.h"
+
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -9,7 +11,6 @@
 #include <string_view>
 #include <thread>
 
-#include "AndroidAccessibilityManager.h"
 #include "../Dep/AndroidContext.h"
 
 #ifdef __ANDROID__
@@ -25,21 +26,21 @@
 #define JNI_VERSION_1_6 0x00010006
 #endif
 #ifndef JNI_EDETACHED
-#define JNI_EDETACHED    -2
+#define JNI_EDETACHED -2
 #endif
 #ifndef JNI_OK
-#define JNI_OK           0
+#define JNI_OK 0
 #endif
 #ifndef JNI_TRUE
-#define JNI_TRUE         1
+#define JNI_TRUE 1
 #endif
 #ifndef JNI_FALSE
-#define JNI_FALSE        0
+#define JNI_FALSE 0
 #endif
 #endif
 
 namespace Sral {
-	
+
 #ifdef __ANDROID__
 static bool CheckAndClearException(JNIEnv* env, const char* contextMessage) noexcept {
 	if (env->ExceptionCheck()) [[unlikely]] {
@@ -68,7 +69,8 @@ bool AndroidAccessibilityManager::IsScreenReaderActive() noexcept {
 
 bool AndroidAccessibilityManager::Initialize() {
 	std::lock_guard lock(m_init_mutex);
-	if (m_initialized) return true;
+	if (m_initialized)
+		return true;
 
 #ifdef __ANDROID__
 	m_jvm = GetAndroidJavaVM();
@@ -83,7 +85,7 @@ bool AndroidAccessibilityManager::Initialize() {
 		LOGE("Initialization Failed: Unable to attach native thread context to JavaVM.");
 		return false;
 	}
-	
+
 	ScopedLocalRef activityRef = GetAndroidActivity();
 	jobject activity = activityRef.get();
 	if (!activity) [[unlikely]] {
@@ -102,8 +104,9 @@ bool AndroidAccessibilityManager::Initialize() {
 
 	m_announcerClass = static_cast<jclass>(localEnv->NewGlobalRef(localClass));
 	localEnv->DeleteLocalRef(localClass);
-	
-	m_constructor = localEnv->GetMethodID(m_announcerClass, "<init>", "(Landroid/content/Context;Landroidx/lifecycle/LifecycleOwner;)V");
+
+	m_constructor = localEnv->GetMethodID(
+		m_announcerClass, "<init>", "(Landroid/content/Context;Landroidx/lifecycle/LifecycleOwner;)V");
 	m_midIsActive = localEnv->GetMethodID(m_announcerClass, "isActive", "()Z");
 	m_midAnnounce = localEnv->GetMethodID(m_announcerClass, "announce", "(Ljava/lang/String;Z)V");
 	m_midStop = localEnv->GetMethodID(m_announcerClass, "stop", "()V");
@@ -117,7 +120,8 @@ bool AndroidAccessibilityManager::Initialize() {
 
 	jobject localObj = localEnv->NewObject(m_announcerClass, m_constructor, activity, static_cast<jobject>(nullptr));
 	if (!localObj || CheckAndClearException(localEnv, "NewObject Failed")) [[unlikely]] {
-		if (localObj) localEnv->DeleteLocalRef(localObj);
+		if (localObj)
+			localEnv->DeleteLocalRef(localObj);
 		UninitializeInternal(localEnv);
 		return false;
 	}
@@ -127,9 +131,7 @@ bool AndroidAccessibilityManager::Initialize() {
 #endif
 
 	m_initialized = true;
-	m_worker_thread = std::jthread([this](std::stop_token st) {
-		BackgroundWorkerLoop(st);
-	});
+	m_worker_thread = std::jthread([this](std::stop_token st) { BackgroundWorkerLoop(st); });
 
 	return true;
 }
@@ -138,16 +140,17 @@ bool AndroidAccessibilityManager::Uninitialize() {
 	std::jthread thread_to_join;
 	{
 		std::lock_guard lock(m_init_mutex);
-		if (!m_initialized) return true;
-		
+		if (!m_initialized)
+			return true;
+
 		m_worker_thread.request_stop();
-		
+
 		size_t head_snap = m_head.load(std::memory_order_relaxed);
 		m_tail.store(head_snap, std::memory_order_release);
-		
+
 		m_ring_bell.store(true, std::memory_order_release);
 		m_ring_bell.notify_one();
-		
+
 		thread_to_join = std::move(m_worker_thread);
 		m_initialized = false;
 	}
@@ -198,16 +201,20 @@ void AndroidAccessibilityManager::UninitializeInternal(JNIEnv* localEnv) noexcep
 
 bool AndroidAccessibilityManager::GetActive() {
 	std::lock_guard lock(m_init_mutex);
-	if (!m_initialized) return false;
+	if (!m_initialized)
+		return false;
 
 #ifdef __ANDROID__
-	if (!m_jvm || !m_announcerObj || !m_midIsActive) return false;
+	if (!m_jvm || !m_announcerObj || !m_midIsActive)
+		return false;
 	ScopedAttachmentGuard jni(m_jvm);
 	JNIEnv* localEnv = jni.GetEnv();
-	if (!localEnv) return false;
+	if (!localEnv)
+		return false;
 
 	jboolean active = localEnv->CallBooleanMethod(m_announcerObj, m_midIsActive);
-	if (CheckAndClearException(localEnv, "CallBooleanMethod: isActive")) return false;
+	if (CheckAndClearException(localEnv, "CallBooleanMethod: isActive"))
+		return false;
 	return active == JNI_TRUE;
 #else
 	return false;
@@ -216,14 +223,17 @@ bool AndroidAccessibilityManager::GetActive() {
 
 bool AndroidAccessibilityManager::Speak(const char* speech_text, bool interrupt) {
 	std::string_view text_view(speech_text ? speech_text : "");
-	
+
 	if (!m_initialized) {
-		if (!IsScreenReaderActive()) return false;
+		if (!IsScreenReaderActive())
+			return false;
 		std::lock_guard lock(m_init_mutex);
-		if (!m_initialized && !Initialize()) return false;
+		if (!m_initialized && !Initialize())
+			return false;
 	}
 
-	if (m_worker_thread.get_stop_token().stop_requested()) return false;
+	if (m_worker_thread.get_stop_token().stop_requested())
+		return false;
 
 	AsyncSpeechTask* task = nullptr;
 	size_t ticket = m_head.load(std::memory_order_relaxed);
@@ -237,9 +247,11 @@ bool AndroidAccessibilityManager::Speak(const char* speech_text, bool interrupt)
 			if (m_head.compare_exchange_weak(ticket, ticket + 1, std::memory_order_relaxed)) {
 				break;
 			}
-		} else if (difference < 0) {
+		}
+		else if (difference < 0) {
 			return false;
-		} else {
+		}
+		else {
 			ticket = m_head.load(std::memory_order_relaxed);
 		}
 	}
@@ -251,7 +263,7 @@ bool AndroidAccessibilityManager::Speak(const char* speech_text, bool interrupt)
 	task->interrupt = interrupt;
 
 	task->sequence.store(ticket + 1, std::memory_order_release);
-	
+
 	if (!m_ring_bell.exchange(true, std::memory_order_release)) {
 		m_ring_bell.notify_one();
 	}
@@ -259,7 +271,8 @@ bool AndroidAccessibilityManager::Speak(const char* speech_text, bool interrupt)
 }
 
 bool AndroidAccessibilityManager::StopSpeech() {
-	if (!m_initialized) [[unlikely]] return false;
+	if (!m_initialized) [[unlikely]]
+		return false;
 
 	AsyncSpeechTask* task = nullptr;
 	size_t ticket = m_head.load(std::memory_order_relaxed);
@@ -273,7 +286,8 @@ bool AndroidAccessibilityManager::StopSpeech() {
 			if (m_head.compare_exchange_weak(ticket, ticket + 1, std::memory_order_relaxed)) {
 				break;
 			}
-		} else {
+		}
+		else {
 			if (difference < 0) {
 				return false;
 			}
@@ -289,7 +303,7 @@ bool AndroidAccessibilityManager::StopSpeech() {
 	task->interrupt = true;
 
 	task->sequence.store(ticket + 1, std::memory_order_release);
-	
+
 	if (!m_ring_bell.exchange(true, std::memory_order_release)) {
 		m_ring_bell.notify_one();
 	}
@@ -306,37 +320,42 @@ void AndroidAccessibilityManager::BackgroundWorkerLoop(std::stop_token stop_toke
 	{
 		std::lock_guard lock(m_init_mutex);
 		localJvm = m_jvm;
-		if (m_announcerObj) announcerObjGlobal = m_announcerObj;
+		if (m_announcerObj)
+			announcerObjGlobal = m_announcerObj;
 		midAnnounceLocal = m_midAnnounce;
 		midStopLocal = m_midStop;
 	}
 
-	if (!localJvm || !announcerObjGlobal) return;
+	if (!localJvm || !announcerObjGlobal)
+		return;
 
 	ScopedAttachmentGuard jni(localJvm);
 	JNIEnv* env = jni.GetEnv();
-	if (!env) return;
+	if (!env)
+		return;
 #endif
 
 	while (!stop_token.stop_requested()) {
 		size_t current_tail = m_tail.load(std::memory_order_acquire);
 		AsyncSpeechTask& task = m_ring_queue[current_tail & RING_MASK];
-		
+
 		size_t seq = task.sequence.load(std::memory_order_acquire);
 		intptr_t difference = static_cast<intptr_t>(seq) - static_cast<intptr_t>(current_tail + 1);
 
 		if (difference != 0) {
 			m_ring_bell.store(false, std::memory_order_release);
-			
+
 			seq = task.sequence.load(std::memory_order_acquire);
 			if (static_cast<intptr_t>(seq) - static_cast<intptr_t>(current_tail + 1) != 0) {
 				while (!m_ring_bell.load(std::memory_order_acquire) && !stop_token.stop_requested()) {
 					m_ring_bell.wait(false, std::memory_order_acquire);
 				}
-			} else {
+			}
+			else {
 				m_ring_bell.store(true, std::memory_order_release);
 			}
-			if (stop_token.stop_requested()) [[unlikely]] return;
+			if (stop_token.stop_requested()) [[unlikely]]
+				return;
 			continue;
 		}
 
@@ -350,7 +369,8 @@ void AndroidAccessibilityManager::BackgroundWorkerLoop(std::stop_token stop_toke
 				env->CallVoidMethod(announcerObjGlobal, midStopLocal);
 				CheckAndClearException(env, "CallVoidMethod: stop (via TaskType::Stop)");
 			}
-		} else if (localType == TaskType::Speak) {
+		}
+		else if (localType == TaskType::Speak) {
 			if (localInterrupt && midStopLocal) {
 				env->CallVoidMethod(announcerObjGlobal, midStopLocal);
 				CheckAndClearException(env, "CallVoidMethod: stop (via interruption trigger)");
@@ -358,14 +378,19 @@ void AndroidAccessibilityManager::BackgroundWorkerLoop(std::stop_token stop_toke
 			if (midAnnounceLocal) {
 				jstring javaString = env->NewStringUTF(localTextPtr);
 				if (javaString) {
-					env->CallVoidMethod(announcerObjGlobal, midAnnounceLocal, javaString, static_cast<jboolean>(localInterrupt ? JNI_TRUE : JNI_FALSE));
+					env->CallVoidMethod(announcerObjGlobal,
+						midAnnounceLocal,
+						javaString,
+						static_cast<jboolean>(localInterrupt ? JNI_TRUE : JNI_FALSE));
 					CheckAndClearException(env, "CallVoidMethod: announce");
 					env->DeleteLocalRef(javaString);
 				}
 			}
 		}
 #else
-		(void)localTextPtr; (void)localType; (void)localInterrupt;
+		(void)localTextPtr;
+		(void)localType;
+		(void)localInterrupt;
 #endif
 
 		m_tail.store(current_tail + 1, std::memory_order_release);

@@ -1,8 +1,10 @@
 #include "ChromeVox.h"
+
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <string_view>
-#include <algorithm>
+
 #include "../Include/SRAL.h"
 
 #if defined(__EMSCRIPTEN__)
@@ -32,12 +34,12 @@ bool ChromeVox::Initialize() {
 
 #if defined(__EMSCRIPTEN__)
 	int detected_mode = 0;
-	
+
 	detected_mode = MAIN_THREAD_EM_ASM_INT({
-		if (typeof window !== 'undefined' && (window.cvox || typeof cvox !== 'undefined')) {
+		if (typeof window != = 'undefined' && (window.cvox || typeof cvox != = 'undefined')) {
 			return 1;
 		}
-		if (typeof navigator !== 'undefined' && /\bCrOS\b /.test(navigator.userAgent)) {
+		if (typeof navigator != = 'undefined' && /\bCrOS\b /.test(navigator.userAgent)) {
 			return 2;
 		}
 		return 0;
@@ -171,7 +173,9 @@ bool ChromeVox::Speak(const char* speech_text, bool interrupt) {
 		return true;
 	}
 #else
-	(void)speech_text; (void)interrupt; (void)current_mode;
+	(void)speech_text;
+	(void)interrupt;
+	(void)current_mode;
 #endif
 
 	return false;
@@ -271,12 +275,14 @@ bool ChromeVox::IsSpeaking() {
 }
 
 bool ChromeVox::SetParameter(int param, const void* value) {
-	(void)param; (void)value;
+	(void)param;
+	(void)value;
 	return false;
 }
 
 bool ChromeVox::GetParameter(int param, void* value) {
-	(void)param; (void)value;
+	(void)param;
+	(void)value;
 	return false;
 }
 
@@ -288,16 +294,16 @@ int ChromeVox::GetFeatures() {
 	return SRAL_SUPPORTS_SPEECH;
 }
 
-int ChromeVox::GetNumber() { 
-	return SRAL_ENGINE_CHROMEVOX; 
+int ChromeVox::GetNumber() {
+	return SRAL_ENGINE_CHROMEVOX;
 }
 
-int ChromeVox::GetCategory() { 
-	return SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE; 
+int ChromeVox::GetCategory() {
+	return SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE;
 }
 
-int ChromeVox::GetKeyFlags() { 
-	return HANDLE_NONE; 
+int ChromeVox::GetKeyFlags() {
+	return HANDLE_NONE;
 }
 
 } // namespace Sral

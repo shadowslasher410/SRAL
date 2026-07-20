@@ -2,6 +2,11 @@
 #define ENGINE_H_
 #pragma once
 
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4514)
+#endif
+
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -10,15 +15,14 @@
 #include <type_traits>
 #include <vector>
 
-// cppcheck-suppress syntaxError
 namespace Sral {
 
 enum KeyboardFlags : int { HANDLE_NONE = 0, HANDLE_INTERRUPT = 2, HANDLE_PAUSE_RESUME = 4 };
 
 #if defined(__cpp_lib_hardware_interference_size) && __cpp_lib_hardware_interference_size >= 201907L
-    inline constexpr std::size_t destructive_alignment = std::hardware_destructive_interference_size;
+inline constexpr std::size_t destructive_alignment = std::hardware_destructive_interference_size;
 #else
-    inline constexpr std::size_t destructive_alignment = 64;
+inline constexpr std::size_t destructive_alignment = 64;
 #endif
 
 class alignas(destructive_alignment) Engine {
@@ -28,7 +32,7 @@ public:
 
 	Engine(const Engine&) = delete;
 	Engine& operator=(const Engine&) = delete;
-	
+
 	Engine(Engine&&) noexcept = default;
 	Engine& operator=(Engine&&) noexcept = default;
 
@@ -77,4 +81,8 @@ protected:
 
 } // namespace Sral
 
-#endif // ENGINE_H_
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
+
+#endif

@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-/* 
+/*
  * ==============================================================================
  * NOTICE OF ALTERATION
  * ==============================================================================
@@ -45,21 +45,21 @@ SOFTWARE.
 extern "C" {
 #endif
 
-#include <stdint.h>
 #include <stddef.h>
+#include <stdint.h>
 
 /**
  * @struct utf8_iter
  * @brief Thread-safe UTF-8 string multi-byte iteration state tracker (C17 Standard Compliant).
  */
 typedef struct utf8_iter {
-    const char* ptr;        /* Pointer tracking the underlying raw character vector */
-    uint32_t    codepoint;  /* Decoded Unicode codepoint integer token value */
-    uint8_t     size;       /* Current character footprint size calculated in bytes */
-    uint32_t    position;   /* Current absolute byte position offset within array */
-    uint32_t    next;       /* Imminent byte position marker index */
-    uint32_t    count;      /* Logical multi-byte character sequence array counter */
-    uint32_t    length;     /* Total physical byte size layout of string (strlen) */
+	const char* ptr;	/* Pointer tracking the underlying raw character vector */
+	uint32_t codepoint; /* Decoded Unicode codepoint integer token value */
+	uint8_t size;		/* Current character footprint size calculated in bytes */
+	uint32_t position;	/* Current absolute byte position offset within array */
+	uint32_t next;		/* Imminent byte position marker index */
+	uint32_t count;		/* Logical multi-byte character sequence array counter */
+	uint32_t length;	/* Total physical byte size layout of string (strlen) */
 } utf8_iter;
 
 /* --- Lifecycle Management --- */
@@ -108,7 +108,6 @@ uint8_t unicode_to_utf8(uint32_t codepoint, char* out_buffer);
 #else
 uint8_t unicode_to_utf8(uint32_t codepoint, char out_buffer[static 5]);
 #endif
-
 
 /* --- Advanced Engine Internal Processing Hooks --- */
 uint8_t utf8_charsize(const char* character);

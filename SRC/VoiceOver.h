@@ -7,6 +7,7 @@
 #include <queue>
 #include <string>
 #include <thread>
+
 #include "../Include/SRAL.h"
 #include "Engine.h"
 
@@ -14,15 +15,12 @@ namespace Sral {
 
 class VoiceOver final : public Engine {
 private:
-	enum class CommandType {
-		Speak,
-		Stop
-	};
+	enum class CommandType { Speak, Stop };
 
 	struct ThreadCommand {
 		CommandType type = CommandType::Stop;
 		std::string payload;
-		bool        interrupt = false;
+		bool interrupt = false;
 	};
 
 public:
@@ -55,12 +53,12 @@ private:
 	void BackgroundWorkerLoop() noexcept;
 
 	mutable std::mutex instanceMutex;
-	std::atomic<bool>  m_isSpeakingCache{ false };
-	std::thread               m_workerThread;
-	std::atomic<bool>         m_running{ false };
+	std::atomic<bool> m_isSpeakingCache{false};
+	std::thread m_workerThread;
+	std::atomic<bool> m_running{false};
 	std::queue<ThreadCommand> m_commandQueue;
-	std::mutex                m_queueMutex;
-	std::condition_variable   m_cv;
+	std::mutex m_queueMutex;
+	std::condition_variable m_cv;
 };
 
 } // namespace Sral

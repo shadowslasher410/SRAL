@@ -29,34 +29,34 @@ namespace SralCSharp
 		AndroidActivity = 12
 	};
 
-[Flags]
-public enum SralEngineFlags : int
-{
-    None = 0,
-    Nvda = 1 << 1,
-    Jaws = 1 << 2,
-    Zdsr = 1 << 3,
-    Narrator = 1 << 4,
-    Uia = 1 << 5,
-    Sapi = 1 << 6,
-    SpeechDispatcher = 1 << 7,
-    Orca = 1 << 8,
-    VoiceOver = 1 << 9,
-    NsSpeech = 1 << 10,
-    AvSpeech = 1 << 11,
-    AndroidAccessibilityManager = 1 << 12,
-    AndroidTextToSpeech = 1 << 13,
-    WebSpeech = 1 << 14,
-    ChromeVox = 1 << 15,
-    AccessKit = 1 << 16,
-    Any = -1
-}
+	[Flags]
+	public enum SralEngineFlags : int
+	{
+		None = 0,
+		Nvda = 1 << 1,
+		Jaws = 1 << 2,
+		Zdsr = 1 << 3,
+		Narrator = 1 << 4,
+		Uia = 1 << 5,
+		Sapi = 1 << 6,
+		SpeechDispatcher = 1 << 7,
+		Orca = 1 << 8,
+		VoiceOver = 1 << 9,
+		NsSpeech = 1 << 10,
+		AvSpeech = 1 << 11,
+		AndroidAccessibilityManager = 1 << 12,
+		AndroidTextToSpeech = 1 << 13,
+		WebSpeech = 1 << 14,
+		ChromeVox = 1 << 15,
+		AccessKit = 1 << 16,
+		Any = -1
+	}
 
 	[Flags]
 	public enum SralFeatureFlags : int
 	{
 		None = 0,
-        SRAL_SUPPORTS_SPEECH = 1 << 0,
+		SRAL_SUPPORTS_SPEECH = 1 << 0,
 		SRAL_SUPPORTS_BRAILLE = 1 << 1,
 		SRAL_SUPPORTS_SPEECH_RATE = 1 << 2,
 		SRAL_SUPPORTS_SPEECH_VOLUME = 1 << 3,
@@ -79,20 +79,20 @@ public enum SralEngineFlags : int
 
 	public static class Sral
 	{
-		#if IOS || __IOS__
+#if IOS || __IOS__
 					private const string DllName = "__Internal";
-		#else
-				private const string DllName = "SRAL";
-		#endif
+#else
+		private const string DllName = "SRAL";
+#endif
 
 		static Sral()
 		{
-		#if !IOS && !__IOS__
-					NativeLibrary.SetDllImportResolver(typeof(Sral).Assembly, ResolveSralNativeBinary);
-		#endif
-				}
+#if !IOS && !__IOS__
+			NativeLibrary.SetDllImportResolver(typeof(Sral).Assembly, ResolveSralNativeBinary);
+#endif
+		}
 
-		#if !IOS && !__IOS__
+#if !IOS && !__IOS__
 		private static IntPtr ResolveSralNativeBinary(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
 		{
 			if (libraryName != "SRAL")
@@ -139,7 +139,7 @@ public enum SralEngineFlags : int
 
 			return IntPtr.Zero;
 		}
-		#endif
+#endif
 
 		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
 		public static extern bool SRAL_Initialize(int enginesExclude);
@@ -286,24 +286,24 @@ public enum SralEngineFlags : int
 		public static bool GetVoicesParameter(int engine, SralEngineParameters param, out SralVoiceInfo[] voices)
 		{
 			voices = Array.Empty<SralVoiceInfo>();
-			
+
 			int count = GetIntParameter(engine, SralEngineParameters.VoiceCount);
 			if (count <= 0) return false;
 
 			if (SRAL_GetEngineParameter(engine, (int)param, out IntPtr arrayPtr) && arrayPtr != IntPtr.Zero)
 			{
 				voices = new SralVoiceInfo[count];
-				
+
 				for (int i = 0; i < count; i++)
 				{
 					IntPtr currentPtrLocation = IntPtr.Add(arrayPtr, i * IntPtr.Size);
-					
+
 					IntPtr structPtr = Marshal.ReadIntPtr(currentPtrLocation);
-					
+
 					if (structPtr != IntPtr.Zero)
 					{
 						voices[i] = Marshal.PtrToStructure<SralVoiceInfo>(structPtr);
-						SRAL_free(structPtr); 
+						SRAL_free(structPtr);
 					}
 				}
 				SRAL_free(arrayPtr);

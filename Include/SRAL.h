@@ -54,59 +54,58 @@ extern "C" {
  * accessibility frameworks across various operating systems. They can be
  * bitwise OR'ed (|) together to build exclusion engine masks.
  */
-
 enum SRAL_Engines {
-    /** @brief No specific engine identified or engine is unknown. */
-    SRAL_ENGINE_NONE = 0,
+	/** @brief No specific engine identified or engine is unknown. */
+	SRAL_ENGINE_NONE = 0,
 
-    /* Windows Screen Readers */
-    /** @brief NonVisual Desktop Access (NVDA) open-source screen reader for Windows. */
-    SRAL_ENGINE_NVDA = 1 << 1,
-    /** @brief Job Access With Speech (JAWS) commercial screen reader for Windows. */
-    SRAL_ENGINE_JAWS = 1 << 2,
-    /** @brief Zhengdu Screen Reader (ZDSR) specialized screen reader for Windows. */
-    SRAL_ENGINE_ZDSR = 1 << 3,
-    /** @brief Microsoft Narrator, the built-in screen reader for Windows systems. */
-    SRAL_ENGINE_NARRATOR = 1 << 4,
+	/* Windows Screen Readers */
+	/** @brief NonVisual Desktop Access (NVDA) open-source screen reader for Windows. */
+	SRAL_ENGINE_NVDA = 1 << 1,
+	/** @brief Job Access With Speech (JAWS) commercial screen reader for Windows. */
+	SRAL_ENGINE_JAWS = 1 << 2,
+	/** @brief Zhengdu Screen Reader (ZDSR) specialized screen reader for Windows. */
+	SRAL_ENGINE_ZDSR = 1 << 3,
+	/** @brief Microsoft Narrator, the built-in screen reader for Windows systems. */
+	SRAL_ENGINE_NARRATOR = 1 << 4,
 
-    /* Windows Accessibility Frameworks */
-    /** @brief Microsoft UI Automation (UIA) notification bridge framework for Windows. */
+	/* Windows Accessibility Frameworks */
+	/** @brief Microsoft UI Automation (UIA) notification bridge framework for Windows. */
 	SRAL_ENGINE_UIA = 1 << 5,
 
-    /* Windows Speech Synthesis Engines */
-    /** @brief Microsoft Speech API (SAPI) for text-to-speech rendering on Windows. */
-    SRAL_ENGINE_SAPI = 1 << 6,
+	/* Windows Speech Synthesis Engines */
+	/** @brief Microsoft Speech API (SAPI) for text-to-speech rendering on Windows. */
+	SRAL_ENGINE_SAPI = 1 << 6,
 
-    /* Linux Speech Synthesis Engines */
-    /** @brief Speech Dispatcher, the standard central speech synthesis daemon on Linux. */
-    SRAL_ENGINE_SPEECH_DISPATCHER = 1 << 7,
-    
+	/* Linux Speech Synthesis Engines */
+	/** @brief Speech Dispatcher, the standard central speech synthesis daemon on Linux. */
+	SRAL_ENGINE_SPEECH_DISPATCHER = 1 << 7,
+
 	/** @brief Orca, the standard open-source desktop screen reader for Linux environments. */
-    SRAL_ENGINE_ORCA = 1 << 8,
+	SRAL_ENGINE_ORCA = 1 << 8,
 
-    /* Apple Screen Readers (macOS, iOS, etc.) */
-    /** @brief Apple VoiceOver, the integrated system screen reader on macOS and iOS. */
-    SRAL_ENGINE_VOICE_OVER = 1 << 9,
+	/* Apple Screen Readers (macOS, iOS, etc.) */
+	/** @brief Apple VoiceOver, the integrated system screen reader on macOS and iOS. */
+	SRAL_ENGINE_VOICE_OVER = 1 << 9,
 
-    /* Apple Speech Synthesis Engines */
-    /** @brief Legacy Cocoa NSSpeechSynthesizer engine for macOS text-to-speech. */
-    SRAL_ENGINE_NS_SPEECH = 1 << 10,
-    /** @brief Modern AVFoundation AVSpeechSynthesizer framework for Apple platforms. */
-    SRAL_ENGINE_AV_SPEECH = 1 << 11,
+	/* Apple Speech Synthesis Engines */
+	/** @brief Legacy Cocoa NSSpeechSynthesizer engine for macOS text-to-speech. */
+	SRAL_ENGINE_NS_SPEECH = 1 << 10,
+	/** @brief Modern AVFoundation AVSpeechSynthesizer framework for Apple platforms. */
+	SRAL_ENGINE_AV_SPEECH = 1 << 11,
 
-    /* Android Speech Synthesis Engines */
-    /** @brief Android AccessibilityManager driving screen readers such as TalkBack. */
-    SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER = 1 << 12,
-    /** @brief Native Android Text-To-Speech rendering subsystem engine layer. */
-    SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH = 1 << 13,
+	/* Android Speech Synthesis Engines */
+	/** @brief Android AccessibilityManager driving screen readers such as TalkBack. */
+	SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER = 1 << 12,
+	/** @brief Native Android Text-To-Speech rendering subsystem engine layer. */
+	SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH = 1 << 13,
 
-    /* Chrome OS / Browser */
-    /** @brief ChromeVox accessibility engine browser extension & ChromeOS native service. */
-    SRAL_ENGINE_CHROMEVOX = 1 << 14,
+	/* Chrome OS / Browser */
+	/** @brief ChromeVox accessibility engine browser extension & ChromeOS native service. */
+	SRAL_ENGINE_CHROMEVOX = 1 << 14,
 
 	/* Cross-Platform Framework Infrastructure */
-    /** @brief AccessKit unified static/shared library bridge layer for multi-target layouts. */
-    SRAL_ENGINE_ACCESSKIT = 1 << 15
+	/** @brief AccessKit unified static/shared library bridge layer for multi-target layouts. */
+	SRAL_ENGINE_ACCESSKIT = 1 << 15
 };
 
 /**
@@ -137,7 +136,6 @@ typedef enum SRAL_EngineCategory {
  *
  * This enumeration defines the features supported by various speech engines.
  */
-
 enum SRAL_SupportedFeatures {
 	SRAL_SUPPORTS_SPEECH = 1 << 1,
 	SRAL_SUPPORTS_BRAILLE = 1 << 2,
@@ -154,7 +152,6 @@ enum SRAL_SupportedFeatures {
  * @enum SRAL_EngineParams
  * @brief Enumeration of engine parameters.
  */
-
 enum SRAL_EngineParams {
 	SRAL_PARAM_SPEECH_RATE,
 	SRAL_PARAM_SPEECH_VOLUME,
@@ -180,14 +177,13 @@ enum SRAL_EngineParams {
 	 * Must be set via SRAL_SetEngineParameter before SRAL_Initialize.
 	 * Value is a jobject cast to void*.
 	 */
-	SRAL_PARAM_ANDROID_ACTIVITY,	
+	SRAL_PARAM_ANDROID_ACTIVITY,
 };
 
 /**
  * @struct SRAL_VoiceInfo
  * @brief Voice information values.
  */
-
 typedef struct {
 	int index;
 	const char* name;
@@ -206,14 +202,12 @@ typedef struct {
  * @return a pointer to the allocated buffer, if allocation was successful, false otherwise.
  * The caller is responsable to free the memory
  */
-
 SRAL_API void* SRAL_malloc(size_t size);
 
 /**
  * @brief Free the allocated memory.
  * @param memory A pointer to the allocated memory.
  */
-
 SRAL_API void SRAL_free(void* memory);
 
 /**
@@ -231,7 +225,6 @@ SRAL_API void SRAL_free(void* memory);
  * @param interrupt A flag indicating whether to interrupt the current speech.
  * @return true if speaking was successful, false otherwise.
  */
-
 SRAL_API bool SRAL_Speak(const char* text, bool interrupt);
 
 /**
@@ -246,7 +239,6 @@ SRAL_API bool SRAL_Speak(const char* text, bool interrupt);
 * @return a pointer to the PCM buffer if speaking was successful, false otherwise.
 * The caller is responsable to free the memory
 */
-
 SRAL_API void* SRAL_SpeakToMemory(
 	const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample);
 
@@ -256,7 +248,6 @@ SRAL_API void* SRAL_SpeakToMemory(
  * @param interrupt A flag indicating whether to interrupt the current speech.
  * @return true if speaking was successful, false otherwise.
  */
-
 SRAL_API bool SRAL_SpeakSsml(const char* ssml, bool interrupt);
 
 /**
@@ -264,7 +255,6 @@ SRAL_API bool SRAL_SpeakSsml(const char* ssml, bool interrupt);
  * @param text A pointer to the text string to be output in Braille.
  * @return true if Braille output was successful, false otherwise.
  */
-
 SRAL_API bool SRAL_Braille(const char* text);
 
 /**
@@ -273,42 +263,36 @@ SRAL_API bool SRAL_Braille(const char* text);
  * @param interrupt A flag indicating whether to interrupt speech.
  * @return true if output was successful, false otherwise.
  */
-
 SRAL_API bool SRAL_Output(const char* text, bool interrupt);
 
 /**
  * @brief Stop speech if it is active.
  * @return true if speech was stopped successfully, false otherwise.
  */
-
 SRAL_API bool SRAL_StopSpeech(void);
 
 /**
  * @brief Pause speech if it is active and the current speech engine supports this.
  * @return true if speech was paused successfully, false otherwise.
  */
-
 SRAL_API bool SRAL_PauseSpeech(void);
 
 /**
  * @brief Resume speech if it was active and the current speech engine supports this.
  * @return true if speech was resumed successfully, false otherwise.
  */
-
 SRAL_API bool SRAL_ResumeSpeech(void);
 
 /**
  * @brief Get status, does this engine speak now.
  * @return true if the engine is currently speaking, false otherwise.
  */
-
 SRAL_API bool SRAL_IsSpeaking(void);
 
 /**
  * @brief Get the current speech engine in use.
  * @return The identifier of the current speech engine defined by the SRAL_Engines enumeration.
  */
-
 SRAL_API int SRAL_GetCurrentEngine(void);
 
 /**
@@ -317,7 +301,6 @@ SRAL_API int SRAL_GetCurrentEngine(void);
  * @return An integer representing the features supported by the engine defined by the SRAL_SupportedFeatures
  * enumeration.
  */
-
 SRAL_API int SRAL_GetEngineFeatures(int engine);
 
 /**
@@ -335,7 +318,6 @@ SRAL_API int SRAL_GetEngineFeatures(int engine);
 
 * @return true if the parameter was set successfully, false otherwise.
 */
-
 SRAL_API bool SRAL_SetEngineParameter(int engine, int param, const void* value);
 
 /**
@@ -345,7 +327,6 @@ SRAL_API bool SRAL_SetEngineParameter(int engine, int param, const void* value);
 
 * @return true if the parameter was retrieved successfully, false otherwise.
 */
-
 SRAL_API bool SRAL_GetEngineParameter(int engine, int param, void* value);
 
 /**
@@ -353,13 +334,11 @@ SRAL_API bool SRAL_GetEngineParameter(int engine, int param, void* value);
  * @param engines_exclude A bitmask specifying engines to exclude from auto update. Defaults to 0 (include all).
  * @return true if initialization was successful, false otherwise.
  */
-
 SRAL_API bool SRAL_Initialize(int engines_exclude);
 
 /**
  * @brief Uninitialize the library, freeing resources.
  */
-
 SRAL_API void SRAL_Uninitialize(void);
 
 /**
@@ -375,7 +354,6 @@ SRAL_API void SRAL_Uninitialize(void);
  * @param interrupt A flag indicating whether to interrupt the current speech.
  * @return true if speaking was successful, false otherwise.
  */
-
 SRAL_API bool SRAL_SpeakEx(int engine, const char* text, bool interrupt);
 
 /**
@@ -390,7 +368,6 @@ SRAL_API bool SRAL_SpeakEx(int engine, const char* text, bool interrupt);
 * @return a pointer to the PCM buffer if speaking was successful, false otherwise.
 * The caller is responsable to free the memory
 */
-
 SRAL_API void* SRAL_SpeakToMemoryEx(
 	int engine, const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample);
 
@@ -401,7 +378,6 @@ SRAL_API void* SRAL_SpeakToMemoryEx(
  * @param interrupt A flag indicating whether to interrupt the current speech.
  * @return true if speaking was successful, false otherwise.
  */
-
 SRAL_API bool SRAL_SpeakSsmlEx(int engine, const char* ssml, bool interrupt);
 
 /**
@@ -410,7 +386,6 @@ SRAL_API bool SRAL_SpeakSsmlEx(int engine, const char* ssml, bool interrupt);
  * @param text A pointer to the text string to be output in Braille display.
  * @return true if Braille output was successful, false otherwise.
  */
-
 SRAL_API bool SRAL_BrailleEx(int engine, const char* text);
 
 /**
@@ -420,7 +395,6 @@ SRAL_API bool SRAL_BrailleEx(int engine, const char* text);
  * @param interrupt A flag indicating whether to interrupt the current speech.
  * @return true if output was successful, false otherwise.
  */
-
 SRAL_API bool SRAL_OutputEx(int engine, const char* text, bool interrupt);
 
 /**
@@ -428,7 +402,6 @@ SRAL_API bool SRAL_OutputEx(int engine, const char* text, bool interrupt);
  * @param engine The engine to stop speech for.
  * @return true if speech was stopped successfully, false otherwise.
  */
-
 SRAL_API bool SRAL_StopSpeechEx(int engine);
 
 /**
@@ -436,7 +409,6 @@ SRAL_API bool SRAL_StopSpeechEx(int engine);
  * @param engine The engine to pause speech for.
  * @return true if speech was paused successfully, false otherwise.
  */
-
 SRAL_API bool SRAL_PauseSpeechEx(int engine);
 
 /**
@@ -444,7 +416,6 @@ SRAL_API bool SRAL_PauseSpeechEx(int engine);
  * @param engine The engine to resume speech for.
  * @return true if speech was resumed successfully, false otherwise.
  */
-
 SRAL_API bool SRAL_ResumeSpeechEx(int engine);
 
 /**
@@ -452,14 +423,12 @@ SRAL_API bool SRAL_ResumeSpeechEx(int engine);
  * @param engine The engine to get speaking status for.
  * @return true if the engine is currently speaking, false otherwise.
  */
-
 SRAL_API bool SRAL_IsSpeakingEx(int engine);
 
 /**
  * @brief Check if the library has been initialized.
  * @return true if the library is initialized, false otherwise.
  */
-
 SRAL_API bool SRAL_IsInitialized(void);
 
 /**
@@ -492,27 +461,23 @@ SRAL_API bool SRAL_DelayOutputEx(int engine, int time, const char* text, bool in
  * Microsoft SAPI 5 or SpeechDispatcher. These hooks work globally in any window. Ctrl - Interrupt, Shift - Pause.
  * @return true if the hooks are successfully installed, false otherwise.
  */
-
 SRAL_API bool SRAL_RegisterKeyboardHooks(void);
 
 /**
  *@brief Uninstall speech interruption and pause keyboard hooks.
  */
-
 SRAL_API void SRAL_UnregisterKeyboardHooks(void);
 
 /**
  * @brief Get all available engines for the current platform.
  * @return Bitmask with available engines.
  */
-
 SRAL_API int SRAL_GetAvailableEngines(void);
 
 /**
  * @brief Get all active engines that can be used.
  * @return Bitmask with active engines.
  */
-
 SRAL_API int SRAL_GetActiveEngines(void);
 
 /**
@@ -526,7 +491,6 @@ SRAL_API int SRAL_GetActiveEngines(void);
  * @param engine An SRAL_Engines identifier.
  * @return The engine's SRAL_EngineCategory.
  */
-
 SRAL_API SRAL_EngineCategory SRAL_GetEngineCategory(int engine);
 
 /**
@@ -544,7 +508,6 @@ SRAL_API SRAL_EngineCategory SRAL_GetEngineCategory(int engine);
  *
  * @return Bitmask of TTS engines defined by the SRAL_Engines enumeration.
  */
-
 SRAL_API int SRAL_GetTTSEngines(void);
 
 /**
@@ -563,7 +526,6 @@ SRAL_API int SRAL_GetTTSEngines(void);
  *
  * @return Bitmask of assistive-tech engines defined by the SRAL_Engines enumeration.
  */
-
 SRAL_API int SRAL_GetAssistiveTechEngines(void);
 
 /**
@@ -571,7 +533,6 @@ SRAL_API int SRAL_GetAssistiveTechEngines(void);
  * @param engine The identifier of the engine to query.
  * @return a pointer to the name.
  */
-
 SRAL_API const char* SRAL_GetEngineName(int engine);
 
 /**
@@ -579,14 +540,12 @@ SRAL_API const char* SRAL_GetEngineName(int engine);
  * @param engines_exclude A bitmask specifying engines to exclude from auto update. Defaults to 0 (include all).
  * @return true if excludes was successful set, false otherwise.
  */
-
 SRAL_API bool SRAL_SetEnginesExclude(int engines_exclude);
 
 /**
  * @brief Get engines excluded from auto update.
  * @return bitmask with excluded engines if SRAL was successfully initialized, -1 otherwise.
  */
-
 SRAL_API int SRAL_GetEnginesExclude(void);
 
 #ifdef __cplusplus

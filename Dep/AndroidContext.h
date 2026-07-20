@@ -5,82 +5,82 @@
 #include <cstdint>
 
 #if defined(__ANDROID__)
-    #include <jni.h>
+#include <jni.h>
 #else
-    using jint = int32_t;
-    using jboolean = uint8_t;
+using jint = int32_t;
+using jboolean = uint8_t;
 
-    struct _jobject;
-    struct _jarray;
-    
-    typedef struct _jobject* jobject;
-    typedef struct _jobject* jweak;
-    typedef struct _jobject* jclass;
-    typedef struct _jobject* jstring;
-    typedef void*            jmethodID;
-    
-    struct JNIEnv;
-    struct JavaVM;
+struct _jobject;
+struct _jarray;
+
+typedef struct _jobject* jobject;
+typedef struct _jobject* jweak;
+typedef struct _jobject* jclass;
+typedef struct _jobject* jstring;
+typedef void* jmethodID;
+
+struct JNIEnv;
+struct JavaVM;
 #endif
 
 namespace Sral {
 class [[nodiscard]] ScopedAttachmentGuard final {
 public:
-    explicit ScopedAttachmentGuard(JavaVM* vm) noexcept;
-    ~ScopedAttachmentGuard() noexcept;
+	explicit ScopedAttachmentGuard(JavaVM* vm) noexcept;
+	~ScopedAttachmentGuard() noexcept;
 
-    ScopedAttachmentGuard(const ScopedAttachmentGuard&) = delete;
-    ScopedAttachmentGuard& operator=(const ScopedAttachmentGuard&) = delete;
-    ScopedAttachmentGuard(ScopedAttachmentGuard&&) noexcept = delete;
-    ScopedAttachmentGuard& operator=(ScopedAttachmentGuard&&) noexcept = delete;
+	ScopedAttachmentGuard(const ScopedAttachmentGuard&) = delete;
+	ScopedAttachmentGuard& operator=(const ScopedAttachmentGuard&) = delete;
+	ScopedAttachmentGuard(ScopedAttachmentGuard&&) noexcept = delete;
+	ScopedAttachmentGuard& operator=(ScopedAttachmentGuard&&) noexcept = delete;
 
-    [[nodiscard]] JNIEnv* GetEnv() const noexcept { return env_; }
+	[[nodiscard]] JNIEnv* GetEnv() const noexcept { return env_; }
 
 private:
-    JavaVM* vm_;
-    JNIEnv* env_;
-    bool must_detach_;
+	JavaVM* vm_;
+	JNIEnv* env_;
+	bool must_detach_;
 };
 
 /**
  * @brief An RAII wrapper that automatically manages the lifecycle of a JNI local reference.
- * 
+ *
  * Ensures that DeleteLocalRef is executed immediately when the wrapper scope terminates,
  * preventing local reference table exhaustion on heavy background loops.
  */
 class [[nodiscard]] ScopedLocalRef final {
 public:
-    ScopedLocalRef() noexcept = default;
-    explicit ScopedLocalRef(JNIEnv* env, jobject ref) noexcept : env_(env), ref_(ref) {}
-    ~ScopedLocalRef() noexcept;
+	ScopedLocalRef() noexcept = default;
+	explicit ScopedLocalRef(JNIEnv* env, jobject ref) noexcept : env_(env), ref_(ref) {}
+	~ScopedLocalRef() noexcept;
 
-    // Local references are bound to their stack frame scope and cannot be copied
-    ScopedLocalRef(const ScopedLocalRef&) = delete;
-    ScopedLocalRef& operator=(const ScopedLocalRef&) = delete;
+	// Local references are bound to their stack frame scope and cannot be copied
+	ScopedLocalRef(const ScopedLocalRef&) = delete;
+	ScopedLocalRef& operator=(const ScopedLocalRef&) = delete;
 
-    // Supports explicit ownership transfers via C++ move semantics
-    ScopedLocalRef(ScopedLocalRef&& other) noexcept;
-    ScopedLocalRef& operator=(ScopedLocalRef&& other) noexcept;
+	// Supports explicit ownership transfers via C++ move semantics
+	ScopedLocalRef(ScopedLocalRef&& other) noexcept;
+	ScopedLocalRef& operator=(ScopedLocalRef&& other) noexcept;
 
-    /**
-     * @brief Relinquishes ownership of the wrapped local reference without freeing it.
-     * @return The raw JNI jobject reference.
-     */
-    [[nodiscard]] jobject release() noexcept;
+	/**
+	 * @brief Relinquishes ownership of the wrapped local reference without freeing it.
+	 * @return The raw JNI jobject reference.
+	 */
+	[[nodiscard]] jobject release() noexcept;
 
-    /**
-     * @brief Accesses the raw underlying local reference pointer.
-     */
-    [[nodiscard]] jobject get() const noexcept { return ref_; }
+	/**
+	 * @brief Accesses the raw underlying local reference pointer.
+	 */
+	[[nodiscard]] jobject get() const noexcept { return ref_; }
 
-    /**
-     * @brief Syntactic sugar to quickly check if the underlying reference is non-null.
-     */
-    [[nodiscard]] explicit operator bool() const noexcept { return ref_ != nullptr; }
+	/**
+	 * @brief Syntactic sugar to quickly check if the underlying reference is non-null.
+	 */
+	[[nodiscard]] explicit operator bool() const noexcept { return ref_ != nullptr; }
 
 private:
-    JNIEnv* env_{nullptr};
-    jobject ref_{nullptr};
+	JNIEnv* env_{nullptr};
+	jobject ref_{nullptr};
 };
 
 /**

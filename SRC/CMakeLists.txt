@@ -49,7 +49,24 @@ set(CORE_SOURCES Engine.cpp SRAL.cpp)
 
 if(NOT IS_EMSCRIPTEN) 
     if(SRAL_WITH_ACCESSKIT)
-        list(APPEND CORE_SOURCES ACAnnouncer.cpp)
+        unset(ak_check CACHE)
+
+        if(NOT "${PATH_ACCESSKIT_INSTALL}" STREQUAL "")
+            find_library(ak_check NAMES accesskit PATHS "${PATH_ACCESSKIT_INSTALL}" NO_DEFAULT_PATH)
+        endif()
+
+        if(NOT ak_check)
+            find_library(ak_check NAMES accesskit)
+        endif()
+
+        if(ak_check)
+            set(opt_accesskit TRUE)
+            list(APPEND sral_dependencies ${ak_check})
+            list(APPEND CORE_SOURCES ACAnnouncer.cpp)
+        else()
+            set(opt_accesskit FALSE)
+            add_compile_definitions(SRAL_NO_ACCESSKIT)
+        endif()
     else()
         add_compile_definitions(SRAL_NO_ACCESSKIT)
     endif()
@@ -81,7 +98,6 @@ if(IS_WINDOWS)
     else()
         add_compile_definitions(SRAL_NO_UIA)
     endif()
-
 elseif(IS_APPLE)
     if(SRAL_WITH_VOICEOVER)
         list(APPEND CORE_SOURCES VoiceOver.mm)
@@ -98,7 +114,6 @@ elseif(IS_APPLE)
     else()
         add_compile_definitions(SRAL_NO_NSSPEECH)
     endif()
-
 elseif(IS_ANDROID)
     list(APPEND CORE_SOURCES "${CMAKE_SOURCE_DIR}/Dep/AndroidContext.cpp")
     if(SRAL_WITH_ANDROID_TTS)
@@ -111,7 +126,6 @@ elseif(IS_ANDROID)
     else()
         add_compile_definitions(SRAL_NO_ANDROID_ACCESSIBILITY)
     endif()
-
 elseif(IS_EMSCRIPTEN)
     if(SRAL_WITH_CHROMEVOX)
         list(APPEND CORE_SOURCES ChromeVox.cpp)
@@ -119,8 +133,8 @@ elseif(IS_EMSCRIPTEN)
         add_compile_definitions(SRAL_NO_CHROMEVOX)
     endif()
     add_compile_definitions(
-        SRAL_NO_NVDA SRAL_NO_JAWS SRAL_NO_ZDSR SRAL_NO_SAPI SRAL_NO_UIA 
-        SRAL_NO_SPEECH_DISPATCHER SRAL_NO_ORCA SRAL_NO_BRLAPI
+        SRAL_NO_ACCESSKIT SRAL_NO_NVDA SRAL_NO_JAWS SRAL_NO_ZDSR SRAL_NO_SAPI  
+        SRAL_NO_UIA SRAL_NO_SPEECH_DISPATCHER SRAL_NO_ORCA SRAL_NO_BRLAPI
     )
 else()
     list(APPEND CORE_SOURCES Encoding.cpp)
@@ -196,27 +210,3 @@ install(TARGETS SRAL
     LIBRARY DESTINATION lib
     ARCHIVE DESTINATION lib
 )
-
-
-if(IS_APPLE AND SRAL_WITH_ACCESSKIT)
-    target_sources(SRAL PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/AppleAccessibility.mm")
-    
-    set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/AppleAccessibility.mm" PROPERTIES
-        COMPILE_FLAGS "-fobjc-arc -fstack-protector-all"
-    )
-endif()
-
-if(IS_WINDOWS AND BUILD_SHARED_LIBS AND SRAL_WITH_ACCESSKIT)
-    get_filename_component(AK_BIN_DIR "${PATH_ACCESSKIT_INSTALL}/bin" ABSOLUTE)
-    
-    if(EXISTS "${AK_BIN_DIR}/accesskit_winapi.dll")
-        add_custom_command(TARGET SRAL POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "${AK_BIN_DIR}/accesskit_winapi.dll"
-                "$<TARGET_FILE_DIR:SRAL>/accesskit_winapi.dll"
-            COMMENT "[SRAL POST-BUILD] Deploying AccessKit runtime runtime dependencies straight to library build container..."
-        )
-    else()
-        message(STATUS "[SRAL WARNING] Precompiled 'accesskit_winapi.dll' was not discovered inside unzipped workspace bin path: ${AK_BIN_DIR}")
-    endif()
-endif()

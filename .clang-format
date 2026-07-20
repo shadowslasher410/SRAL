@@ -1,6 +1,8 @@
-Language: Cpp
+---
 BasedOnStyle: LLVM
 Standard: Latest
+
+Language: Cpp
 
 LineEnding: LF
 UseTab: Always
@@ -14,17 +16,17 @@ BinPackParameters: false
 
 BreakBeforeBraces: Custom
 BraceWrapping:
-  AfterClass: false
-  AfterControlStatement: Never
-  AfterEnum: false
-  AfterFunction: false
-  AfterNamespace: false
-  AfterStruct: false
-  AfterUnion: false
-  BeforeElse: true
-  BeforeCatch: true
-  IndentBraces: false
-  SplitEmptyFunction: true
+    AfterClass: false
+    AfterControlStatement: Never
+    AfterEnum: false
+    AfterFunction: false
+    AfterNamespace: false
+    AfterStruct: false
+    AfterUnion: false
+    BeforeElse: true
+    BeforeCatch: true
+    IndentBraces: false
+    SplitEmptyFunction: true
 
 AlignAfterOpenBracket: DontAlign
 AlignOperands: DontAlign
@@ -43,20 +45,35 @@ SortIncludes: CaseSensitive
 IncludeBlocks: Regroup
 
 IncludeCategories:
-  - Regex: '^<(windows|Windows)\.h>'
-    Priority: 1
-    SortPriority: 1
-  - Regex: '^<(initguid|mmsystem|ole2|unknwn|uiautomation|uiautomationcore|comdef|comip|wrl/client|audioclient|audiopolicy|mmdeviceapi)\.h>'
-    Priority: 2
-    SortPriority: 2
-  - Regex: '^<[a-z0-9_./]+>'
-    Priority: 3
-    SortPriority: 3
-  - Regex: '^".*"'
-    Priority: 4
-    SortPriority: 4
+    - Regex: '^<(windows|Windows)\.h>'
+      Priority: 1
+      SortPriority: 1
+    - Regex: '^<(initguid|mmsystem|ole2|unknwn|uiautomation|uiautomationcore|comdef|comip|wrl/client|audioclient|audiopolicy|mmdeviceapi)\.h>'
+      Priority: 2
+      SortPriority: 2
+    - Regex: "^<[a-z0-9_./]+>"
+      Priority: 3
+      SortPriority: 3
+    - Regex: '^".*"'
+      Priority: 4
+      SortPriority: 4
 
 StatementMacros:
-  - EM_ASM
-  - EM_ASM_INT
-  - EM_JS
+    - EM_ASM
+    - EM_ASM_INT
+    - EM_JS
+
+---
+BasedOnStyle: Google
+Language: ObjC
+ObjCBlockIndentWidth: 4
+ObjCBreakBeforeNestedBlockParam: true
+ObjCSpaceAfterProperty: true
+ObjCSpaceBeforeProtocolList: true
+
+---
+BasedOnStyle: Google
+Language: Java
+AllowShortFunctionsOnASingleLine: Empty
+
+---

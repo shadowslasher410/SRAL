@@ -2,9 +2,9 @@
 
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <mutex>
 #include <string_view>
-#include <cstdint>
 
 #include "../Include/SRAL.h"
 #include "Engine.h"
@@ -37,8 +37,8 @@ public:
 		return SpeakSsml(ssml ? std::string_view(ssml) : std::string_view(), interrupt);
 	}
 
-	bool Braille(const char* text) override final { 
-		return Braille(text ? std::string_view(text) : std::string_view()); 
+	bool Braille(const char* text) override final {
+		return Braille(text ? std::string_view(text) : std::string_view());
 	}
 
 	[[nodiscard]] bool Speak(std::nullptr_t, bool) noexcept;
@@ -66,11 +66,19 @@ public:
 		[[maybe_unused]] int* channels,
 		[[maybe_unused]] int* sample_rate,
 		[[maybe_unused]] int* bits_per_sample) override final {
-		
-		if (buffer_size) { *buffer_size = 0; }
-		if (channels)    { *channels = 0; }
-		if (sample_rate)  { *sample_rate = 0; }
-		if (bits_per_sample) { *bits_per_sample = 0; }
+
+		if (buffer_size) {
+			*buffer_size = 0;
+		}
+		if (channels) {
+			*channels = 0;
+		}
+		if (sample_rate) {
+			*sample_rate = 0;
+		}
+		if (bits_per_sample) {
+			*bits_per_sample = 0;
+		}
 		return nullptr;
 	}
 

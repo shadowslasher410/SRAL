@@ -1,6 +1,7 @@
 #include <napi.h>
 #include <string>
 #include <vector>
+
 #include "../../../Include/SRAL.h"
 
 Napi::Value Initialize(const Napi::CallbackInfo& info) {
@@ -187,14 +188,14 @@ Napi::Value GetVoices(const Napi::CallbackInfo& info) {
 	Napi::Env env = info.Env();
 	int e = info[0].As<Napi::Number>().Int32Value();
 	int cnt = 0;
-	
-	if (!SRAL_GetEngineParameter(e, SRAL_PARAM_VOICE_COUNT, &cnt) || cnt <= 0) 
+
+	if (!SRAL_GetEngineParameter(e, SRAL_PARAM_VOICE_COUNT, &cnt) || cnt <= 0)
 		return Napi::Array::New(env, 0);
-		
+
 	void* v_ptr = nullptr;
-	if (!SRAL_GetEngineParameter(e, SRAL_PARAM_VOICE_PROPERTIES, &v_ptr) || !v_ptr) 
+	if (!SRAL_GetEngineParameter(e, SRAL_PARAM_VOICE_PROPERTIES, &v_ptr) || !v_ptr)
 		return Napi::Array::New(env, 0);
-		
+
 	SRAL_VoiceInfo* arr = static_cast<SRAL_VoiceInfo*>(v_ptr);
 	Napi::Array js_arr = Napi::Array::New(env, cnt);
 	for (int i = 0; i < cnt; i++) {
@@ -204,14 +205,14 @@ Napi::Value GetVoices(const Napi::CallbackInfo& info) {
 		o.Set("language", arr[i].language ? arr[i].language : "");
 		o.Set("gender", arr[i].gender ? arr[i].gender : "");
 		o.Set("vendor", arr[i].vendor ? arr[i].vendor : "");
-		js_arr.Set(i, o); 
+		js_arr.Set(i, o);
 	}
 	SRAL_free(v_ptr);
 	return js_arr;
 }
 
 Napi::Value SpeakToMemoryCommon(Napi::Env env, void* ptr, uint64_t size, int chan, int rate, int bits) {
-	if (!ptr) 
+	if (!ptr)
 		return env.Null();
 	Napi::Object out = Napi::Object::New(env);
 	out.Set("buffer", Napi::Buffer<uint8_t>::Copy(env, static_cast<uint8_t*>(ptr), size));
@@ -224,7 +225,8 @@ Napi::Value SpeakToMemoryCommon(Napi::Env env, void* ptr, uint64_t size, int cha
 
 Napi::Value SpeakToMemory(const Napi::CallbackInfo& info) {
 	std::string text = info[0].As<Napi::String>().Utf8Value();
-	uint64_t s; int c, r, b;
+	uint64_t s;
+	int c, r, b;
 	void* p = SRAL_SpeakToMemory(text.c_str(), &s, &c, &r, &b);
 	return SpeakToMemoryCommon(info.Env(), p, s, c, r, b);
 }
@@ -232,7 +234,8 @@ Napi::Value SpeakToMemory(const Napi::CallbackInfo& info) {
 Napi::Value SpeakToMemoryEx(const Napi::CallbackInfo& info) {
 	int engine = info[0].As<Napi::Number>().Int32Value();
 	std::string text = info[1].As<Napi::String>().Utf8Value();
-	uint64_t s; int c, r, b;
+	uint64_t s;
+	int c, r, b;
 	void* p = SRAL_SpeakToMemoryEx(engine, text.c_str(), &s, &c, &r, &b);
 	return SpeakToMemoryCommon(info.Env(), p, s, c, r, b);
 }
@@ -250,7 +253,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 	exports.Set("resumeSpeech", Napi::Function::New(env, ResumeSpeech));
 	exports.Set("isSpeaking", Napi::Function::New(env, IsSpeaking));
 	exports.Set("delay", Napi::Function::New(env, Delay));
-	
+
 	exports.Set("getCurrentEngine", Napi::Function::New(env, GetCurrentEngine));
 	exports.Set("getEngineFeatures", Napi::Function::New(env, GetEngineFeatures));
 	exports.Set("getAvailableEngines", Napi::Function::New(env, GetAvailableEngines));
@@ -258,7 +261,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 	exports.Set("getEnginesExclude", Napi::Function::New(env, GetEnginesExclude));
 	exports.Set("setEnginesExclude", Napi::Function::New(env, SetEnginesExclude));
 	exports.Set("getEngineName", Napi::Function::New(env, GetEngineName));
-	
+
 	exports.Set("registerKeyboardHooks", Napi::Function::New(env, RegisterKeyboardHooks));
 	exports.Set("unregisterKeyboardHooks", Napi::Function::New(env, UnregisterKeyboardHooks));
 	exports.Set("getEngineCategory", Napi::Function::New(env, GetEngineCategoryWrap));
@@ -266,11 +269,11 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 	exports.Set("getAssistiveTechEngines", Napi::Function::New(env, GetAssistiveTechEngines));
 	exports.Set("delayOutput", Napi::Function::New(env, DelayOutput));
 	exports.Set("delayOutputEx", Napi::Function::New(env, DelayOutputEx));
-	
+
 	exports.Set("setEngineParameter", Napi::Function::New(env, SetIntParameter));
 	exports.Set("getEngineParameter", Napi::Function::New(env, GetIntParameter));
 	exports.Set("getVoices", Napi::Function::New(env, GetVoices));
-	
+
 	exports.Set("speakToMemory", Napi::Function::New(env, SpeakToMemory));
 	exports.Set("speakToMemoryEx", Napi::Function::New(env, SpeakToMemoryEx));
 
@@ -282,7 +285,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
 	exports.Set("stopSpeechEx", Napi::Function::New(env, StopSpeechEx));
 	exports.Set("pauseSpeechEx", Napi::Function::New(env, PauseSpeechEx));
 	exports.Set("resumeSpeechEx", Napi::Function::New(env, ResumeSpeechEx));
-	
+
 	return exports;
 }
 

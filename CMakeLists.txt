@@ -14,7 +14,7 @@ cmake_policy(SET CMP0142 NEW) # Strict MSVC architecture platform directory path
 cmake_policy(SET CMP0156 NEW) # Safe link library de-duplication rules for macOS/iOS/Linux
 
 if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR)
-    message(FATAL_ERROR 
+    message(FATAL_ERROR
         "\n===============================================================================\n"
         "[SRAL CRITICAL ALERT] In-source builds are structurally prohibited!\n"
         "Compiling inside your source tree risks local repository metadata corruption.\n"
@@ -144,14 +144,14 @@ else()
 endif()
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     message(STATUS "[SRAL] Release variant active.")
-    add_compile_definitions(NDEBUG) 
-    
+    add_compile_definitions(NDEBUG)
+
     if(COMPILER_IS_MSVC_LIKE)
         list(APPEND GLOBAL_HARDENING_ARGS /O2 /Oi /GS /sdl /guard:cf /Qspectre /volatile:iso /permissive- /W4 /WX -D_CRT_SECURE_NO_WARNINGS)
         list(APPEND GLOBAL_LINKER_ARGS /GUARD:CF /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /CETCOMPAT)
     else()
         list(APPEND GLOBAL_HARDENING_ARGS -O3 -Wall -Wextra -Wconversion -Wsign-conversion -Werror -fstack-protector-all -fno-delete-null-pointer-checks -fwrapv -fno-strict-overflow -fno-common -ftrivial-auto-var-init=zero)
-        
+
         if(NOT IS_EMSCRIPTEN)
             list(APPEND GLOBAL_HARDENING_ARGS -D_FORTIFY_SOURCE=3 -fstack-clash-protection)
         endif()
@@ -189,17 +189,17 @@ else()
         list(APPEND GLOBAL_LINKER_ARGS /GUARD:CF /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA)
     else()
         list(APPEND GLOBAL_HARDENING_ARGS -O0 -g3 -Wall -Wextra -Wconversion -Wsign-conversion -Werror -fstack-protector-all -fno-delete-null-pointer-checks -fwrapv -fno-strict-overflow -fno-common -ftrivial-auto-var-init=zero)
-        
+
         if(SRAL_DEV_SANITIZERS AND NOT IS_EMSCRIPTEN)
             list(APPEND GLOBAL_HARDENING_ARGS -fsanitize=address,undefined,leak -fno-omit-frame-pointer -fno-optimize-sibling-calls)
             list(APPEND GLOBAL_LINKER_ARGS -fsanitize=address,undefined,leak)
         endif()
-        
+
         if(NOT IS_EMSCRIPTEN)
             list(APPEND GLOBAL_HARDENING_ARGS -D_FORTIFY_SOURCE=1 -fstack-clash-protection)
         endif()
     endif()
-    
+
     add_compile_definitions(-D_GLIBCXX_ASSERTIONS)
     if(NOT IS_EMSCRIPTEN)
         add_compile_definitions(-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST)
@@ -234,7 +234,7 @@ elseif(IS_APPLE)
     find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
     find_library(AVFOUNDATION_FRAMEWORK AVFoundation REQUIRED)
     list(APPEND SRAL_DEPENDENCIES ${FOUNDATION_FRAMEWORK} ${AVFOUNDATION_FRAMEWORK})
-    
+
     if(NOT IS_IOS AND SRAL_WITH_NSSPEECH)
         find_library(APPKIT_FRAMEWORK AppKit REQUIRED)
         list(APPEND SRAL_DEPENDENCIES ${APPKIT_FRAMEWORK})
@@ -304,14 +304,14 @@ set(ACCESSKIT_LIBS "")
 if(SRAL_WITH_ACCESSKIT)
 
     if(NOT "${PATH_ACCESSKIT_INSTALL}" STREQUAL "")
-        find_path(ACCESSKIT_INCLUDE_DIR 
-            NAMES accesskit.h 
-            PATHS "${PATH_ACCESSKIT_INSTALL}/include" 
+        find_path(ACCESSKIT_INCLUDE_DIR
+            NAMES accesskit.h
+            PATHS "${PATH_ACCESSKIT_INSTALL}/include"
             NO_DEFAULT_PATH
         )
     else()
-        find_path(ACCESSKIT_INCLUDE_DIR 
-            NAMES accesskit.h 
+        find_path(ACCESSKIT_INCLUDE_DIR
+            NAMES accesskit.h
             ENV PATH
             PATH_SUFFIXES include
         )
@@ -329,9 +329,9 @@ if(SRAL_WITH_ACCESSKIT)
             set(AK_SEARCH_SUFFIXES "lib/${ANDROID_ABI}")
         endif()
 
-        find_library(ACCESSKIT_CORE_LIB 
-            NAMES ${AK_LIB_NAME} 
-            PATHS "${PATH_ACCESSKIT_INSTALL}" 
+        find_library(ACCESSKIT_CORE_LIB
+            NAMES ${AK_LIB_NAME}
+            PATHS "${PATH_ACCESSKIT_INSTALL}"
             PATH_SUFFIXES ${AK_SEARCH_SUFFIXES}
             NO_DEFAULT_PATH
         )
@@ -341,8 +341,8 @@ if(SRAL_WITH_ACCESSKIT)
             set(AK_SEARCH_SUFFIXES "lib/${ANDROID_ABI}")
         endif()
 
-        find_library(ACCESSKIT_CORE_LIB 
-            NAMES ${AK_LIB_NAME} 
+        find_library(ACCESSKIT_CORE_LIB
+            NAMES ${AK_LIB_NAME}
             ENV PATH
             PATH_SUFFIXES ${AK_SEARCH_SUFFIXES}
         )
@@ -352,7 +352,7 @@ if(SRAL_WITH_ACCESSKIT)
         set(SRAL_WITH_ACCESSKIT OFF CACHE BOOL "Enable AccessKit accessibility provider backend" FORCE)
         set(ACCESSKIT_INCLUDE_DIR "")
         set(ACCESSKIT_CORE_LIB "")
-        
+
         message(STATUS "-------------------------------------------------------------------------------")
         message(STATUS "[SRAL AUTO-TOGGLE] AccessKit dependencies were NOT discovered locally or via PATH.")
         message(STATUS "[SRAL AUTO-TOGGLE] Forcing option SRAL_WITH_ACCESSKIT to OFF.")
@@ -486,7 +486,7 @@ install(FILES "developer_input.ini" DESTINATION "share/sral")
 
 if(SRAL_INSTALL_BINDING_SOURCES)
     set(BIND_DIR "share/sral/bindings")
-    
+
     install(FILES "Bindings/C#/Sral.cs" "Bindings/C#/Example.cs" "Bindings/C#/SRAL.csproj" DESTINATION "${BIND_DIR}/csharp")
     install(FILES "Bindings/Dart/sral.dart" "Bindings/Dart/sral_types.dart" "Bindings/Dart/example.dart" DESTINATION "${BIND_DIR}/dart")
     install(FILES "Bindings/Lua/sral.lua" "Bindings/Lua/example.lua" DESTINATION "${BIND_DIR}/lua")
@@ -494,7 +494,7 @@ if(SRAL_INSTALL_BINDING_SOURCES)
     install(FILES "Bindings/Rust/Cargo.toml" DESTINATION "${BIND_DIR}/rust")
     install(FILES "Bindings/WebAssembly/sral_wasm.cpp" "Bindings/WebAssembly/sral_wasm.js" DESTINATION "${BIND_DIR}/wasm")
     install(FILES "Dep/AndroidTTSHelper.java" "Dep/AndroidAccessibilityManagerHelper.java" "Dep/proguard-rules.pro" DESTINATION "share/sral/android")
-    
+
     install(DIRECTORY "Bindings/Go/SRAL" DESTINATION "${BIND_DIR}/go")
     install(DIRECTORY "Bindings/Rust/src" DESTINATION "${BIND_DIR}/rust")
 endif()

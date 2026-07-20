@@ -4,8 +4,8 @@
 
 #include <atomic>
 #include <mutex>
-#include <string_view>
 #include <new>
+#include <string_view>
 
 #include "../Include/SRAL.h"
 #include "Engine.h"
@@ -22,19 +22,23 @@ class alignas(hardware_destructive_interference_size) ChromeVox final : public E
 public:
 	ChromeVox();
 	~ChromeVox() override;
-	
+
 	ChromeVox(const ChromeVox&) = delete;
 	ChromeVox& operator=(const ChromeVox&) = delete;
 	ChromeVox(ChromeVox&&) noexcept = delete;
 	ChromeVox& operator=(ChromeVox&&) noexcept = delete;
-	
+
 	bool Speak(const char* speech_text, bool interrupt) override;
 	bool SpeakSsml(const char* ssml, bool interrupt) override;
 	bool Braille(const char* text) override;
 
 	void* SpeakToMemory(
 		const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override {
-		(void)text; (void)buffer_size; (void)channels; (void)sample_rate; (void)bits_per_sample;
+		(void)text;
+		(void)buffer_size;
+		(void)channels;
+		(void)sample_rate;
+		(void)bits_per_sample;
 		return nullptr;
 	}
 

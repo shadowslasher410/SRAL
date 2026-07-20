@@ -2,7 +2,7 @@
 #define SRAL_CPP_HPP
 #pragma once
 
-#include "SRAL.h"
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <stdexcept>
@@ -10,7 +10,8 @@
 #include <string_view>
 #include <type_traits>
 #include <vector>
-#include <algorithm>
+
+#include "SRAL.h"
 
 namespace Sral {
 
@@ -25,7 +26,6 @@ inline void Check(bool result, const char* msg = "SRAL operation failed") {
 	}
 }
 
-// Highly optimized C++20 zero-allocation string constructor mapping path
 inline std::string NullTerminate(std::string_view view) {
 	return std::string(view);
 }
@@ -38,11 +38,8 @@ struct Voice final {
 	std::string vendor;
 
 	explicit Voice(const SRAL_VoiceInfo& info)
-		: index(info.index), 
-		  name(info.name ? info.name : ""), 
-		  language(info.language ? info.language : ""),
-		  gender(info.gender ? info.gender : ""), 
-		  vendor(info.vendor ? info.vendor : "") {}
+		: index(info.index), name(info.name ? info.name : ""), language(info.language ? info.language : ""),
+		  gender(info.gender ? info.gender : ""), vendor(info.vendor ? info.vendor : "") {}
 };
 
 struct AudioBuffer final {
@@ -86,9 +83,7 @@ public:
 		Check(SRAL_SpeakSsml(NullTerminate(ssml).c_str(), interrupt), "SpeakSSML failed");
 	}
 
-	void Braille(std::string_view text) { 
-		Check(SRAL_Braille(NullTerminate(text).c_str()), "Braille output failed"); 
-	}
+	void Braille(std::string_view text) { Check(SRAL_Braille(NullTerminate(text).c_str()), "Braille output failed"); }
 
 	void Output(std::string_view text, bool interrupt = true) {
 		Check(SRAL_Output(NullTerminate(text).c_str(), interrupt), "Output failed");
@@ -271,14 +266,11 @@ public:
 			SRAL_free(raw_pointer);
 			return buffer;
 		}
-	}; 
+	};
 
-	[[nodiscard]] EngineProxy GetEngine(int engine_id) noexcept { 
-		return EngineProxy(engine_id, *this); 
-	}
+	[[nodiscard]] EngineProxy GetEngine(int engine_id) noexcept { return EngineProxy(engine_id, *this); }
+};
 
-}; 
+}
 
-} // namespace Sral
-
-#endif // SRAL_CPP_HPP
+#endif

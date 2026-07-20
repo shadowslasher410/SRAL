@@ -2,18 +2,21 @@
 #define JAWS_H_
 #pragma once
 
+#include <windows.h>
+
+#include <comdef.h>
+
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <semaphore>
+#include <thread>
+
 #include "../Dep/fsapi.h"
 #include "../Include/SRAL.h"
 #include "Engine.h"
-#include <windows.h>
-#include <comdef.h>
-#include <atomic>
-#include <thread>
-#include <semaphore>
-#include <array>
-#include <mutex>
-#include <memory>
-#include <algorithm>
 
 _COM_SMARTPTR_TYPEDEF(IJawsApi, __uuidof(IJawsApi));
 
@@ -44,7 +47,7 @@ public:
 
 private:
 	enum class CmdType { None, SpeakCmd, BrailleCmd, StopCmd };
-	
+
 	static constexpr size_t TEXT_BUFFER_SIZE = 512;
 	static constexpr size_t RING_BUFFER_CAPACITY = 32;
 
@@ -70,7 +73,7 @@ private:
 
 	static void WorkerThreadLoop(std::stop_token stopToken, std::shared_ptr<RuntimeContext> context);
 
-	static inline std::shared_ptr<RuntimeContext> s_context{ nullptr };
+	static inline std::shared_ptr<RuntimeContext> s_context{nullptr};
 };
 
 } // namespace Sral

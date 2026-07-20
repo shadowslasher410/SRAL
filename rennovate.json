@@ -7,9 +7,13 @@
   ],
   "packageRules": [
     {
-      "matchPackageNames": ["*"],
+      "matchPackageNames": [
+        "*"
+      ],
       "groupName": "all-actions",
-      "matchManagers": ["github-actions"]
+      "matchManagers": [
+        "github-actions"
+      ]
     }
   ]
 }

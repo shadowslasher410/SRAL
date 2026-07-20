@@ -110,15 +110,15 @@ bool Orca::Speak(std::string_view text, bool interrupt) {
 		if (stop_msg) {
 			DBusMessageIter stop_iter;
 			dbus_message_iter_init_append(stop_msg.get(), &stop_iter);
-			
+
 			const char* stop_detail = "";
 			dbus_int32_t stop_int = 0;
 			const char* stop_variant_val = "";
-			
+
 			dbus_message_iter_append_basic(&stop_iter, DBUS_TYPE_STRING, &stop_detail);
 			dbus_message_iter_append_basic(&stop_iter, DBUS_TYPE_INT32, &stop_int);
 			dbus_message_iter_append_basic(&stop_iter, DBUS_TYPE_INT32, &stop_int);
-			
+
 			DBusMessageIter stop_var_iter;
 			dbus_message_iter_open_container(&stop_iter, DBUS_TYPE_VARIANT, DBUS_TYPE_STRING_AS_STRING, &stop_var_iter);
 			dbus_message_iter_append_basic(&stop_var_iter, DBUS_TYPE_STRING, &stop_variant_val);

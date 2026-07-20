@@ -16,11 +16,11 @@
  * is installed and enabled.
  */
 
-
 #ifndef NVDA_CONTROL_H
 #define NVDA_CONTROL_H
 
 #include <windows.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

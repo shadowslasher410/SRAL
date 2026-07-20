@@ -2,13 +2,14 @@
 #define ANDROIDACCESSIBILITYMANAGER_H_
 #pragma once
 
-#include "Engine.h"
-#include "../Include/SRAL.h"
+#include <array>
+#include <atomic>
 #include <mutex>
 #include <thread>
-#include <atomic>
-#include <array>
+
 #include "../Dep/AndroidContext.h"
+#include "../Include/SRAL.h"
+#include "Engine.h"
 
 namespace Sral {
 
@@ -22,7 +23,10 @@ public:
 	AndroidAccessibilityManager& operator=(AndroidAccessibilityManager&&) noexcept = delete;
 	bool Speak(const char* speech_text, bool interrupt) override;
 	bool SpeakSsml(const char* ssml, bool interrupt) override { return false; }
-	void* SpeakToMemory(const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override { return nullptr; }
+	void* SpeakToMemory(
+		const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override {
+		return nullptr;
+	}
 	bool SetParameter(int param, const void* value) override { return false; }
 	bool GetParameter(int param, void* value) override { return false; }
 	bool Braille(const char* text) override { return false; }
@@ -43,12 +47,12 @@ public:
 
 private:
 	enum class TaskType : uint8_t { Speak, Stop };
-	
+
 	struct alignas(destructive_alignment) AsyncSpeechTask {
 		std::array<char, 512> text;
-		std::atomic<size_t>   sequence;
-		TaskType              type;
-		bool                  interrupt;
+		std::atomic<size_t> sequence;
+		TaskType type;
+		bool interrupt;
 	};
 	void BackgroundWorkerLoop(std::stop_token stop_token) noexcept;
 	void UninitializeInternal(JNIEnv* localEnv) noexcept;
@@ -58,19 +62,19 @@ private:
 	alignas(destructive_alignment) std::array<AsyncSpeechTask, RING_BUFFER_SIZE> m_ring_queue;
 	alignas(destructive_alignment) std::atomic<size_t> m_head{0};
 	alignas(destructive_alignment) std::atomic<size_t> m_tail{0};
-	alignas(destructive_alignment) std::atomic<bool>   m_ring_bell{false};
-	std::mutex          m_init_mutex;
-	std::jthread        m_worker_thread;
-	JavaVM*             m_jvm = nullptr;
-	jclass              m_announcerClass = nullptr;
-	jobject             m_announcerObj = nullptr;
-	void*               m_context_handle = nullptr;
-	jmethodID           m_constructor = nullptr;
-	jmethodID           m_midIsActive = nullptr;
-	jmethodID           m_midAnnounce = nullptr;
-	jmethodID           m_midStop = nullptr;
-	jmethodID           m_midShutdown = nullptr;
-	bool                m_initialized = false;
+	alignas(destructive_alignment) std::atomic<bool> m_ring_bell{false};
+	std::mutex m_init_mutex;
+	std::jthread m_worker_thread;
+	JavaVM* m_jvm = nullptr;
+	jclass m_announcerClass = nullptr;
+	jobject m_announcerObj = nullptr;
+	void* m_context_handle = nullptr;
+	jmethodID m_constructor = nullptr;
+	jmethodID m_midIsActive = nullptr;
+	jmethodID m_midAnnounce = nullptr;
+	jmethodID m_midStop = nullptr;
+	jmethodID m_midShutdown = nullptr;
+	bool m_initialized = false;
 };
 
 } // namespace Sral

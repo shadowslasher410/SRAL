@@ -3,13 +3,13 @@ name: Release
 on:
   push:
     tags:
-      - '[0-9]+.[0-9]+.[0-9]+-Stable'
-      - '[0-9]+.[0-9]+.[0-9]+-RC'
-      - '[0-9]+.[0-9]+.[0-9]+-Beta'
+      - "[0-9]+.[0-9]+.[0-9]+-Stable"
+      - "[0-9]+.[0-9]+.[0-9]+-RC"
+      - "[0-9]+.[0-9]+.[0-9]+-Beta"
   workflow_dispatch:
     inputs:
       version:
-        description: 'Tag/release name to publish (e.g. 1.0.0-Stable)'
+        description: "Tag/release name to publish (e.g. 1.0.0-Stable)"
         required: true
         type: string
 
@@ -28,24 +28,24 @@ jobs:
         id: determine-tag
         run: |
           set -euo pipefail
-          
+
           RAW_VERSION="${{ github.event.inputs.version || github.ref_name }}"
           echo "Processing structural review for version token: ${RAW_VERSION}"
-          
+
           if [[ ! "${RAW_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(Stable|RC|Beta)$ ]]; then
             echo "::error::Provided version string '${RAW_VERSION}' does not adhere to semantic format (Major.Minor.Patch-Stable/RC/Beta)."
             exit 1
           fi
-          
+
           if [[ "${RAW_VERSION}" == *-Stable || "${RAW_VERSION}" == *-RC ]]; then
             VARIANT_TOKEN="release"
           else
             VARIANT_TOKEN="debug"
           fi
-          
+
           echo "Validated Version: ${RAW_VERSION}"
           echo "Assigned Variant: ${VARIANT_TOKEN}"
-          
+
           echo "version=${RAW_VERSION}" >> "$GITHUB_OUTPUT"
           echo "variant=${VARIANT_TOKEN}" >> "$GITHUB_OUTPUT"
 

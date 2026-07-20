@@ -7,6 +7,7 @@
 #include <queue>
 #include <string>
 #include <thread>
+
 #include "../Include/SRAL.h"
 #include "Engine.h"
 
@@ -14,7 +15,7 @@
 #include <windows.h>
 #else
 using HMODULE = void*;
-using FARPROC = void(*)();
+using FARPROC = void (*)();
 #define WINAPI
 #define TRUE 1
 #define FALSE 0
@@ -33,9 +34,9 @@ private:
 
 	enum class CommandType { Speak, Stop };
 	struct ThreadCommand {
-		CommandType type = CommandType::Stop; 
+		CommandType type = CommandType::Stop;
 		std::string payload;
-		bool        interrupt = false;
+		bool interrupt = false;
 	};
 
 public:
@@ -61,7 +62,7 @@ public:
 	[[nodiscard]] int GetFeatures() override { return SRAL_SUPPORTS_SPEECH; }
 	[[nodiscard]] int GetKeyFlags() override { return HANDLE_NONE; }
 	[[nodiscard]] bool GetActive() override;
-	
+
 	[[nodiscard]] bool Initialize() override;
 	[[nodiscard]] bool Uninitialize() override;
 
@@ -69,27 +70,27 @@ private:
 	void CleanUpMembers() noexcept;
 	void BackgroundWorkerLoop() noexcept;
 
-	UniqueLibraryHandle lib{ nullptr };
+	UniqueLibraryHandle lib{nullptr};
 
-	using InitTTS_t       = int(WINAPI*)(int, const wchar_t*);
-	using Speak_t         = int(WINAPI*)(const wchar_t*, BOOL);
+	using InitTTS_t = int(WINAPI*)(int, const wchar_t*);
+	using Speak_t = int(WINAPI*)(const wchar_t*, BOOL);
 	using GetSpeakState_t = int(WINAPI*)();
-	using StopSpeak_t     = int(WINAPI*)();
+	using StopSpeak_t = int(WINAPI*)();
 
-	InitTTS_t       fInitTTS{ nullptr };
-	Speak_t         fSpeak{ nullptr };
-	GetSpeakState_t fGetSpeakState{ nullptr };
-	StopSpeak_t     fStopSpeak{ nullptr };
+	InitTTS_t fInitTTS{nullptr};
+	Speak_t fSpeak{nullptr};
+	GetSpeakState_t fGetSpeakState{nullptr};
+	StopSpeak_t fStopSpeak{nullptr};
 
 	mutable std::mutex instanceMutex;
-	std::atomic<bool>  isInitialized{ false };
-	std::atomic<bool>  m_isSpeakingCache{ false };
+	std::atomic<bool> isInitialized{false};
+	std::atomic<bool> m_isSpeakingCache{false};
 
-	std::thread               m_workerThread;
-	std::atomic<bool>         m_running{ false };
+	std::thread m_workerThread;
+	std::atomic<bool> m_running{false};
 	std::queue<ThreadCommand> m_commandQueue;
-	std::mutex                m_queueMutex;
-	std::condition_variable   m_cv;
+	std::mutex m_queueMutex;
+	std::condition_variable m_cv;
 };
 
 } // namespace Sral

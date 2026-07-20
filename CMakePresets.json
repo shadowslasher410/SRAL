@@ -231,46 +231,99 @@
     }
   ],
   "buildPresets": [
-    { "name": "desktop-release", "configurePreset": "desktop-release" },
-    { "name": "desktop-debug", "configurePreset": "desktop-debug" },
-    { "name": "ios-release", "configurePreset": "ios-release" },
-    { "name": "ios-debug", "configurePreset": "ios-debug" },
-    { "name": "wasm-release", "configurePreset": "wasm-release" },
-    { "name": "wasm-debug", "configurePreset": "wasm-debug" },
-    { "name": "android-arm64-release", "configurePreset": "android-arm64-release" },
-    { "name": "android-arm64-debug", "configurePreset": "android-arm64-debug" }
+    {
+      "name": "desktop-release",
+      "configurePreset": "desktop-release"
+    },
+    {
+      "name": "desktop-debug",
+      "configurePreset": "desktop-debug"
+    },
+    {
+      "name": "ios-release",
+      "configurePreset": "ios-release"
+    },
+    {
+      "name": "ios-debug",
+      "configurePreset": "ios-debug"
+    },
+    {
+      "name": "wasm-release",
+      "configurePreset": "wasm-release"
+    },
+    {
+      "name": "wasm-debug",
+      "configurePreset": "wasm-debug"
+    },
+    {
+      "name": "android-arm64-release",
+      "configurePreset": "android-arm64-release"
+    },
+    {
+      "name": "android-arm64-debug",
+      "configurePreset": "android-arm64-debug"
+    }
   ],
   "testPresets": [
     {
       "name": "desktop-tests",
       "configurePreset": "desktop-release",
-      "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
     },
     {
       "name": "debug-tests",
       "configurePreset": "desktop-debug",
-      "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error", "stopOnFailure": true }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": true
+      }
     },
     {
       "name": "ios-tests",
       "configurePreset": "ios-debug",
-      "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "ignore", "stopOnFailure": false },
-      "filter": { "include": { "name": ".*Test.*" } }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "ignore",
+        "stopOnFailure": false
+      },
+      "filter": {
+        "include": {
+          "name": ".*Test.*"
+        }
+      }
     },
     {
       "name": "wasm-tests",
       "configurePreset": "wasm-debug",
-      "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "error", "stopOnFailure": false }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error",
+        "stopOnFailure": false
+      }
     },
     {
       "name": "android-tests",
       "configurePreset": "android-arm64-debug",
-      "output": { "outputOnFailure": true },
-      "execution": { "noTestsAction": "ignore", "stopOnFailure": false }
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "ignore",
+        "stopOnFailure": false
+      }
     }
   ]
 }

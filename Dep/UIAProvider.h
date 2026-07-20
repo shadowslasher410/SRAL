@@ -20,6 +20,7 @@
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>
+
 #include <uiautomation.h>
 #include <uiautomationcore.h>
 #define WINDOWS_UIA_CORE_SUPPORTED 1
@@ -36,11 +37,11 @@ using IInvokeProvider = void;
 using HRESULT = int;
 
 struct VARIANT {
-    int vt;
-    union {
-        long lVal;
-        const wchar_t* bstrVal;
-    };
+	int vt;
+	union {
+		long lVal;
+		const wchar_t* bstrVal;
+	};
 };
 
 #define VT_EMPTY 0
@@ -50,12 +51,17 @@ struct VARIANT {
 #define E_POINTER (-2147467261)
 #define E_OUTOFMEMORY (-2147024882)
 
-#define V_VT(X)   ((X)->vt)
-#define V_I4(X)   ((X)->lVal)
+#define V_VT(X) ((X)->vt)
+#define V_I4(X) ((X)->lVal)
 #define V_BSTR(X) ((X)->bstrVal)
 
-inline void VariantInit(VARIANT* p) noexcept { if (p) p->vt = VT_EMPTY; }
-inline const wchar_t* SysAllocString(const wchar_t* str) noexcept { return str; }
+inline void VariantInit(VARIANT* p) noexcept {
+	if (p)
+		p->vt = VT_EMPTY;
+}
+inline const wchar_t* SysAllocString(const wchar_t* str) noexcept {
+	return str;
+}
 
 #define IFACEMETHODIMP HRESULT
 #define IFACEMETHODIMP_(type) type
@@ -67,39 +73,38 @@ namespace Sral {
 #endif
 
 #if defined(WINDOWS_UIA_CORE_SUPPORTED)
-class Provider final : public IRawElementProviderSimple, public IInvokeProvider
-{
+class Provider final : public IRawElementProviderSimple, public IInvokeProvider {
 public:
-    explicit Provider(HWND hwnd) noexcept;
-    
-    IFACEMETHODIMP_(ULONG) AddRef() override;
-    IFACEMETHODIMP_(ULONG) Release() override;
-    IFACEMETHODIMP QueryInterface(REFIID riid, void** ppvObject) override;
-    IFACEMETHODIMP get_ProviderOptions(ProviderOptions* pRetVal) override;
-    IFACEMETHODIMP GetPatternProvider(PATTERNID patternId, IUnknown** pRetVal) override;
-    IFACEMETHODIMP GetPropertyValue(PROPERTYID propertyId, VARIANT* pRetVal) override;
-    IFACEMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** pRetVal) override;
-    IFACEMETHODIMP Invoke() override;
+	explicit Provider(HWND hwnd) noexcept;
+
+	IFACEMETHODIMP_(ULONG) AddRef() override;
+	IFACEMETHODIMP_(ULONG) Release() override;
+	IFACEMETHODIMP QueryInterface(REFIID riid, void** ppvObject) override;
+	IFACEMETHODIMP get_ProviderOptions(ProviderOptions* pRetVal) override;
+	IFACEMETHODIMP GetPatternProvider(PATTERNID patternId, IUnknown** pRetVal) override;
+	IFACEMETHODIMP GetPropertyValue(PROPERTYID propertyId, VARIANT* pRetVal) override;
+	IFACEMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** pRetVal) override;
+	IFACEMETHODIMP Invoke() override;
 
 private:
-    ~Provider() = default;
+	~Provider() = default;
 
-    Provider(const Provider&) = delete;
-    Provider& operator=(const Provider&) = delete;
-    Provider(Provider&&) = delete;
-    Provider& operator=(Provider&&) = delete;
+	Provider(const Provider&) = delete;
+	Provider& operator=(const Provider&) = delete;
+	Provider(Provider&&) = delete;
+	Provider& operator=(Provider&&) = delete;
 
-    LONG m_refCount{ 1 };
-    HWND m_controlHWnd{ nullptr };
+	LONG m_refCount{1};
+	HWND m_controlHWnd{nullptr};
 };
 #else
 class Provider final {
 public:
-    explicit Provider(HWND hwnd) noexcept { (void)hwnd; }
-    ~Provider() = default;
+	explicit Provider(HWND hwnd) noexcept { (void)hwnd; }
+	~Provider() = default;
 
-    [[nodiscard]] unsigned long AddRef() noexcept { return 1; }
-    [[nodiscard]] unsigned long Release() noexcept { return 0; }
+	[[nodiscard]] unsigned long AddRef() noexcept { return 1; }
+	[[nodiscard]] unsigned long Release() noexcept { return 0; }
 };
 #endif
 #ifdef __cplusplus
@@ -110,4 +115,4 @@ public:
 #undef override
 #endif
 
-#endif 
+#endif

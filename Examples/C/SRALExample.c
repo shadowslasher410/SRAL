@@ -176,7 +176,7 @@ int main(void) {
 	printf("\nCategory of each available engine (SRAL_GetEngineCategory):\n");
 	for (int e_val = SRAL_ENGINE_NVDA; e_val <= SRAL_ENGINE_CHROMEVOX; e_val <<= 1) {
 		if (available_engines & e_val) {
-			printf("  - %s: %s\n", SRAL_GetEngineName(e_val), CategoryName(SRAL_GetEngineCategory(e_val)));
+			printf("  - %s: %s\n", SRAL_GetEngineName(e_val), CategoryName((int)SRAL_GetEngineCategory(e_val)));
 		}
 	}
 	printf("\n");

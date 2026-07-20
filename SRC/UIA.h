@@ -2,12 +2,13 @@
 #define UIA_H_
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
-#include <array>
+
 #include "../Include/SRAL.h"
 #include "Engine.h"
 
@@ -15,16 +16,13 @@ namespace Sral {
 
 class alignas(destructive_alignment) Uia final : public Engine {
 private:
-	enum class CommandType : uint8_t {
-		Speak,
-		Stop
-	};
+	enum class CommandType : uint8_t { Speak, Stop };
 
 	struct alignas(destructive_alignment) ThreadCommand {
 		std::array<char, 512> payload{};
-		std::atomic<size_t>   sequence{0};
-		CommandType           type{CommandType::Stop};
-		bool                  interrupt{false};
+		std::atomic<size_t> sequence{0};
+		CommandType type{CommandType::Stop};
+		bool interrupt{false};
 
 		ThreadCommand() noexcept = default;
 	};
@@ -57,14 +55,14 @@ private:
 	void BackgroundWorkerLoop(std::stop_token stop_token) noexcept;
 	void CleanUpMembers() noexcept;
 
-	void* pAutomation{ nullptr };
-	void* pCondition{ nullptr };
-	void* pElement{ nullptr };
-	void* pProvider{ nullptr };
+	void* pAutomation{nullptr};
+	void* pCondition{nullptr};
+	void* pElement{nullptr};
+	void* pProvider{nullptr};
 
 	mutable std::mutex instanceMutex;
-	std::atomic<bool>  isInitialized{ false };
-	std::atomic<bool>  m_isSpeakingCache{ false };
+	std::atomic<bool> isInitialized{false};
+	std::atomic<bool> m_isSpeakingCache{false};
 
 	static constexpr size_t RING_BUFFER_SIZE = 128;
 	static constexpr size_t RING_MASK = RING_BUFFER_SIZE - 1;
@@ -73,8 +71,8 @@ private:
 
 	std::atomic<size_t> m_head{0};
 	std::atomic<size_t> m_tail{0};
-	std::atomic<bool>   m_ring_bell{false};
-	std::jthread        m_workerThread;
+	std::atomic<bool> m_ring_bell{false};
+	std::jthread m_workerThread;
 };
 
 } // namespace Sral

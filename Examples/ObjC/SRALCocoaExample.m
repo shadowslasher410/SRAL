@@ -7,7 +7,7 @@ extern "C" {
 #endif
 #include <SRAL.h>
 #ifdef __cplusplus
-} // extern "C"
+}
 #endif
 
 #define SRAL_SAFE_SPEAK(phrase_ptr, interrupt_bool) \

@@ -2,14 +2,14 @@
 #define SAPI_H_
 #pragma once
 #define BLASTSPEAK_IMPLEMENTATION
+#include <memory>
+#include <mutex>
+#include <thread>
+
 #include "../Dep/blastspeak.h"
 #include "../Dep/wasapi.h"
 #include "../Include/SRAL.h"
 #include "Engine.h"
-
-#include <memory>
-#include <thread>
-#include <mutex>
 
 namespace Sral {
 class Sapi final : public Engine {
@@ -41,7 +41,7 @@ private:
 	WAVEFORMATEX wfx{};
 	int trimThreshold = 20;
 	int voiceIndex = 0;
-	std::jthread speechThread; 
+	std::jthread speechThread;
 	std::mutex instanceMutex;
 };
 } // namespace Sral

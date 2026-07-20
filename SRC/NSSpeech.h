@@ -18,7 +18,7 @@ public:
 
 	NSSpeech(const NSSpeech&) = delete;
 	NSSpeech& operator=(const NSSpeech&) = delete;
-	NSSpeech(NsSpeech&&) = delete; 
+	NSSpeech(NsSpeech&&) = delete;
 	NSSpeech& operator=(NSSpeech&&) = delete;
 
 	[[nodiscard]] bool Speak(const char* text, bool interrupt) override;
@@ -27,11 +27,11 @@ public:
 	[[nodiscard]] bool GetActive() override;
 	[[nodiscard]] bool SetParameter(int param, const void* value) override;
 	[[nodiscard]] bool GetParameter(int param, void* value) override;
-	
+
 	[[nodiscard]] int GetNumber() override { return SRAL_ENGINE_NS_SPEECH; }
 	[[nodiscard]] int GetCategory() override { return SRAL_ENGINE_CATEGORY_SCREEN_READER; }
 	[[nodiscard]] int GetFeatures() override { return SRAL_SUPPORTS_SPEECH; }
-	
+
 	[[nodiscard]] bool Initialize() override;
 	[[nodiscard]] bool Uninitialize() override;
 

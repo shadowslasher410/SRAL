@@ -1,5 +1,7 @@
 #include "Engine.h"
+
 #include <cstddef>
+
 #include "../Include/SRAL.h"
 
 namespace Sral {
@@ -8,7 +10,8 @@ bool Engine::SpeakSsml(const char* ssml, bool interrupt) {
 	return Speak(ssml, interrupt);
 }
 
-void* Engine::SpeakToMemory(const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) {
+void* Engine::SpeakToMemory(
+	const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) {
 	(void)text;
 	(void)buffer_size;
 	(void)channels;

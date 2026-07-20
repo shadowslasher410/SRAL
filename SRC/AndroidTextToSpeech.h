@@ -2,10 +2,11 @@
 #define ANDROIDTEXTTOSPEECH_H_
 #pragma once
 
-#include "Engine.h"
-#include "../Include/SRAL.h"
-#include <memory>
 #include <cstdint>
+#include <memory>
+
+#include "../Include/SRAL.h"
+#include "Engine.h"
 
 namespace Sral {
 
@@ -20,7 +21,8 @@ public:
 
 	bool Speak(const char* speech_text, bool interrupt) override;
 	bool SpeakSsml(const char* ssml, bool interrupt) override;
-	void* SpeakToMemory(const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override;
+	void* SpeakToMemory(
+		const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override;
 	bool SetParameter(int param, const void* value) override;
 	bool GetParameter(int param, void* value) override;
 	bool Braille(const char* text) override;

@@ -4,32 +4,34 @@
 #define WASAPI_H_
 
 #if defined(_WIN32)
-    #if defined(SRAL_STATIC)
-        #define WASAPI_API
-    #elif defined(SRAL_BUILDING_DLL)
-        #define WASAPI_API __declspec(dllexport)
-    #else
-        #define WASAPI_API __declspec(dllimport)
-    #endif
+#if defined(SRAL_STATIC)
+#define WASAPI_API
+#elif defined(SRAL_BUILDING_DLL)
+#define WASAPI_API __declspec(dllexport)
 #else
-    #define WASAPI_API
+#define WASAPI_API __declspec(dllimport)
+#endif
+#else
+#define WASAPI_API
 #endif
 
-#include <algorithm>
+#include <windows.h>
+
 #include <audioclient.h>
 #include <audiopolicy.h>
 #include <comdef.h>
 #include <mmdeviceapi.h>
-#include <string>
-#include <string_view>
-#include <vector>
-#include <windows.h>
-#include <utility>
+
+#include <algorithm>
 #include <atomic>
-#include <mutex>
-#include <thread>
 #include <condition_variable>
 #include <memory>
+#include <mutex>
+#include <string>
+#include <string_view>
+#include <thread>
+#include <utility>
+#include <vector>
 
 _COM_SMARTPTR_TYPEDEF(IMMDevice, __uuidof(IMMDevice));
 _COM_SMARTPTR_TYPEDEF(IMMDeviceCollection, __uuidof(IMMDeviceCollection));
@@ -44,20 +46,15 @@ _COM_SMARTPTR_TYPEDEF(IPropertyStore, __uuidof(IPropertyStore));
 class AutoHandle final {
 public:
 	constexpr AutoHandle() noexcept : handle(nullptr) {}
-	
-	explicit AutoHandle(HANDLE h) noexcept 
-		: handle((h == INVALID_HANDLE_VALUE || h == nullptr) ? nullptr : h) {}
 
-	~AutoHandle() noexcept {
-		reset();
-	}
+	explicit AutoHandle(HANDLE h) noexcept : handle((h == INVALID_HANDLE_VALUE || h == nullptr) ? nullptr : h) {}
+
+	~AutoHandle() noexcept { reset(); }
 
 	AutoHandle(const AutoHandle&) = delete;
 	AutoHandle& operator=(const AutoHandle&) = delete;
 
-	AutoHandle(AutoHandle&& other) noexcept : handle(other.handle) {
-		other.handle = nullptr;
-	}
+	AutoHandle(AutoHandle&& other) noexcept : handle(other.handle) { other.handle = nullptr; }
 
 	AutoHandle& operator=(AutoHandle&& other) noexcept {
 		if (this != &other) [[likely]] {
@@ -78,17 +75,11 @@ public:
 		return *this;
 	}
 
-	[[nodiscard]] operator HANDLE() const noexcept {
-		return handle;
-	}
+	[[nodiscard]] operator HANDLE() const noexcept { return handle; }
 
-	[[nodiscard]] HANDLE get() const noexcept {
-		return handle;
-	}
+	[[nodiscard]] HANDLE get() const noexcept { return handle; }
 
-	[[nodiscard]] bool isValid() const noexcept {
-		return handle != nullptr;
-	}
+	[[nodiscard]] bool isValid() const noexcept { return handle != nullptr; }
 
 	void reset() noexcept {
 		if (handle) {
@@ -107,7 +98,6 @@ public:
 
 	ULONG STDMETHODCALLTYPE AddRef() override {
 		return static_cast<ULONG>(refCount.fetch_add(1, std::memory_order_relaxed)) + 1;
-
 	}
 
 	ULONG STDMETHODCALLTYPE Release() override {
@@ -129,7 +119,7 @@ public:
 			*ppvObject = static_cast<void*>(this);
 			return S_OK;
 		}
-		
+
 		*ppvObject = nullptr;
 		return E_NOINTERFACE;
 	}
@@ -188,9 +178,10 @@ _COM_SMARTPTR_TYPEDEF(IMMNotificationClient, __uuidof(IMMNotificationClient));
 
 class WASAPI_API WasapiPlayer final {
 public:
-	using ChunkCompletedCallback = void(*)(WasapiPlayer* player, unsigned int id);
+	using ChunkCompletedCallback = void (*)(WasapiPlayer* player, unsigned int id);
 
-	WasapiPlayer(std::wstring_view targetDeviceName, const WAVEFORMATEX& audioFormat, ChunkCompletedCallback endChunkCallback);
+	WasapiPlayer(
+		std::wstring_view targetDeviceName, const WAVEFORMATEX& audioFormat, ChunkCompletedCallback endChunkCallback);
 	~WasapiPlayer();
 	WasapiPlayer(const WasapiPlayer&) = delete;
 	WasapiPlayer& operator=(const WasapiPlayer&) = delete;
@@ -218,7 +209,8 @@ private:
 	void completeStop();
 
 	[[nodiscard]] inline UINT64 framesToMs(UINT64 frames) const noexcept {
-		if (format.nSamplesPerSec == 0) [[unlikely]] return 0;
+		if (format.nSamplesPerSec == 0) [[unlikely]]
+			return 0;
 		return (frames * 1000) / format.nSamplesPerSec;
 	}
 
@@ -240,30 +232,30 @@ private:
 		stopping,
 	};
 
-	size_t                           ringBufferCapacity = 0;
+	size_t ringBufferCapacity = 0;
 	std::unique_ptr<unsigned char[]> ringBuffer;
-	std::atomic<size_t>              rbHead{ 0 };
-	std::atomic<size_t>              rbTail{ 0 };
-	std::thread               workerThread;
-	std::mutex                queueMutex;
-	std::condition_variable   queueCV;
-	std::atomic<bool>         isRunning{ false };
-	IAudioClientPtr       client{ nullptr };
-	IAudioRenderClientPtr render{ nullptr };
-	IAudioClockPtr        clock{ nullptr };
-	UINT32                bufferFrames = 0;
-	std::wstring          deviceName;
+	std::atomic<size_t> rbHead{0};
+	std::atomic<size_t> rbTail{0};
+	std::thread workerThread;
+	std::mutex queueMutex;
+	std::condition_variable queueCV;
+	std::atomic<bool> isRunning{false};
+	IAudioClientPtr client{nullptr};
+	IAudioRenderClientPtr render{nullptr};
+	IAudioClockPtr clock{nullptr};
+	UINT32 bufferFrames = 0;
+	std::wstring deviceName;
 	ChunkCompletedCallback callback = nullptr;
-	PlayState             playState = PlayState::stopped;
+	PlayState playState = PlayState::stopped;
 	std::vector<std::pair<unsigned int, UINT64>> feedEnds;
-	UINT64                clockFreq = 0;
-	UINT64                baseDevicePos = 0;
-	UINT64                sentFrames = 0; 
-	unsigned int          nextFeedId = 0;
-	unsigned int          defaultDeviceChangeCount = 0;
-	unsigned int          deviceStateChangeCount = 0;
-	bool                  isUsingPreferredDevice = false;
-	AutoHandle            audioEvent; 
+	UINT64 clockFreq = 0;
+	UINT64 baseDevicePos = 0;
+	UINT64 sentFrames = 0;
+	unsigned int nextFeedId = 0;
+	unsigned int defaultDeviceChangeCount = 0;
+	unsigned int deviceStateChangeCount = 0;
+	bool isUsingPreferredDevice = false;
+	AutoHandle audioEvent;
 };
 
 #endif

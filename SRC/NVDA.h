@@ -4,6 +4,7 @@
 #pragma once
 
 #include <windows.h>
+
 #include <mutex>
 #include <new>
 
@@ -13,9 +14,9 @@
 namespace Sral {
 
 #ifdef __cpp_lib_hardware_interference_size
-    using std::hardware_destructive_interference_size;
+using std::hardware_destructive_interference_size;
 #else
-    constexpr size_t hardware_destructive_interference_size = 64;
+constexpr size_t hardware_destructive_interference_size = 64;
 #endif
 
 typedef error_status_t(__stdcall* NVDAController_speakText)(const wchar_t*);
@@ -36,7 +37,7 @@ public:
 
 	[[nodiscard]] bool Speak(const char* text, bool interrupt) override;
 	[[nodiscard]] bool SpeakSsml(const char* ssml, bool interrupt) override;
-	
+
 	void* SpeakToMemory(
 		const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override {
 		(void)text;
@@ -55,11 +56,11 @@ public:
 	[[nodiscard]] bool PauseSpeech() override;
 	[[nodiscard]] bool ResumeSpeech() override;
 
-	[[nodiscard]] bool IsSpeaking() override; 
+	[[nodiscard]] bool IsSpeaking() override;
 
 	[[nodiscard]] int GetNumber() override { return SRAL_ENGINE_NVDA; }
 	[[nodiscard]] int GetCategory() override { return SRAL_ENGINE_CATEGORY_SCREEN_READER; }
-	
+
 	[[nodiscard]] bool GetActive() override;
 	[[nodiscard]] int GetFeatures() override {
 		return SRAL_SUPPORTS_SPEECH | SRAL_SUPPORTS_BRAILLE | SRAL_SUPPORTS_PAUSE_SPEECH | SRAL_SUPPORTS_SPELLING;

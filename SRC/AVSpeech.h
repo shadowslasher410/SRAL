@@ -7,13 +7,13 @@
 
 #if TARGET_OS_OSX || TARGET_OS_IPHONE
 
-#include <cstddef>
-#include <new>
-#include <string>
 #include <array>
 #include <atomic>
-#include <thread>
+#include <cstddef>
 #include <mutex>
+#include <new>
+#include <string>
+#include <thread>
 
 #include "../Include/SRAL.h"
 #include "Engine.h"
@@ -27,7 +27,7 @@ inline constexpr std::size_t DestructiveInterferenceSize = std::hardware_destruc
 #elif defined(__apple_build_version__) && (defined(__arm64__) || defined(__aarch64__))
 inline constexpr std::size_t DestructiveInterferenceSize = 128;
 #else
-inline constexpr std::size_t DestructiveInterferenceSize = 64; 
+inline constexpr std::size_t DestructiveInterferenceSize = 64;
 #endif
 
 class alignas(DestructiveInterferenceSize) AvSpeech final : public Engine {
@@ -67,21 +67,14 @@ public:
 	[[nodiscard]] int GetKeyFlags() override { return HANDLE_NONE; }
 
 private:
-	enum class TaskType : uint8_t { 
-		Speak, 
-		Stop, 
-		Pause, 
-		Resume, 
-		SetVolume, 
-		SetRate 
-	};
-	
+	enum class TaskType : uint8_t { Speak, Stop, Pause, Resume, SetVolume, SetRate };
+
 	struct alignas(DestructiveInterferenceSize) AsyncSpeechTask {
 		std::array<char, 512> text{};
-		std::atomic<size_t>   sequence{0};
-		float                 parameter_value{0.0f};
-		TaskType              type{TaskType::Speak};
-		bool                  interrupt{false};
+		std::atomic<size_t> sequence{0};
+		float parameter_value{0.0f};
+		TaskType type{TaskType::Speak};
+		bool interrupt{false};
 	};
 
 	void BackgroundWorkerLoop(std::stop_token stop_token) noexcept;
@@ -92,15 +85,15 @@ private:
 	alignas(DestructiveInterferenceSize) std::array<AsyncSpeechTask, RING_BUFFER_SIZE> m_ring_queue;
 	alignas(DestructiveInterferenceSize) std::atomic<size_t> m_head{0};
 	alignas(DestructiveInterferenceSize) std::atomic<size_t> m_tail{0};
-	alignas(DestructiveInterferenceSize) std::atomic<bool>   m_ring_bell{false};
+	alignas(DestructiveInterferenceSize) std::atomic<bool> m_ring_bell{false};
 
-	std::mutex                        m_init_mutex;
-	std::jthread                      m_worker_thread;
-	AVSpeechSynthesizerWrapper*       obj = nullptr;
+	std::mutex m_init_mutex;
+	std::jthread m_worker_thread;
+	AVSpeechSynthesizerWrapper* obj = nullptr;
 
-	std::atomic<uint64_t>             m_cached_volume{100};
-	std::atomic<uint64_t>             m_cached_rate{100};
-	std::atomic<bool>                 m_initialized{false};
+	std::atomic<uint64_t> m_cached_volume{100};
+	std::atomic<uint64_t> m_cached_rate{100};
+	std::atomic<bool> m_initialized{false};
 };
 
 } // namespace Sral

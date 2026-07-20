@@ -1,40 +1,168 @@
 # =============================================================================
 # SRAL Orchestrator Base Functionality & Feature Triggers
 # =============================================================================
-option('BUILD_SHARED_LIBS', type: 'boolean', value: true, description: 'Force build of shared object binary layers alongside static targets')
-option('BUILD_TESTS', type: 'boolean', value: true, description: 'Compile and optimize unit testing executable layers')
-option('BUILD_BINDINGS', type: 'boolean', value: true, description: 'Expose management wrappers for foreign programming language bindings')
+option(
+    'BUILD_SHARED_LIBS',
+    type: 'boolean',
+    value: true,
+    description: 'Force build of shared object binary layers alongside static targets',
+)
+option(
+    'BUILD_TESTS',
+    type: 'boolean',
+    value: true,
+    description: 'Compile and optimize unit testing executable layers',
+)
+option(
+    'BUILD_BINDINGS',
+    type: 'boolean',
+    value: true,
+    description: 'Expose management wrappers for foreign programming language bindings',
+)
 
 # =============================================================================
 # Core Screen Reader Adapter Feature Selection Switches
 # =============================================================================
-option('SRAL_WITH_ACCESSKIT', type: 'boolean', value: true, description: 'Compile AccessKit multi-platform proxy layout engine support')
-option('SRAL_WITH_CHROMEVOX', type: 'boolean', value: false, description: 'Force compile layout engines strictly tracking ChromeVox execution loops')
-option('SRAL_WITH_UIA', type: 'boolean', value: true, description: 'Compile Microsoft Windows UI Automation integration features')
-option('SRAL_WITH_NSSPEECH', type: 'boolean', value: true, description: 'Compile native Apple Cocoa NSSpeechSynthesizer platform elements')
-option('SRAL_WITH_NVDA', type: 'boolean', value: true, description: 'Compile native NVDA Remote controller library automation engines')
-option('SRAL_WITH_SPEECH_DISPATCHER', type: 'boolean', value: true, description: 'Compile Linux / POSIX Speech Dispatcher driver client routines')
-option('SRAL_WITH_ORCA', type: 'boolean', value: true, description: 'Compile Linux AT-SPI2 DBus hooks tracking Orca communication loops')
-option('SRAL_WITH_BRLAPI', type: 'boolean', value: true, description: 'Compile BrlAPI braille display hardware driver client wrappers')
-
-# --- Newly Added Screen Reader Modules Required by SRC/meson.build ---
-option('SRAL_WITH_JAWS', type: 'boolean', value: true, description: 'Compile Freedom Scientific JAWS API integration drivers')
-option('SRAL_WITH_ZDSR', type: 'boolean', value: true, description: 'Compile Chinese ZDSR screen reader integration API drivers')
-option('SRAL_WITH_SAPI', type: 'boolean', value: true, description: 'Compile Microsoft Windows native Speech API (SAPI) engine features')
-option('SRAL_WITH_VOICEOVER', type: 'boolean', value: true, description: 'Compile native Apple macOS VoiceOver accessibility routing components')
-option('SRAL_WITH_AVSPEECH', type: 'boolean', value: true, description: 'Compile native Apple AVSpeechSynthesizer dynamic audio speech drivers')
-option('SRAL_WITH_ANDROID_TTS', type: 'boolean', value: true, description: 'Compile native Google Android Text-To-Speech API framework layers')
-option('SRAL_WITH_ANDROID_ACCESSIBILITY', type: 'boolean', value: true, description: 'Compile Android Accessibility Framework and AccessibilityManager layers')
+option(
+    'SRAL_WITH_ACCESSKIT',
+    type: 'boolean',
+    value: true,
+    description: 'Compile AccessKit multi-platform proxy layout engine support',
+)
+option(
+    'SRAL_WITH_CHROMEVOX',
+    type: 'boolean',
+    value: false,
+    description: 'Force compile layout engines strictly tracking ChromeVox execution loops',
+)
+option(
+    'SRAL_WITH_UIA',
+    type: 'boolean',
+    value: true,
+    description: 'Compile Microsoft Windows UI Automation integration features',
+)
+option(
+    'SRAL_WITH_NSSPEECH',
+    type: 'boolean',
+    value: true,
+    description: 'Compile native Apple Cocoa NSSpeechSynthesizer platform elements',
+)
+option(
+    'SRAL_WITH_NVDA',
+    type: 'boolean',
+    value: true,
+    description: 'Compile native NVDA Remote controller library automation engines',
+)
+option(
+    'SRAL_WITH_SPEECH_DISPATCHER',
+    type: 'boolean',
+    value: true,
+    description: 'Compile Linux / POSIX Speech Dispatcher driver client routines',
+)
+option(
+    'SRAL_WITH_ORCA',
+    type: 'boolean',
+    value: true,
+    description: 'Compile Linux AT-SPI2 DBus hooks tracking Orca communication loops',
+)
+option(
+    'SRAL_WITH_BRLAPI',
+    type: 'boolean',
+    value: true,
+    description: 'Compile BrlAPI braille display hardware driver client wrappers',
+)
+option(
+    'SRAL_WITH_JAWS',
+    type: 'boolean',
+    value: true,
+    description: 'Compile Freedom Scientific JAWS API integration drivers',
+)
+option(
+    'SRAL_WITH_ZDSR',
+    type: 'boolean',
+    value: true,
+    description: 'Compile Chinese ZDSR screen reader integration API drivers',
+)
+option(
+    'SRAL_WITH_SAPI',
+    type: 'boolean',
+    value: true,
+    description: 'Compile Microsoft Windows native Speech API (SAPI) engine features',
+)
+option(
+    'SRAL_WITH_VOICEOVER',
+    type: 'boolean',
+    value: true,
+    description: 'Compile native Apple macOS VoiceOver accessibility routing components',
+)
+option(
+    'SRAL_WITH_AVSPEECH',
+    type: 'boolean',
+    value: true,
+    description: 'Compile native Apple AVSpeechSynthesizer dynamic audio speech drivers',
+)
+option(
+    'SRAL_WITH_ANDROID_TTS',
+    type: 'boolean',
+    value: true,
+    description: 'Compile native Google Android Text-To-Speech API framework layers',
+)
+option(
+    'SRAL_WITH_ANDROID_ACCESSIBILITY',
+    type: 'boolean',
+    value: true,
+    description: 'Compile Android Accessibility Framework and AccessibilityManager layers',
+)
 
 # =============================================================================
 # Language Binding Automation Targets Generation Layout Controls
 # =============================================================================
-option('SRAL_BINDING_CSHARP', type: 'boolean', value: true, description: 'Expose target workspace pipelines for building Microsoft .NET C# wrappers')
-option('SRAL_BINDING_RUST', type: 'boolean', value: true, description: 'Expose target workspace pipelines for tracking Rust cargo library structures')
-option('SRAL_BINDING_NODE', type: 'boolean', value: true, description: 'Expose target workspace pipelines compiling Node.js integration components')
-option('SRAL_BINDING_GO', type: 'boolean', value: true, description: 'Expose target workspace pipelines executing Go toolchain generation steps')
-option('SRAL_BINDING_DART', type: 'boolean', value: true, description: 'Expose target workspace pipelines executing Dart/Flutter ecosystem elements')
-option('SRAL_BINDING_LUA', type: 'boolean', value: true, description: 'Expose target workspace pipelines validating and setting up Lua environments')
-option('SRAL_BINDING_PYTHON', type: 'boolean', value: true, description: 'Expose target workspace pipelines packaging structural Python wheels')
+option(
+    'SRAL_BINDING_CSHARP',
+    type: 'boolean',
+    value: true,
+    description: 'Expose target workspace pipelines for building Microsoft .NET C# wrappers',
+)
+option(
+    'SRAL_BINDING_RUST',
+    type: 'boolean',
+    value: true,
+    description: 'Expose target workspace pipelines for tracking Rust cargo library structures',
+)
+option(
+    'SRAL_BINDING_NODE',
+    type: 'boolean',
+    value: true,
+    description: 'Expose target workspace pipelines compiling Node.js integration components',
+)
+option(
+    'SRAL_BINDING_GO',
+    type: 'boolean',
+    value: true,
+    description: 'Expose target workspace pipelines executing Go toolchain generation steps',
+)
+option(
+    'SRAL_BINDING_DART',
+    type: 'boolean',
+    value: true,
+    description: 'Expose target workspace pipelines executing Dart/Flutter ecosystem elements',
+)
+option(
+    'SRAL_BINDING_LUA',
+    type: 'boolean',
+    value: true,
+    description: 'Expose target workspace pipelines validating and setting up Lua environments',
+)
+option(
+    'SRAL_BINDING_PYTHON',
+    type: 'boolean',
+    value: true,
+    description: 'Expose target workspace pipelines packaging structural Python wheels',
+)
 
-option('SRAL_INSTALL_BINDING_SOURCES', type: 'boolean', value: true, description: 'Deploy raw multi-language binding source templates to system data targets')
+option(
+    'SRAL_INSTALL_BINDING_SOURCES',
+    type: 'boolean',
+    value: true,
+    description: 'Deploy raw multi-language binding source templates to system data targets',
+)

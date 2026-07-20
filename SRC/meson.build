@@ -57,8 +57,8 @@ if dep_sources.length() > 0
 		'sral_deps',
 		dep_sources,
 		include_directories: inc_dir,
-		c_args: supported_global_c_args + cross_platform_warning_args,
-		cpp_args: supported_global_cpp_args + cross_platform_warning_args,
+		c_args: supported_global_c_args + c_warning_args,
+		cpp_args: supported_global_cpp_args + cpp_warning_args,
 		pic: true,
 	)
 	sral_deps_list += [sral_deps_lib]
@@ -83,11 +83,11 @@ cpp_exclusive_warnings = [
 ]
 
 if not is_msvc_like
-	core_c_args = supported_global_c_args + c_compiler.get_supported_arguments(shared_warnings) + cross_platform_warning_args
-	core_cpp_args = supported_global_cpp_args + cpp_compiler.get_supported_arguments(shared_warnings + cpp_exclusive_warnings) + cross_platform_warning_args
+	core_c_args = supported_global_c_args + c_compiler.get_supported_arguments(shared_warnings) + c_warning_args
+	core_cpp_args = supported_global_cpp_args + cpp_compiler.get_supported_arguments(shared_warnings + cpp_exclusive_warnings) + cpp_warning_args
 else
-	core_c_args = supported_global_c_args + cross_platform_warning_args
-	core_cpp_args = supported_global_cpp_args + cross_platform_warning_args
+	core_c_args = supported_global_c_args + c_warning_args
+	core_cpp_args = supported_global_cpp_args + cpp_warning_args
 endif
 
 core_sources = files('Engine.cpp', 'SRAL.cpp')

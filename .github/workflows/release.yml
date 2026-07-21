@@ -105,7 +105,6 @@ jobs:
         if: matrix.target-name == 'linux-x64' || matrix.target-name == 'android-arm64'
         shell: bash
         run: |
-          # Robust check to prevent tar exit code 2 errors on blank folders
           if [ -z "$(ls -A staging_dist 2>/dev/null)" ]; then
             echo "::error::staging_dist directory is empty! Upstream compilation artifacts failed to download."
             exit 1
@@ -123,32 +122,25 @@ jobs:
         shell: bash
         run: zip -r ${{ matrix.output-archive }} staging_dist/
 
-      - name: Install Apple Certificates and Provisioning Profiles (iOS Only)
-        if: matrix.target-name == 'ios-universal'
-        env:
-          BUILD_CERTIFICATE_BASE64: ${{ secrets.APPLE_BUILD_CERTIFICATE_BASE64 }}
-          P12_PASSWORD: ${{ secrets.APPLE_P12_PASSWORD }}
-          BUILD_PROVISION_PROFILE_BASE64: ${{ secrets.APPLE_BUILD_PROVISION_PROFILE_BASE64 }}
-          KEYCHAIN_PASSWORD: ${{ secrets.APPLE_KEYCHAIN_PASSWORD }}
-        run: |
-          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
-          PP_PATH=$RUNNER_TEMP/build_pp.mobileprovision
-          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
-
-          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o $CERTIFICATE_PATH
-          echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PP_PATH
-
-          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-
-          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
-          cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/
-
       - name: Code Sign and Package XCFramework Bundle (iOS Only)
         if: matrix.target-name == 'ios-universal'
+        env:
+          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
-          # FIX: Codesign the absolute framework folder inside the archive instead of a non-existent .app
-          codesign --force --sign "Apple Distribution" --verbose staging_dist/SRAL.xcframework
+          API_KEY_DIR="$RUNNER_TEMP/private_keys"
+          mkdir -p "$API_KEY_DIR"
+          API_KEY_PATH="$API_KEY_DIR/AuthKey_${KEY_ID}.p8"
+          echo "$PRIVATE_KEY" > "$API_KEY_PATH"
+          
+          xcodebuild archive \
+            -allowProvisioningUpdates \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" \
+            -authenticationKeyPath "$API_KEY_PATH"
+
+          # 3. Zip your built artifact package 
           cd staging_dist
           zip -r "../${{ matrix.output-archive }}" SRAL.xcframework
 

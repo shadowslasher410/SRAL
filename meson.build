@@ -127,21 +127,28 @@ if is_windows
 endif
 
 if is_msvc_like
-  if is_msvc_like
   msvc_shared_flags = [
     '/wd4324',  # Structure was padded due to alignment specifier
     '/wd4820',  # Padding bytes automatically added inside structs
     '/wd5039',  # Suppress winbase.h TpSetCallbackCleanupGroup throw warning under -EHc
     '/wd4865',  # Unnamed enum layout underlying type changes
+    '/wd4365',  # Signed/unsigned mismatc
+    '/wd5204',  # Non-virtual destructor in class with virtual functions
+    '/wd5291',  # Suppress ABI padding warning between classes
+    '/wd4373',  # Virtual function override const/volatile qualifier difference
+    '/wd4251',  # STL template member DLL interface warning
+    '/wd4625',  # Copy constructor was implicitly defined as deleted
+    '/wd4626',  # Assignment operator was implicitly defined as deleted
+    '/wd5026',  # Move constructor was implicitly defined as deleted
+    '/wd5027',  # Move assignment operator was implicitly defined as deleted
     '/permissive-',
     '/Zc:__cplusplus',
   ]
-  c_warning_args += msvc_shared_flags
-  cpp_warning_args += msvc_shared_flags + [
-    '-D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING',
-  ]
+  
+  add_project_arguments(msvc_shared_flags, language: ['c', 'cpp'])
+  
+  add_project_arguments('-D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING', language: 'cpp')
   add_project_arguments('/experimental:c11atomics', language: 'c')
-endif
 endif
 
 if is_windows

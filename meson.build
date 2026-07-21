@@ -132,7 +132,7 @@ if is_msvc_like
     '/wd4820',  # Padding bytes automatically added inside structs
     '/wd5039',  # Suppress winbase.h TpSetCallbackCleanupGroup throw warning under -EHc
     '/wd4865',  # Unnamed enum layout underlying type changes
-    '/wd4365',  # Signed/unsigned mismatc
+    '/wd4365',  # Signed/unsigned mismatch
     '/wd5204',  # Non-virtual destructor in class with virtual functions
     '/wd5291',  # Suppress ABI padding warning between classes
     '/wd4373',  # Virtual function override const/volatile qualifier difference
@@ -141,13 +141,15 @@ if is_msvc_like
     '/wd4626',  # Assignment operator was implicitly defined as deleted
     '/wd5026',  # Move constructor was implicitly defined as deleted
     '/wd5027',  # Move assignment operator was implicitly defined as deleted
+    '/wd4005',  # Macro redefinition warning
+    '/wd4191',  # Unsafe FARPROC to function pointer conversion
     '/permissive-',
     '/Zc:__cplusplus',
   ]
   
   add_project_arguments(msvc_shared_flags, language: ['c', 'cpp'])
   
-  add_project_arguments('-D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING', language: 'cpp')
+  add_project_arguments('/D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING', language: 'cpp')
   add_project_arguments('/experimental:c11atomics', language: 'c')
 endif
 

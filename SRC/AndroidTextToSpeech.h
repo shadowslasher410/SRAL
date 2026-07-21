@@ -19,12 +19,11 @@ public:
 	AndroidTextToSpeech(AndroidTextToSpeech&&) noexcept = delete;
 	AndroidTextToSpeech& operator=(AndroidTextToSpeech&&) noexcept = delete;
 
-	bool Speak(const char* speech_text, bool interrupt) override;
-	bool SpeakSsml(const char* ssml, bool interrupt) override;
-	void* SpeakToMemory(
-		const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override;
-	bool SetParameter(int param, const void* value) override;
-	bool GetParameter(int param, void* value) override;
+	bool Speak(const char*, bool) override;
+	bool SpeakSsml(const char*, bool) override;
+	void* SpeakToMemory(const char* text, uint64_t*, int*, int*, int*) override;
+	bool SetParameter(int, const void*) override;
+	bool GetParameter(int, void*) override;
 	bool Braille(const char* text) override;
 	bool StopSpeech() override;
 	bool PauseSpeech() override;

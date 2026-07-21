@@ -1,27 +1,27 @@
--keep class org.sral.AndroidAccessibilityManagerHelper {
-    public <init>(android.content.Context);
-    public boolean isActive();
-    public void announce(java.lang.String, boolean);
-    public void stop();
-    public void shutdown();
-}
-
--keep class org.sral.AndroidTTSHelper {
-    public <init>(android.content.Context);
-    public boolean isActive();
-    public boolean isSpeaking();
-    public void speak(java.lang.String, boolean);
-    public void stop();
-    public void setSpeechRate(float);
-    public void setVolume(float);
-    public float getRate();
-    public float getVolume();
-    public void shutdown();
-}
-
+-keepdirectories org.sral
+-keepclassmembers class org.sral.** { *; }
 -keep class org.sral.** {
     <init>(...);
-    public *;
+    *;
+}
+-keepclassmembers class * extends android.speech.tts.UtteranceProgressListener {
+    public void onStart(java.lang.String);
+    public void onDone(java.lang.String);
+    public void onError(java.lang.String);
+    public void onError(java.lang.String, int);
+    public void onStop(java.lang.String, boolean);
 }
 
+-keepclassmembers class * implements android.speech.tts.TextToSpeech$OnInitListener {
+    public void onInit(int);
+}
+-keep class * implements androidx.lifecycle.DefaultLifecycleObserver {
+    public void onCreate(androidx.lifecycle.LifecycleOwner);
+    public void onStart(androidx.lifecycle.LifecycleOwner);
+    public void onResume(androidx.lifecycle.LifecycleOwner);
+    public void onPause(androidx.lifecycle.LifecycleOwner);
+    public void onStop(androidx.lifecycle.LifecycleOwner);
+    public void onDestroy(androidx.lifecycle.LifecycleOwner);
+}
+-keepattributes InnerClasses, Signature, EnclosingMethod, *Annotation*, MethodParameters
 -dontwarn org.sral.**

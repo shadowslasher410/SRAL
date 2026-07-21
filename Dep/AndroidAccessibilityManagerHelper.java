@@ -167,10 +167,9 @@ public final class AndroidAccessibilityManagerHelper implements DefaultLifecycle
       }
 
       isRunning.set(true);
-
-      Thread newWorker = Thread.ofVirtual()
-                             .name("AccessibilityAnnouncementWorker")
-                             .unstarted(new AnnouncementWorkerRunnable());
+      Thread newWorker =
+          new Thread(new AnnouncementWorkerRunnable(), "AccessibilityAnnouncementWorker");
+      newWorker.setDaemon(true);
 
       workerThread.set(newWorker);
       newWorker.start();
@@ -219,7 +218,9 @@ public final class AndroidAccessibilityManagerHelper implements DefaultLifecycle
   private final class AnnouncementWorkerRunnable implements Runnable {
     @Override
     public void run() {
-      Thread.interrupted();
+      if (Thread.currentThread().isInterrupted()) {
+        Thread.interrupted();
+      }
 
       while (isRunning.get()) {
         String targetText = null;
@@ -231,7 +232,6 @@ public final class AndroidAccessibilityManagerHelper implements DefaultLifecycle
             try {
               bufferLock.wait();
             } catch (InterruptedException e) {
-              Thread.interrupted();
               interruptedInsideWaitLoop = true;
               break;
             }
@@ -309,6 +309,7 @@ public final class AndroidAccessibilityManagerHelper implements DefaultLifecycle
         try {
           event.recycle();
         } catch (Exception ignored) {
+          // Suppress
         }
       }
     }
@@ -323,6 +324,9 @@ public final class AndroidAccessibilityManagerHelper implements DefaultLifecycle
         AccessibilityEvent event = AccessibilityEvent.obtain();
         if (event != null) {
           event.setEventType(AccessibilityEvent.TYPE_ANNOUNCEMENT);
+        } else {
+          event = new AccessibilityEvent();
+          event.setEventType(AccessibilityEvent.TYPE_ANNOUNCEMENT);
         }
         return event;
       } catch (Exception e) {
@@ -330,5 +334,57 @@ public final class AndroidAccessibilityManagerHelper implements DefaultLifecycle
         return null;
       }
     }
+  }
+
+  private long calculateReadingDelay(@NonNull String text) {
+    if (text.isEmpty()) {
+      return 0L;
+    }
+    String[] words = text.split("\\s+");
+    long estimatedTime = words.length * 460L + 350L;
+    return Math.max(800L, Math.min(estimatedTime, 8500L));
+  }
+
+  public void interrupt() {
+    synchronized (bufferLock) {
+      java.util.Arrays.fill(ringBuffer, null);
+      head = 0;
+      tail = 0;
+      size = 0;
+
+      frameworkJustInterrupted.set(true);
+      bufferLock.notifyAll();
+    }
+
+    if (isActive()) {
+      try {
+        am.interrupt();
+      } catch (Exception e) {
+        Log.e(TAG, "Failed to broadcast interrupt command to accessibility manager", e);
+      }
+    }
+  }
+
+  public void shutdown() {
+    isRunning.set(false);
+
+    synchronized (bufferLock) {
+      java.util.Arrays.fill(ringBuffer, null);
+      head = 0;
+      tail = 0;
+      size = 0;
+      bufferLock.notifyAll();
+    }
+
+    Thread targetWorker = workerThread.getAndSet(null);
+    if (targetWorker != null && targetWorker.isAlive()) {
+      try {
+        targetWorker.interrupt();
+      } catch (Exception e) {
+        Log.e(TAG, "Failed to signal background accessibility thread interruption cleanly", e);
+      }
+    }
+
+    mainHandler.removeMessages(MSG_EXECUTE_ANNOUNCEMENT);
   }
 }

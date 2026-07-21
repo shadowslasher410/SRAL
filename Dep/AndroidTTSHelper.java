@@ -17,138 +17,30 @@ public class AndroidTTSHelper {
   private static final String TAG = "SRAL_TTSHelper";
   private static final String UTTERANCE_ID = "sral_utterance";
   private static final int INITIAL_CAPACITY = 8;
+
+  private final ReentrantLock lock;
+  private final Condition loopCondition;
+  private final Condition speechCompletionCondition;
+
   private volatile TextToSpeech tts;
   private volatile boolean ready = false;
   private volatile boolean speaking = false;
-  private float currentRate = 1.0f;
-  private float currentVolume = 1.0f;
+  private volatile boolean isRunning = false;
+  private volatile float currentRate = 1.0f;
+  private volatile float currentVolume = 1.0f;
+
   private String[] ringBuffer;
   private int capacity;
   private int head = 0;
   private int tail = 0;
   private int size = 0;
-  private final ReentrantLock lock;
-  private final Condition loopCondition;
-  private final Condition speechCompletionCondition;
   private Thread workerThread;
-  private volatile boolean isRunning;
-
-  private static final class SafeUtteranceListener extends UtteranceProgressListener {
-    private final WeakReference<AndroidTTSHelper> helperRef;
-
-    SafeUtteranceListener(AndroidTTSHelper helper) {
-      this.helperRef = new WeakReference<>(helper);
-    }
-
-    @Override
-    public void onStart(String utteranceId) {
-      if (helperRef.get() instanceof AndroidTTSHelper helper) {
-        Log.d(TAG, "Native hardware engine started rendering utterance: " + utteranceId);
-      }
-    }
-
-    @Override
-    public void onDone(String utteranceId) {
-      if (helperRef.get() instanceof AndroidTTSHelper helper) {
-        helper.lock.lock();
-        try {
-          helper.speaking = false;
-          helper.speechCompletionCondition.signalAll();
-        } finally {
-          helper.lock.unlock();
-        }
-      }
-    }
-
-    @Override
-    @Deprecated
-    public void onError(String utteranceId) {
-      onError(utteranceId, -1);
-    }
-
-    @Override
-    public void onError(String utteranceId, int errorCode) {
-      if (helperRef.get() instanceof AndroidTTSHelper helper) {
-        helper.lock.lock();
-        try {
-          helper.speaking = false;
-          helper.speechCompletionCondition.signalAll();
-          Log.w(TAG,
-              "Utterance playback failed for ID: %s with error code: %d".formatted(
-                  utteranceId, errorCode));
-        } finally {
-          helper.lock.unlock();
-        }
-      }
-    }
-  }
-
-  private static final class SafeOnInitListener implements TextToSpeech.OnInitListener {
-    private final WeakReference<AndroidTTSHelper> helperRef;
-
-    SafeOnInitListener(AndroidTTSHelper helper) {
-      this.helperRef = new WeakReference<>(helper);
-    }
-
-    @Override
-    public void onInit(int status) {
-      if (!(helperRef.get() instanceof AndroidTTSHelper helper)) {
-        return;
-      }
-
-      if (status == TextToSpeech.SUCCESS) {
-        try {
-          helper.lock.lock();
-          try {
-            TextToSpeech actualTts = helper.tts;
-            if (actualTts == null) {
-              Log.w(TAG,
-                  "TTS instance reference not fully committed yet during initialization callback "
-                  + "loop.");
-              return;
-            }
-
-            actualTts.setLanguage(Locale.getDefault());
-            actualTts.setOnUtteranceProgressListener(new SafeUtteranceListener(helper));
-            actualTts.setSpeechRate(helper.currentRate);
-
-            helper.ready = true;
-            helper.startWorker();
-          } finally {
-            helper.lock.unlock();
-          }
-        } catch (Throwable t) {
-          switch (t) {
-            case Exception e ->
-              Log.e(TAG, "Failed to completely initialize TTS listener tracks", e);
-            default -> Log.wtf(TAG, "Fatal engine breakdown during TTS tracking setup pass", t);
-          }
-
-          helper.lock.lock();
-          try {
-            helper.ready = false;
-          } finally {
-            helper.lock.unlock();
-          }
-        }
-      } else {
-        Log.e(TAG,
-            "Android TextToSpeech initialization engine failed with status: %d".formatted(
-                status));
-
-        helper.lock.lock();
-        try {
-          helper.ready = false;
-        } finally {
-          helper.lock.unlock();
-        }
-      }
-    }
-  }
 
   public AndroidTTSHelper(@NonNull Context context) {
-    Objects.requireNonNull(context, "Context cannot be null");
-    final Context appContext = context.getApplicationContext();
+    if (context == null) {
+      throw new NullPointerException("Context cannot be null");
+    }
+    Context appContext = context.getApplicationContext();
 
     this.capacity = INITIAL_CAPACITY;
     this.ringBuffer = new String[capacity];
@@ -160,7 +52,12 @@ public class AndroidTTSHelper {
   }
 
   public boolean isActive() {
-    return ready && tts != null;
+    lock.lock();
+    try {
+      return ready && tts != null;
+    } finally {
+      lock.unlock();
+    }
   }
 
   public boolean isSpeaking() {
@@ -172,7 +69,36 @@ public class AndroidTTSHelper {
     }
   }
 
-  public void speak(String text, boolean interrupt) {
+  public float getRate() {
+    return currentRate;
+  }
+
+  public float getVolume() {
+    return currentVolume;
+  }
+
+  public void setSpeechRate(float rate) {
+    lock.lock();
+    try {
+      currentRate = rate;
+      TextToSpeech localTts = tts;
+      if (localTts != null && ready) {
+        try {
+          localTts.setSpeechRate(rate);
+        } catch (Exception e) {
+          Log.e(TAG, "Failed to apply runtime speech rate updates", e);
+        }
+      }
+    } finally {
+      lock.unlock();
+    }
+  }
+
+  public void setVolume(float volume) {
+    currentVolume = Math.max(0.0f, Math.min(volume, 1.0f));
+  }
+
+  public void speak(@Nullable String text, boolean interrupt) {
     if (text == null || text.trim().isEmpty()) {
       return;
     }
@@ -180,7 +106,22 @@ public class AndroidTTSHelper {
     lock.lock();
     try {
       if (interrupt) {
-        clearQueueAndNativeFrameworkStop();
+        java.util.Arrays.fill(ringBuffer, null);
+        head = 0;
+        tail = 0;
+        size = 0;
+
+        TextToSpeech localTts = tts;
+        if (localTts != null && ready) {
+          try {
+            localTts.stop();
+          } catch (Exception e) {
+            Log.e(TAG, "Failed to interrupt active playback safely", e);
+          }
+        }
+
+        speaking = false;
+        speechCompletionCondition.signalAll();
       }
 
       if (size == capacity) {
@@ -193,95 +134,6 @@ public class AndroidTTSHelper {
       loopCondition.signal();
     } finally {
       lock.unlock();
-    }
-  }
-
-  private void startWorker() {
-    if (workerThread != null && workerThread.isAlive()) {
-      return;
-    }
-    isRunning = true;
-    workerThread = Thread.ofVirtual().name("TTSBackgroundWorker").start(new TTSWorkerRunnable());
-  }
-
-  private final class TTSWorkerRunnable implements Runnable {
-    @Override
-    public void run() {
-      while (isRunning) {
-        String targetText = null;
-
-        lock.lock();
-        try {
-          while (size == 0 && isRunning) {
-            loopCondition.await();
-          }
-
-          if (!isRunning)
-            break;
-          while (speaking && isRunning) {
-            speechCompletionCondition.await();
-          }
-
-          if (!isRunning)
-            break;
-          targetText = ringBuffer[head];
-          ringBuffer[head] = null;
-          head = (head + 1) % capacity;
-          size--;
-
-        } catch (InterruptedException e) {
-          Thread.currentThread().interrupt();
-          break;
-        } finally {
-          lock.unlock();
-        }
-
-        if (targetText != null && isActive()) {
-          executeNativeSpeak(targetText);
-        }
-      }
-    }
-  }
-
-  private void executeNativeSpeak(String text) {
-    if (tts == null)
-      return;
-
-    Bundle params = new Bundle();
-    if (currentVolume != 1.0f) {
-      params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, currentVolume);
-    }
-
-    lock.lock();
-    try {
-      speaking = true;
-    } finally {
-      lock.unlock();
-    }
-
-    boolean submissionSuccess = false;
-    try {
-      int result = tts.speak(text, TextToSpeech.QUEUE_ADD, params, UTTERANCE_ID);
-      submissionSuccess = (result == TextToSpeech.SUCCESS);
-
-      if (!submissionSuccess) {
-        Log.e(TAG, "Native speech submission rejected by engine with status code: " + result);
-      }
-    } catch (Throwable t) {
-      switch (t) {
-        case Exception e -> Log.e(TAG, "Error executing bundle-based speech invocation", e);
-        default -> Log.wtf(TAG, "Fatal error executing bundle-based speech invocation", t);
-      }
-    }
-
-    if (!submissionSuccess) {
-      lock.lock();
-      try {
-        speaking = false;
-        speechCompletionCondition.signalAll();
-      } finally {
-        lock.unlock();
-      }
     }
   }
 
@@ -304,86 +156,279 @@ public class AndroidTTSHelper {
     this.tail = capacity;
     this.capacity = newCapacity;
 
-    Log.d(TAG, "Dynamic ring buffer expanded. New capacity: %d".formatted(newCapacity));
+    Log.d(TAG,
+        String.format(Locale.US, "Dynamic ring buffer expanded. New capacity: %d", newCapacity));
   }
 
-  private void clearQueueAndNativeFrameworkStop() {
-    assert lock.isHeldByCurrentThread() : "Lock must be held when clearing queues";
-
-    java.util.Arrays.fill(ringBuffer, null);
-    head = 0;
-    tail = 0;
-    size = 0;
-    speaking = false;
-
-    if (tts != null) {
-      try {
-        tts.stop();
-      } catch (Exception e) {
-        Log.e("SRAL_TTSHelper", "Failed to interrupt active playback queue safely", e);
-      }
-    }
-
-    speechCompletionCondition.signalAll();
-    loopCondition.signalAll();
-  }
-
-  public void stop() {
+  public void startWorker() {
     lock.lock();
     try {
-      clearQueueAndNativeFrameworkStop();
+      if (workerThread != null && workerThread.isAlive()) {
+        return;
+      }
+      isRunning = true;
+      workerThread = new Thread(new TTSWorkerRunnable(), "TTSBackgroundWorker");
+      workerThread.setDaemon(true);
+      workerThread.start();
     } finally {
       lock.unlock();
     }
   }
 
-  public void setSpeechRate(float rate) {
-    currentRate = rate;
-    if (tts != null && ready) {
-      try {
-        tts.setSpeechRate(rate);
-      } catch (Exception e) {
-        Log.e(TAG, "Failed to apply runtime speech rate updates", e);
+  private final class TTSWorkerRunnable implements Runnable {
+    @Override
+    public void run() {
+      while (isRunning) {
+        String targetText = null;
+
+        lock.lock();
+        try {
+          while (size == 0 && isRunning) {
+            loopCondition.await();
+          }
+
+          while (speaking && isRunning) {
+            speechCompletionCondition.await();
+          }
+
+          if (!isRunning) {
+            break;
+          }
+
+          targetText = ringBuffer[head];
+          ringBuffer[head] = null;
+          head = (head + 1) % capacity;
+          size--;
+
+          if (targetText != null && ready && tts != null) {
+            speaking = true;
+          } else {
+            targetText = null;
+          }
+
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          break;
+        } finally {
+          lock.unlock();
+        }
+
+        if (targetText != null) {
+          executeNativeSpeak(targetText);
+        }
       }
     }
   }
 
-  public void setVolume(float volume) {
-    currentVolume = Math.clamp(volume, 0.0f, 1.0f);
+  private void executeNativeSpeak(@NonNull String text) {
+    TextToSpeech localTts = tts;
+    lock.lock();
+    boolean isReadySnapshot = ready;
+    lock.unlock();
+
+    if (localTts == null || !isReadySnapshot) {
+      resetSpeakingState();
+      return;
+    }
+
+    Bundle params = new Bundle();
+    if (currentVolume != 1.0f) {
+      params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, currentVolume);
+    }
+
+    boolean submissionSuccess = false;
+    try {
+      int result = localTts.speak(text, TextToSpeech.QUEUE_ADD, params, UTTERANCE_ID);
+      submissionSuccess = (result == TextToSpeech.SUCCESS);
+
+      if (!submissionSuccess) {
+        Log.e(TAG, "Native speech submission rejected by engine. Code: " + result);
+      }
+    } catch (Throwable t) {
+      Log.e(TAG, "Fatal execution failure during speech invocation", t);
+      try {
+        localTts.stop();
+      } catch (Exception ignored) {
+      }
+    }
+
+    if (!submissionSuccess) {
+      resetSpeakingState();
+    }
   }
 
-  public float getRate() {
-    return currentRate;
+  private void resetSpeakingState() {
+    lock.lock();
+    try {
+      if (isRunning) {
+        speaking = false;
+        speechCompletionCondition.signalAll();
+      }
+    } finally {
+      lock.unlock();
+    }
   }
 
-  public float getVolume() {
-    return currentVolume;
+  public void stop() {
+    TextToSpeech localTts;
+    boolean isReadySnapshot;
+
+    lock.lock();
+    try {
+      java.util.Arrays.fill(ringBuffer, null);
+      head = 0;
+      tail = 0;
+      size = 0;
+      speaking = false;
+
+      speechCompletionCondition.signalAll();
+      loopCondition.signalAll();
+
+      localTts = tts;
+      isReadySnapshot = ready;
+    } finally {
+      lock.unlock();
+    }
+
+    if (localTts != null && isReadySnapshot) {
+      try {
+        localTts.stop();
+      } catch (Exception e) {
+        Log.e(TAG, "Failed to stop engine hardware tracks safely", e);
+      }
+    }
   }
 
   public void shutdown() {
+    Thread threadToInterrupt;
+    TextToSpeech localTts;
+
     lock.lock();
     try {
       isRunning = false;
       ready = false;
-      clearQueueAndNativeFrameworkStop();
+      java.util.Arrays.fill(ringBuffer, null);
+      head = 0;
+      tail = 0;
+      size = 0;
+      speaking = false;
+
       loopCondition.signalAll();
       speechCompletionCondition.signalAll();
 
-      if (workerThread != null) {
-        workerThread.interrupt();
-        workerThread = null;
-      }
+      localTts = tts;
+      tts = null;
+
+      threadToInterrupt = workerThread;
+      workerThread = null;
     } finally {
       lock.unlock();
     }
 
-    if (tts != null) {
+    if (threadToInterrupt != null) {
       try {
-        tts.shutdown();
+        threadToInterrupt.interrupt();
+      } catch (Exception e) {
+        Log.e(TAG, "Failed to terminate worker thread cleanly", e);
+      }
+    }
+
+    if (localTts != null) {
+      try {
+        localTts.setOnUtteranceProgressListener(null);
+        localTts.stop();
+        localTts.shutdown();
       } catch (Exception e) {
         Log.e(TAG, "Error encountered during engine lifecycle shutdown pass", e);
+      }
+    }
+  }
+
+  private static final class SafeUtteranceListener extends UtteranceProgressListener {
+    private final WeakReference<AndroidTTSHelper> helperRef;
+
+    SafeUtteranceListener(AndroidTTSHelper helper) {
+      this.helperRef = new WeakReference<>(helper);
+    }
+
+    @Override
+    public void onStart(String utteranceId) {}
+
+    @Override
+    public void onDone(String utteranceId) {
+      clearSpeakingFlag();
+    }
+
+    @Override
+    @Deprecated
+    public void onError(String utteranceId) {
+      clearSpeakingFlag();
+    }
+
+    @Override
+    public void onError(String utteranceId, int errorCode) {
+      clearSpeakingFlag();
+    }
+
+    private void clearSpeakingFlag() {
+      AndroidTTSHelper helper = helperRef.get();
+      if (helper == null)
+        return;
+
+      if (!helper.isRunning)
+        return;
+
+      helper.lock.lock();
+      try {
+        if (helper.isRunning) {
+          helper.speaking = false;
+          helper.speechCompletionCondition.signalAll();
+        }
       } finally {
-        tts = null;
+        helper.lock.unlock();
+      }
+    }
+  }
+
+  private static final class SafeOnInitListener implements TextToSpeech.OnInitListener {
+    private final WeakReference<AndroidTTSHelper> helperRef;
+
+    SafeOnInitListener(AndroidTTSHelper helper) {
+      this.helperRef = new WeakReference<>(helper);
+    }
+
+    @Override
+    public void onInit(int status) {
+      AndroidTTSHelper helper = helperRef.get();
+      if (helper == null)
+        return;
+
+      if (status == TextToSpeech.SUCCESS) {
+        helper.lock.lock();
+        try {
+          TextToSpeech actualTts = helper.tts;
+          if (actualTts == null)
+            return;
+
+          Locale targetLocale = Locale.getDefault();
+          int langResult = actualTts.setLanguage(targetLocale);
+          if (langResult == TextToSpeech.LANG_NOT_SUPPORTED
+              || langResult == TextToSpeech.LANG_MISSING_DATA) {
+            actualTts.setLanguage(Locale.US);
+          }
+
+          actualTts.setOnUtteranceProgressListener(new SafeUtteranceListener(helper));
+          actualTts.setSpeechRate(helper.currentRate);
+
+          helper.ready = true;
+          helper.startWorker();
+        } catch (Throwable t) {
+          helper.ready = false;
+        } finally {
+          helper.lock.unlock();
+        }
+      } else {
+        helper.ready = false;
       }
     }
   }

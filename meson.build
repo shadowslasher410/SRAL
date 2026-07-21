@@ -113,6 +113,48 @@ build_shared_libs = get_option('BUILD_SHARED_LIBS')
 build_tests = get_option('BUILD_TESTS')
 build_bindings = get_option('BUILD_BINDINGS')
 
+if is_android
+  if path_jdk != '' and fs.is_dir(path_jdk)
+    javac_bin = find_program(
+      path_jdk / 'bin' / 'javac', 
+      path_jdk / 'javac', 
+      'javac', 
+      required: false
+    )
+  else
+    javac_bin = find_program('javac', required: false)
+  endif
+  
+  if javac_bin.found()
+    java_version_check = run_command(javac_bin, '--version', check: false)
+    
+    if java_version_check.returncode() == 0
+      java_ver_stdout = java_version_check.stdout().strip()
+      java_ver_stderr = java_version_check.stderr().strip()
+      java_version_string = java_ver_stdout != '' ? java_ver_stdout : java_ver_stderr
+
+      if java_version_string.contains('javac ')
+        raw_version_list = java_version_string.split(' ')
+        version_number_str = raw_version_list[1]
+        major_version = version_parts[0].to_int()
+        
+        if major_version != 21
+          error('[SRAL ERROR] Android builds require JDK 21. Found version: ' + major_version.to_string() + ' at: ' + javac_bin.full_path())
+        else
+          message('[SRAL] Android JDK 21 verification passed (' + java_version_string + ').')
+        endif
+      else
+        warning('[SRAL WARNING] Unexpected javac version format layout. Skipping absolute validation.')
+      endif
+    else
+      warning('[SRAL WARNING] Could not safely execute javac --version. Skipping absolute validation.')
+    endif
+  else
+    error('[SRAL ERROR] Java compiler (javac) not found. Android compilation strictly requires JDK 21.')
+  endif
+endif
+
+
 c_warning_args = []
 cpp_warning_args = []
 
@@ -189,8 +231,8 @@ if not is_msvc_like
 endif
 
 if is_emscripten
-  if cpp_compiler.has_argument('-Wdollar-in-identifier-extension')
-    cpp_warning_args += ['-Wdollar-in-identifier-extension']
+  if cpp_compiler.has_argument('-Wno-dollar-in-identifier-extension')
+    cpp_warning_args += ['-Wno-dollar-in-identifier-extension']
   endif
 endif
 
@@ -507,6 +549,36 @@ elif is_apple
 
 elif is_android
   sral_dependencies += c_compiler.find_library('log')
+  javac_bin = find_program('javac', required: false)
+  
+  if javac_bin.found()
+    java_version_check = run_command(javac_bin, '--version', check: false)
+    
+    if java_version_check.returncode() == 0
+      java_ver_stdout = java_version_check.stdout().strip()
+      java_ver_stderr = java_version_check.stderr().strip()
+      java_version_string = java_ver_stdout != '' ? java_ver_stdout : java_ver_stderr
+
+      if java_version_string.contains('javac ')
+        raw_version_list = java_version_string.split(' ')
+        version_number_str = raw_version_list[1]
+        version_parts = version_number_str.split('.')
+        major_version = version_parts[0].to_int()
+        
+        if major_version != 21
+          error('[SRAL ERROR] Android builds require JDK 21. Found version: ' + major_version.to_string())
+        else
+          message('[SRAL] Android JDK 21 environment verification passed.')
+        endif
+      else
+        warning('[SRAL WARNING] Unexpected javac version format. Skipping validation.')
+      endif
+    else
+      warning('[SRAL WARNING] Could not execute javac --version. Skipping validation.')
+    endif
+  else
+    error('[SRAL ERROR] Java compiler (javac) not found. Android compilation requires JDK 21.')
+  endif
 
 elif is_emscripten
   if c_compiler.has_link_argument('-pthread')
@@ -538,10 +610,6 @@ else
   else
     add_project_arguments('-DSRAL_NO_BRLAPI', language: ['c', 'cpp'])
   endif
-endif
-
-if not is_android and not is_emscripten
-  sral_dependencies += dependency('jni', required: false)
 endif
 
 python_bin = import('python').find_installation()

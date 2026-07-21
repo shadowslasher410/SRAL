@@ -53,6 +53,7 @@ struct alignas(64) AsyncTtsTask {
 	TaskType type{TaskType::Speak};
 	bool interrupt{false};
 };
+
 struct AndroidTextToSpeech::Impl final {
 	static constexpr size_t RING_BUFFER_SIZE = 128;
 	static constexpr size_t RING_MASK = RING_BUFFER_SIZE - 1;
@@ -75,8 +76,8 @@ struct AndroidTextToSpeech::Impl final {
 	alignas(64) std::atomic<size_t> head{0};
 	alignas(64) std::atomic<size_t> tail{0};
 	alignas(64) std::atomic<bool> ringBell{false};
-
-	std::jthread workerThread;
+	alignas(64) std::atomic<bool> stopRequested{false};
+	std::thread workerThread;
 
 	void ClearGlobalReferences(JNIEnv* const local_env) noexcept {
 #ifdef __ANDROID__
@@ -95,7 +96,7 @@ struct AndroidTextToSpeech::Impl final {
 #endif
 	}
 
-	void BackgroundWorkerLoop(std::stop_token stop_token) noexcept {
+	void BackgroundWorkerLoop() noexcept {
 #ifdef __ANDROID__
 		if (!jvm)
 			return;
@@ -105,7 +106,7 @@ struct AndroidTextToSpeech::Impl final {
 			return;
 		}
 #endif
-		while (!stop_token.stop_requested()) {
+		while (!stopRequested.load(std::memory_order_acquire)) {
 			size_t current_tail = tail.load(std::memory_order_acquire);
 			AsyncTtsTask& task = ringQueue[current_tail & RING_MASK];
 
@@ -117,14 +118,15 @@ struct AndroidTextToSpeech::Impl final {
 				seq = task.sequence.load(std::memory_order_acquire);
 
 				if (static_cast<intptr_t>(seq) - static_cast<intptr_t>(current_tail + 1) != 0) {
-					while (!ringBell.load(std::memory_order_acquire) && !stop_token.stop_requested()) {
+					while (
+						!ringBell.load(std::memory_order_acquire) && !stopRequested.load(std::memory_order_acquire)) {
 						ringBell.wait(false, std::memory_order_acquire);
 					}
 				}
 				else {
 					ringBell.store(true, std::memory_order_release);
 				}
-				if (stop_token.stop_requested()) [[unlikely]]
+				if (stopRequested.load(std::memory_order_acquire)) [[unlikely]]
 					break;
 				continue;
 			}
@@ -183,7 +185,7 @@ struct AndroidTextToSpeech::Impl final {
 	}
 
 	bool PushTask(TaskType type, std::string_view text, float param_val, bool interrupt) noexcept {
-		if (!initialized.load(std::memory_order_relaxed) || workerThread.get_stop_token().stop_requested()) {
+		if (!initialized.load(std::memory_order_relaxed) || stopRequested.load(std::memory_order_acquire)) {
 			return false;
 		}
 
@@ -302,21 +304,22 @@ bool AndroidTextToSpeech::Initialize() {
 
 	m_impl->head.store(0, std::memory_order_relaxed);
 	m_impl->tail.store(0, std::memory_order_relaxed);
+	m_impl->stopRequested.store(false, std::memory_order_release);
 	m_impl->initialized.store(true, std::memory_order_release);
 
-	m_impl->workerThread = std::jthread([this](std::stop_token st) { m_impl->BackgroundWorkerLoop(st); });
+	m_impl->workerThread = std::thread([this]() { m_impl->BackgroundWorkerLoop(); });
 
 	return true;
 }
 
 bool AndroidTextToSpeech::Uninitialize() {
-	std::jthread thread_to_join;
+	std::thread thread_to_join;
 	{
 		std::lock_guard<std::mutex> lock(m_impl->mutex);
 		if (!m_impl->initialized.load(std::memory_order_relaxed))
 			return true;
 
-		m_impl->workerThread.request_stop();
+		m_impl->stopRequested.store(true, std::memory_order_release);
 
 		size_t head_snap = m_impl->head.load(std::memory_order_relaxed);
 		m_impl->tail.store(head_snap, std::memory_order_release);

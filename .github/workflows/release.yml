@@ -137,13 +137,8 @@ jobs:
       - name: Code Sign and Package XCFramework Bundle (iOS Only)
         if: matrix.target-name == 'ios-universal'
         run: |
-          # 1. Identify the matching Development identity signature downloaded by the runner action step
           IDENTITY_STRING="Apple Development"
-          
-          # 2. Directly sign the framework container structure inside the unzipped extraction workspace folder
           codesign --force --sign "$IDENTITY_STRING" --verbose staging_dist/SRAL.xcframework
-          
-          # 3. Zip up the cleanly signed production architecture bundle package
           cd staging_dist
           zip -r "../${{ matrix.output-archive }}" SRAL.xcframework
 

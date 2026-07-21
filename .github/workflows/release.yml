@@ -85,9 +85,10 @@ jobs:
             runner-os: ubuntu-24.04
             output-archive: SRAL-Android-arm64.tar.gz
           - target-name: ios-universal
-            artifact-base: bundle-ios
+            artifact-base: bundle-ios-xcframework
             runner-os: macos-26
-            output-archive: SRAL-iOS.ipa
+            output-archive: SRAL-iOS-XCFramework.zip
+
     steps:
       - name: Fetch Compiled Pre-Release Binary Packages
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -103,7 +104,14 @@ jobs:
       - name: Package Release Assets (Linux & Mobile)
         if: matrix.target-name == 'linux-x64' || matrix.target-name == 'android-arm64'
         shell: bash
-        run: tar -czvf ${{ matrix.output-archive }} -C staging_dist .
+        run: |
+          # Robust check to prevent tar exit code 2 errors on blank folders
+          if [ -z "$(ls -A staging_dist 2>/dev/null)" ]; then
+            echo "::error::staging_dist directory is empty! Upstream compilation artifacts failed to download."
+            exit 1
+          fi
+          cd staging_dist
+          tar -czvf "../${{ matrix.output-archive }}" *
 
       - name: Package Release Assets (macOS)
         if: matrix.target-name == 'macos-universal'
@@ -131,22 +139,18 @@ jobs:
           echo -n "$BUILD_PROVISION_PROFILE_BASE64" | base64 --decode -o $PP_PATH
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
-          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
-
-          security import $CERTIFICATE_PATH -k $KEYCHAIN_PATH -P "$P12_PASSWORD" -T /usr/bin/codesign -T /usr/bin/xcodebuild
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
 
           mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
           cp $PP_PATH ~/Library/MobileDevice/Provisioning\ Profiles/
 
-      - name: Code Sign iOS Application Payload (iOS Only)
+      - name: Code Sign and Package XCFramework Bundle (iOS Only)
         if: matrix.target-name == 'ios-universal'
         run: |
-          mkdir -p Payload
-          cp -r staging_dist/SRAL.app Payload/
-          codesign --force --sign "Apple Distribution" --verbose Payload/SRAL.app
-          zip -r ${{ matrix.output-archive }} Payload/
+          # FIX: Codesign the absolute framework folder inside the archive instead of a non-existent .app
+          codesign --force --sign "Apple Distribution" --verbose staging_dist/SRAL.xcframework
+          cd staging_dist
+          zip -r "../${{ matrix.output-archive }}" SRAL.xcframework
 
       - name: Install Sigstore Cosign CLI tool
         if: matrix.target-name != 'ios-universal'

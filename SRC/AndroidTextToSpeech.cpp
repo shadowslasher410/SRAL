@@ -11,7 +11,7 @@
 #include <string_view>
 #include <thread>
 
-#include "../Dep/AndroidContext.h"
+#include "AndroidContext.h"
 
 #ifdef __ANDROID__
 #include <android/log.h>

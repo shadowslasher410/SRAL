@@ -14,8 +14,8 @@
 #include <string_view>
 #include <thread>
 
-#include "../Dep/utf-8.h"
 #include "Encoding.h"
+#include "utf-8.h"
 
 #if defined(__linux__) && !defined(__ANDROID__)
 #include <brlapi.h>
@@ -24,6 +24,8 @@
 #endif
 
 namespace Sral {
+
+static std::atomic<SpeechDispatcher*> g_activeSpeechDispatcherInstance{nullptr};
 
 std::atomic<bool> SpeechDispatcher::is_active{false};
 std::mutex SpeechDispatcher::speechd_mutex;
@@ -118,16 +120,8 @@ bool SpeechDispatcher::Initialize() {
 		return false;
 
 	char* error_result = nullptr;
-	speech = spd_open2(
-		"SRAL", 
-		nullptr, 
-		nullptr, 
-		SPD_MODE_SINGLE, 
-		address, 
-		1,
-		&error_result
-	);
-	
+	speech = spd_open2("SRAL", nullptr, nullptr, SPD_MODE_SINGLE, address, 1, &error_result);
+
 	if (speech == nullptr) {
 		if (error_result) {
 			free(error_result);
@@ -135,7 +129,9 @@ bool SpeechDispatcher::Initialize() {
 		return false;
 	}
 
-	spd_register_callback(speech, &SpeechDispatcher::SpeechNotificationCallback, SPD_EVENT_ALL);
+	g_activeSpeechDispatcherInstance.store(this, std::memory_order_release);
+	speech->callback_end = &SpeechDispatcher::SpeechNotificationCallback;
+	speech->callback_cancel = &SpeechDispatcher::SpeechNotificationCallback;
 
 	spd_set_data_mode(speech, SPD_DATA_SSML);
 
@@ -180,6 +176,7 @@ bool SpeechDispatcher::Uninitialize() {
 		brailleInitialized = false;
 	}
 #endif
+	g_activeSpeechDispatcherInstance.store(nullptr, std::memory_order_release);
 	ClearStringPool();
 	return true;
 }
@@ -553,7 +550,7 @@ bool SpeechDispatcher::GetParameter(int param, void* value) {
 		}
 
 		m_voice_strings.clear();
-		
+
 		if (m_voiceCount > 0) {
 			m_voice_strings.reserve(static_cast<size_t>(m_voiceCount) * 4);
 		}
@@ -648,8 +645,11 @@ void SpeechDispatcher::SpeechNotificationCallback(size_t msg_id, size_t client_i
 	(void)client_id;
 #if defined(__linux__) && !defined(__ANDROID__)
 	if (type == SPD_EVENT_END || type == SPD_EVENT_CANCEL) {
-		if (msg_id == m_activeMsgId.load(std::memory_order_acquire)) {
-			m_isSpeakingLocal.store(false, std::memory_order_release);
+		SpeechDispatcher* instance = g_activeSpeechDispatcherInstance.load(std::memory_order_acquire);
+		if (instance) {
+			if (msg_id == instance->m_activeMsgId.load(std::memory_order_acquire)) {
+				instance->m_isSpeakingLocal.store(false, std::memory_order_release);
+			}
 		}
 	}
 #else
@@ -657,7 +657,6 @@ void SpeechDispatcher::SpeechNotificationCallback(size_t msg_id, size_t client_i
 	(void)type;
 #endif
 }
-
 
 void SpeechDispatcher::RefreshVoiceList() {
 #if defined(__linux__) && !defined(__ANDROID__)

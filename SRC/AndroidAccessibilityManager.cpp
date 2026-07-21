@@ -9,7 +9,7 @@
 #include <string_view>
 #include <thread>
 
-#include "../Dep/AndroidContext.h"
+#include "AndroidContext.h"
 
 #ifdef __ANDROID__
 #include <android/log.h>
@@ -22,8 +22,6 @@
 #endif
 
 namespace Sral {
-constexpr size_t CACHE_LINE_SIZE = 64;
-
 enum class TaskType : uint8_t { Speak, Stop };
 
 struct alignas(CACHE_LINE_SIZE) AsyncSpeechTask {

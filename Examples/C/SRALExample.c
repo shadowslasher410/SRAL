@@ -17,25 +17,28 @@
 
 #include <stddef.h>
 
+#if defined(_WIN32) || defined(_WIN64)
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_THREADS__)
+#include <threads.h>
+#include <time.h>
+#else
+#include <time.h>
+#endif
+
 void sleep_ms(unsigned int milliseconds) {
 #if defined(_WIN32) || defined(_WIN64)
-    extern void __stdcall Sleep(unsigned long dwMilliseconds);
-    Sleep((unsigned long)milliseconds);
-
+	extern void __stdcall Sleep(unsigned long dwMilliseconds);
+	Sleep((unsigned long)milliseconds);
 #elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_THREADS__)
-    #include <threads.h>
-    #include <time.h>
-    struct timespec ts;
-    ts.tv_sec = (time_t)(milliseconds / 1000U);
-    ts.tv_nsec = (long)((milliseconds % 1000U) * 1000000UL);
-    (void)thrd_sleep(&ts, NULL);
-
+	struct timespec ts;
+	ts.tv_sec = (time_t)(milliseconds / 1000U);
+	ts.tv_nsec = (long)((milliseconds % 1000U) * 1000000UL);
+	(void)thrd_sleep(&ts, NULL);
 #else
-    #include <time.h>
-    struct timespec ts;
-    ts.tv_sec = (time_t)(milliseconds / 1000U);
-    ts.tv_nsec = (long)((milliseconds % 1000U) * 1000000UL);
-    (void)nanosleep(&ts, NULL);
+	struct timespec ts;
+	ts.tv_sec = (time_t)(milliseconds / 1000U);
+	ts.tv_nsec = (long)((milliseconds % 1000U) * 1000000UL);
+	(void)nanosleep(&ts, NULL);
 #endif
 }
 

@@ -9,7 +9,7 @@
 #pragma warning(disable : 4324)
 #endif
 
-#include "../Include/SRAL.h"
+#include "SRAL.h"
 
 #include <cstdint>
 #include <cstring>

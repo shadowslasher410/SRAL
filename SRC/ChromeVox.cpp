@@ -5,7 +5,7 @@
 #include <mutex>
 #include <string_view>
 
-#include "../Include/SRAL.h"
+#include "SRAL.h"
 
 #if defined(__EMSCRIPTEN__)
 #include <emscripten.h>

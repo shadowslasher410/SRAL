@@ -13,7 +13,7 @@
 #include <comdef.h>
 #include <uiautomation.h>
 
-#include "../Dep/UIAProvider.h"
+#include "UIAProvider.h"
 
 _COM_SMARTPTR_TYPEDEF(IUIAutomation, __uuidof(IUIAutomation));
 _COM_SMARTPTR_TYPEDEF(IUIAutomationCondition, __uuidof(IUIAutomationCondition));

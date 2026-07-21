@@ -12,8 +12,8 @@
 #include <thread>
 #include <vector>
 
-#include "../Include/SRAL.h"
 #include "Engine.h"
+#include "SRAL.h"
 
 #ifdef __cpp_lib_hardware_interference_size
 using std::hardware_destructive_interference_size;

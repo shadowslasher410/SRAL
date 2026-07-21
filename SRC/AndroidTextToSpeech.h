@@ -5,7 +5,7 @@
 #include <cstdint>
 #include <memory>
 
-#include "../Include/SRAL.h"
+#include "SRAL.h"
 #include "Engine.h"
 
 namespace Sral {

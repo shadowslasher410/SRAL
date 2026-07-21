@@ -4,7 +4,7 @@
 #if TARGET_OS_OSX || TARGET_OS_IPHONE
 
 #import "AVSpeech.h"
-#import "../Include/SRAL.h"
+#import "SRAL.h"
 
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>

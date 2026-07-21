@@ -15,7 +15,7 @@
 #include <string>
 #include <thread>
 
-#include "../Dep/nvda_control.h"
+#include "nvda_control.h"
 #include "Encoding.h"
 
 namespace Sral {

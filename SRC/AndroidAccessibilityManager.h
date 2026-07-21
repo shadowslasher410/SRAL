@@ -4,12 +4,12 @@
 
 #include <memory>
 
-#include "../Include/SRAL.h"
 #include "Engine.h"
+#include "SRAL.h"
 
 namespace Sral {
 
-constexpr size_t CACHE_LINE_SIZE = 64;
+inline constexpr size_t CACHE_LINE_SIZE = 64;
 
 class alignas(CACHE_LINE_SIZE) AndroidAccessibilityManager final : public Engine {
 public:

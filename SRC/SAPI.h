@@ -6,10 +6,10 @@
 #include <mutex>
 #include <thread>
 
-#include "../Dep/blastspeak.h"
-#include "../Dep/wasapi.h"
-#include "../Include/SRAL.h"
 #include "Engine.h"
+#include "SRAL.h"
+#include "blastspeak.h"
+#include "wasapi.h"
 
 namespace Sral {
 class Sapi final : public Engine {

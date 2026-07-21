@@ -14,8 +14,8 @@
 #include <semaphore>
 #include <thread>
 
-#include "../Dep/fsapi.h"
-#include "../Include/SRAL.h"
+#include "fsapi.h"
+#include "SRAL.h"
 #include "Engine.h"
 
 _COM_SMARTPTR_TYPEDEF(IJawsApi, __uuidof(IJawsApi));

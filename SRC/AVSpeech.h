@@ -15,7 +15,7 @@
 #include <string>
 #include <thread>
 
-#include "../Include/SRAL.h"
+#include "SRAL.h"
 #include "Engine.h"
 
 class AVSpeechSynthesizerWrapper;

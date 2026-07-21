@@ -8,8 +8,8 @@
 #include <string>
 #include <thread>
 
-#include "../Include/SRAL.h"
 #include "Engine.h"
+#include "SRAL.h"
 
 #if defined(_WIN32) || defined(_WIN64)
 #include <windows.h>

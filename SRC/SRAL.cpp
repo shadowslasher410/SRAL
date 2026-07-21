@@ -1,7 +1,7 @@
 #define _SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING
 
 #define SRAL_EXPORT
-#include "../Include/SRAL.h"
+#include "SRAL.h"
 
 #include "Engine.h"
 
@@ -43,7 +43,7 @@
 #elif defined(__ANDROID__)
 #include <jni.h>
 
-#include "../Dep/AndroidContext.h"
+#include "AndroidContext.h"
 
 #ifndef SRAL_NO_ANDROID_ACCESSIBILITY
 #include "AndroidAccessibilityManager.h"

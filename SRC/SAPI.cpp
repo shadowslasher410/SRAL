@@ -44,7 +44,7 @@
 #include <thread>
 
 extern "C" {
-#include "../Dep/blastspeak.h"
+#include "blastspeak.h"
 
 int blastspeak_get_voice_description(
 	blastspeak* instance, unsigned int voice_index, char* out_buffer, size_t max_bytes);

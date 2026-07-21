@@ -143,6 +143,9 @@ if is_msvc_like
     '/wd5027',  # Move assignment operator was implicitly defined as deleted
     '/wd4005',  # Macro redefinition warning
     '/wd4191',  # Unsafe FARPROC to function pointer conversion
+    '/wd5045',  # Compiler will insert Spectre mitigation
+    '/wd4710',  # Function not inlined
+    '/wd4711',  # Informational: Function selected for automatic inline expansion
     '/permissive-',
     '/Zc:__cplusplus',
   ]
@@ -152,7 +155,6 @@ if is_msvc_like
   add_project_arguments('/D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING', language: 'cpp')
   add_project_arguments('/experimental:c11atomics', language: 'c')
 endif
-
 if is_windows
   if c_id == 'clang'
     clang_win_flags = [

@@ -5,7 +5,11 @@
 #if defined(_MSC_VER)
 #pragma warning(push)
 #pragma warning(disable : 4514)
+#pragma warning(disable : 4820)
+#pragma warning(disable : 4324)
 #endif
+
+#include "../Include/SRAL.h"
 
 #include <cstdint>
 #include <cstring>

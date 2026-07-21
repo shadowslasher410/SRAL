@@ -1,6 +1,3 @@
-
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-
 #if defined(__APPLE__) || defined(__MACH__)
 #include <TargetConditionals.h>
 
@@ -16,21 +13,6 @@
 #include <semaphore>
 #include <thread>
 #include "NSSpeech.h"
-
-class NSSpeechSynthesizerWrapper;
-
-@interface SRALSpeechDelegate : NSObject <NSSpeechSynthesizerDelegate>
-@property (atomic, assign) NSSpeechSynthesizerWrapper* wrapper;
-@end
-
-@implementation SRALSpeechDelegate
-- (void)speechSynthesizer:(NSSpeechSynthesizer*)sender didFinishSpeaking:(BOOL)finishedSpeaking {
-  NSSpeechSynthesizerWrapper* currentWrapper = self.wrapper;
-  if (currentWrapper && finishedSpeaking) {
-    currentWrapper->OnSpeechFinished();
-  }
-}
-@end
 
 class NSSpeechSynthesizerWrapper final {
  public:
@@ -63,7 +45,7 @@ class NSSpeechSynthesizerWrapper final {
  private:
   std::mutex wrapperMutex_;
   NSSpeechSynthesizer* synth_;
-  SRALSpeechDelegate* delegate_;
+  id delegate_;
   float rate_;
   float volume_;
   std::atomic<bool> isSpeaking_{false};
@@ -75,31 +57,15 @@ class NSSpeechSynthesizerWrapper final {
 
   ~NSSpeechSynthesizerWrapper() { InternalCleanup(); }
 
-  void InternalCleanup() noexcept {
-    if (delegate_) {
-      [delegate_ setWrapper:nullptr];
-    }
-    if (synth_) {
-      [synth_ setDelegate:nil];
-      [synth_ stopSpeaking];
-    }
-    synth_ = nil;
-    delegate_ = nil;
-  }
+  void InternalCleanup() noexcept;
 
-  bool InitializeEngine(std::shared_ptr<RuntimeContext> context) noexcept {
+  bool InitializeEngine() noexcept {
     @autoreleasepool {
       synth_ = [[NSSpeechSynthesizer alloc] init];
       if (!synth_) return false;
 
       rate_ = [synth_ rate];
       volume_ = [synth_ volume];
-
-      delegate_ = [[SRALSpeechDelegate alloc] init];
-      if (!delegate_) return false;
-
-      [delegate_ setWrapper:this];
-      [synth_ setDelegate:delegate_];
       return true;
     }
   }
@@ -159,59 +125,7 @@ class NSSpeechSynthesizerWrapper final {
   void OnSpeechFinished() noexcept { isSpeaking_.store(false, std::memory_order_relaxed); }
 
   static void WorkerThreadLoop(std::stop_token stopToken, std::shared_ptr<RuntimeContext> context,
-                               NSSpeechSynthesizerWrapper* wrapper) {
-    @autoreleasepool {
-      bool success = wrapper->InitializeEngine(context);
-
-      context->state.initSemaphore.release();
-      if (!success) return;
-
-      while (!stopToken.stop_requested()) {
-        bool earnedToken =
-            context->state.queueSemaphore.try_acquire_for(std::chrono::milliseconds(10));
-
-        [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
-
-        if (stopToken.stop_requested()) break;
-        if (!earnedToken) continue;
-
-        Command cmd{};
-        bool hasCommand = false;
-
-        {
-          std::lock_guard<std::mutex> lock(context->state.queueMutex);
-          if (context->state.rbHead != context->state.rbTail) {
-            cmd = context->state.ringBuffer[context->state.rbHead];
-            context->state.rbHead = (context->state.rbHead + 1) % RING_BUFFER_CAPACITY;
-            hasCommand = true;
-          }
-        }
-
-        if (!hasCommand) continue;
-
-        switch (cmd.type) {
-          case CmdType::SpeakCmd:
-            wrapper->ExecuteSpeak(cmd.textBuffer.data(), cmd.interrupt);
-            break;
-          case CmdType::StopCmd:
-            wrapper->ExecuteStop();
-            break;
-          case CmdType::SetRateCmd:
-            wrapper->ExecuteSetRate(cmd.paramVal);
-            break;
-          case CmdType::SetVolumeCmd:
-            wrapper->ExecuteSetVolume(cmd.paramVal);
-            break;
-          case CmdType::None:
-            break;
-          default:
-            break;
-        }
-      }
-
-      wrapper->InternalCleanup();
-    }
-  }
+                               NSSpeechSynthesizerWrapper* wrapper);
 
  public:
   [[nodiscard]] bool IsInitialized() const noexcept { return synth_ != nil; }
@@ -228,7 +142,7 @@ class NSSpeechSynthesizerWrapper final {
 
     {
       std::lock_guard<std::mutex> lock(s_context->state.queueMutex);
-      s_context->state.rbHead = 0;
+      s_context->rbHead = 0;
       s_context->state.rbTail = 0;
       while (s_context->state.queueSemaphore.try_acquire());
       while (s_context->state.initSemaphore.try_acquire());
@@ -236,6 +150,7 @@ class NSSpeechSynthesizerWrapper final {
 
     s_context->workerThread =
         std::jthread(&NSSpeechSynthesizerWrapper::WorkerThreadLoop, s_context, wrapper);
+
     s_context->state.initSemaphore.acquire();
     if (!wrapper->IsInitialized()) {
       if (s_context->workerThread.joinable()) {
@@ -278,6 +193,224 @@ class NSSpeechSynthesizerWrapper final {
     return true;
   }
 };
+
+@interface SRALSpeechDelegate : NSObject <NSSpeechSynthesizerDelegate>
+@property (atomic, assign) NSSpeechSynthesizerWrapper* wrapper;
+@end
+
+@implementation SRALSpeechDelegate
+- (void)speechSynthesizer:(NSSpeechSynthesizer*)sender didFinishSpeaking:(BOOL)finishedSpeaking {
+  (void)sender;
+  NSSpeechSynthesizerWrapper* currentWrapper = self.wrapper;
+  if (currentWrapper && finishedSpeaking) {
+    currentWrapper->OnSpeechFinished();
+  }
+}
+@end
+
+void NSSpeechSynthesizerWrapper::InternalCleanup() noexcept {
+  if (delegate_) {
+    SRALSpeechDelegate* d = (SRALSpeechDelegate*)delegate_;
+    [d setWrapper:nullptr];
+  }
+  if (synth_) {
+    [synth_ setDelegate:nil];
+    [synth_ stopSpeaking];
+  }
+  synth_ = nil;
+  delegate_ = nil;
+}
+
+void NSSpeechSynthesizerWrapper::WorkerThreadLoop(std::stop_token stopToken,
+                                                  std::shared_ptr<RuntimeContext> context,
+                                                  NSSpeechSynthesizerWrapper* wrapper) {
+  @autoreleasepool {
+    bool success = wrapper->InitializeEngine();
+    if (success) {
+      SRALSpeechDelegate* localDel = [[SRALSpeechDelegate alloc] init];
+      if (localDel) {
+        [localDel setWrapper:wrapper];
+        [wrapper->synth_ setDelegate:localDel];
+        wrapper->delegate_ = localDel;
+      } else {
+        success = false;
+      }
+    }
+
+    context->state.initSemaphore.release();
+    if (!success) return;
+
+    while (!stopToken.stop_requested()) {
+      bool earnedToken =
+          context->state.queueSemaphore.try_acquire_for(std::chrono::milliseconds(10));
+
+      [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+
+      if (stopToken.stop_requested()) break;
+      if (!earnedToken) continue;
+
+      Command cmd{};
+      bool hasCommand = false;
+
+      {
+        std::lock_guard<std::mutex> lock(context->state.queueMutex);
+        if (context->state.rbHead != context->state.rbTail) {
+          cmd = context->state.ringBuffer[context->state.rbHead];
+          context->state.rbHead = (context->state.rbHead + 1) % RING_BUFFER_CAPACITY;
+          hasCommand = true;
+        }
+      }
+
+      if (!hasCommand) continue;
+
+      switch (cmd.type) {
+        case CmdType::SpeakCmd:
+          wrapper->ExecuteSpeak(cmd.textBuffer.data(), cmd.interrupt);
+          break;
+        case CmdType::StopCmd:
+          wrapper->ExecuteStop();
+          break;
+        case CmdType::SetRateCmd:
+          wrapper->ExecuteSetRate(cmd.paramVal);
+          break;
+        case CmdType::SetVolumeCmd:
+          wrapper->ExecuteSetVolume(cmd.paramVal);
+          break;
+        case CmdType::None:
+          break;
+        default:
+          break;
+      }
+    }
+
+    wrapper->InternalCleanup();
+  }
+}
+
+namespace Sral {
+
+static std::atomic<NSSpeechSynthesizerWrapper*> g_sral_speech_obj{nullptr};
+static std::mutex g_lifecycle_mutex;
+
+void* NSSpeech::obj = nullptr;
+
+bool NSSpeech::Initialize() {
+  std::lock_guard<std::mutex> lock(g_lifecycle_mutex);
+  if (g_sral_speech_obj.load() != nullptr) return true;
+
+  NSSpeechSynthesizerWrapper* localObj = new (std::nothrow) NSSpeechSynthesizerWrapper();
+  if (!localObj) return false;
+
+  if (!NSSpeechSynthesizerWrapper::InitializeGlobal(localObj)) {
+    delete localObj;
+    return false;
+  }
+
+  g_sral_speech_obj.store(localObj);
+  obj = localObj;
+  return true;
+}
+
+bool NSSpeech::Uninitialize() {
+  std::lock_guard<std::mutex> lock(g_lifecycle_mutex);
+  NSSpeechSynthesizerWrapper* localObj = g_sral_speech_obj.exchange(nullptr);
+  if (localObj) {
+    NSSpeechSynthesizerWrapper::UninitializeGlobal();
+    delete localObj;
+    obj = nullptr;
+  }
+  return true;
+}
+
+bool NSSpeech::Speak(const char* text, bool interrupt) {
+  NSSpeechSynthesizerWrapper* localObj = g_sral_speech_obj.load();
+  if (!localObj || !text) return false;
+
+  NSSpeechSynthesizerWrapper::Command cmd{};
+  cmd.type = NSSpeechSynthesizerWrapper::CmdType::SpeakCmd;
+  cmd.interrupt = interrupt;
+
+  size_t copyLength = std::min(std::strlen(text), cmd.textBuffer.size() - 1);
+  std::copy_n(text, copyLength, cmd.textBuffer.begin());
+  cmd.textBuffer[copyLength] = '\0';
+
+  return NSSpeechSynthesizerWrapper::PushCommand(cmd);
+}
+
+bool NSSpeech::StopSpeech() {
+  NSSpeechSynthesizerWrapper* localObj = g_sral_speech_obj.load();
+  if (!localObj) return false;
+  NSSpeechSynthesizerWrapper::Command cmd{};
+  cmd.type = NSSpeechSynthesizerWrapper::CmdType::StopCmd;
+  return NSSpeechSynthesizerWrapper::PushCommand(cmd);
+}
+
+void NSSpeechSynthesizerWrapper::WorkerThreadLoop(std::stop_token stopToken,
+                                                  std::shared_ptr<RuntimeContext> context,
+                                                  NSSpeechSynthesizerWrapper* wrapper) {
+  @autoreleasepool {
+    bool success = wrapper->InitializeEngine();
+
+    if (success) {
+      SRALSpeechDelegate* localDel = [[SRALSpeechDelegate alloc] init];
+      if (localDel) {
+        [localDel setWrapper:wrapper];
+        [wrapper->synth_ setDelegate:localDel];
+        wrapper->delegate_ = localDel;
+      } else {
+        success = false;
+      }
+    }
+
+    context->state.initSemaphore.release();
+    if (!success) return;
+
+    while (!stopToken.stop_requested()) {
+      bool earnedToken =
+          context->state.queueSemaphore.try_acquire_for(std::chrono::milliseconds(10));
+
+      [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.005]];
+
+      if (stopToken.stop_requested()) break;
+      if (!earnedToken) continue;
+
+      Command cmd{};
+      bool hasCommand = false;
+
+      {
+        std::lock_guard<std::mutex> lock(context->state.queueMutex);
+        if (context->state.rbHead != context->state.rbTail) {
+          cmd = context->state.ringBuffer[context->state.rbHead];
+          context->state.rbHead = (context->state.rbHead + 1) % RING_BUFFER_CAPACITY;
+          hasCommand = true;
+        }
+      }
+
+      if (!hasCommand) continue;
+
+      switch (cmd.type) {
+        case CmdType::SpeakCmd:
+          wrapper->ExecuteSpeak(cmd.textBuffer.data(), cmd.interrupt);
+          break;
+        case CmdType::StopCmd:
+          wrapper->ExecuteStop();
+          break;
+        case CmdType::SetRateCmd:
+          wrapper->ExecuteSetRate(cmd.paramVal);
+          break;
+        case CmdType::SetVolumeCmd:
+          wrapper->ExecuteSetVolume(cmd.paramVal);
+          break;
+        case CmdType::None:
+          break;
+        default:
+          break;
+      }
+    }
+
+    wrapper->InternalCleanup();
+  }
+}
 
 namespace Sral {
 
@@ -387,5 +520,3 @@ bool NSSpeech::GetParameter(int param, void* value) {
 
 #endif /* TARGET_OS_OSX */
 #endif /* defined(__APPLE__) || defined(__MACH__) */
-
-#pragma clang diagnostic pop

@@ -99,6 +99,7 @@ int SpeechDispatcher::SetVoiceIndex() noexcept {
 
 	return 0;
 }
+
 bool SpeechDispatcher::Initialize() {
 	std::lock_guard lock(m_mutex);
 	if (is_active.load(std::memory_order_acquire))
@@ -124,8 +125,7 @@ bool SpeechDispatcher::Initialize() {
 		SPD_MODE_SINGLE, 
 		address, 
 		1,
-		&error_result,
-		&SpeechDispatcher::SpeechNotificationCallback
+		&error_result
 	);
 	
 	if (speech == nullptr) {
@@ -134,6 +134,8 @@ bool SpeechDispatcher::Initialize() {
 		}
 		return false;
 	}
+
+	spd_register_callback(speech, &SpeechDispatcher::SpeechNotificationCallback, SPD_EVENT_ALL);
 
 	spd_set_data_mode(speech, SPD_DATA_SSML);
 

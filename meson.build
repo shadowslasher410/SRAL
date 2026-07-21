@@ -113,48 +113,6 @@ build_shared_libs = get_option('BUILD_SHARED_LIBS')
 build_tests = get_option('BUILD_TESTS')
 build_bindings = get_option('BUILD_BINDINGS')
 
-if is_android
-  if path_jdk != '' and fs.is_dir(path_jdk)
-    javac_bin = find_program(
-      path_jdk / 'bin' / 'javac', 
-      path_jdk / 'javac', 
-      'javac', 
-      required: false
-    )
-  else
-    javac_bin = find_program('javac', required: false)
-  endif
-  
-  if javac_bin.found()
-    java_version_check = run_command(javac_bin, '--version', check: false)
-    
-    if java_version_check.returncode() == 0
-      java_ver_stdout = java_version_check.stdout().strip()
-      java_ver_stderr = java_version_check.stderr().strip()
-      java_version_string = java_ver_stdout != '' ? java_ver_stdout : java_ver_stderr
-
-      if java_version_string.contains('javac ')
-        raw_version_list = java_version_string.split(' ')
-        version_number_str = raw_version_list[1]
-        major_version = version_parts[0].to_int()
-        
-        if major_version != 21
-          error('[SRAL ERROR] Android builds require JDK 21. Found version: ' + major_version.to_string() + ' at: ' + javac_bin.full_path())
-        else
-          message('[SRAL] Android JDK 21 verification passed (' + java_version_string + ').')
-        endif
-      else
-        warning('[SRAL WARNING] Unexpected javac version format layout. Skipping absolute validation.')
-      endif
-    else
-      warning('[SRAL WARNING] Could not safely execute javac --version. Skipping absolute validation.')
-    endif
-  else
-    error('[SRAL ERROR] Java compiler (javac) not found. Android compilation strictly requires JDK 21.')
-  endif
-endif
-
-
 c_warning_args = []
 cpp_warning_args = []
 
@@ -169,13 +127,21 @@ if is_windows
 endif
 
 if is_msvc_like
-  msvc_cpp_flags = [
-    '/wd4324',
+  if is_msvc_like
+  msvc_shared_flags = [
+    '/wd4324',  # Structure was padded due to alignment specifier
+    '/wd4820',  # Padding bytes automatically added inside structs
+    '/wd5039',  # Suppress winbase.h TpSetCallbackCleanupGroup throw warning under -EHc
+    '/wd4865',  # Unnamed enum layout underlying type changes
     '/permissive-',
     '/Zc:__cplusplus',
+  ]
+  c_warning_args += msvc_shared_flags
+  cpp_warning_args += msvc_shared_flags + [
     '-D_SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING',
   ]
-  cpp_warning_args += msvc_cpp_flags
+  add_project_arguments('/experimental:c11atomics', language: 'c')
+endif
 endif
 
 if is_windows
@@ -421,10 +387,11 @@ if build_variant == 'release'
 
   if is_msvc_like
     msvc_release_args = universal_msvc_args + ['/O2', '/Oi', '/Qspectre', '/w14928']
-    add_project_arguments(
-      cpp_compiler.get_supported_arguments(msvc_release_args),
-      language: ['c', 'cpp'],
-    )
+    supported_msvc_c_args = c_compiler.get_supported_arguments(msvc_release_args)
+    supported_msvc_cpp_args = cpp_compiler.get_supported_arguments(msvc_release_args)
+    
+    add_project_arguments(supported_msvc_c_args, language: 'c')
+    add_project_arguments(supported_msvc_cpp_args, language: 'cpp')
 
     msvc_release_link = universal_msvc_link + ['/CETCOMPAT']
     add_project_link_arguments(
@@ -483,10 +450,12 @@ else
 
   if is_msvc_like
     msvc_debug_args = universal_msvc_args + ['/Od', '/Zi']
-    add_project_arguments(
-      cpp_compiler.get_supported_arguments(msvc_debug_args),
-      language: ['c', 'cpp'],
-    )
+    supported_msvc_debug_c_args = c_compiler.get_supported_arguments(msvc_debug_args)
+    supported_msvc_debug_cpp_args = cpp_compiler.get_supported_arguments(msvc_debug_args)
+    
+    add_project_arguments(supported_msvc_debug_c_args, language: 'c')
+    add_project_arguments(supported_msvc_debug_cpp_args, language: 'cpp')
+    
     add_project_link_arguments(
       cpp_compiler.get_supported_link_arguments(universal_msvc_link),
       language: ['c', 'cpp'],
@@ -505,7 +474,8 @@ else
         '-Wno-nested-anon-types',
       ]
     endif
-    add_project_arguments(c_compiler.get_supported_arguments(debug_args), language: ['c', 'cpp'])
+    add_project_arguments(c_compiler.get_supported_arguments(debug_args), language: 'c')
+    add_project_arguments(cpp_compiler.get_supported_arguments(debug_args), language: 'cpp')
   endif
 
   add_project_arguments('-D_GLIBCXX_ASSERTIONS', language: 'cpp')
@@ -559,19 +529,36 @@ elif is_android
       java_ver_stderr = java_version_check.stderr().strip()
       java_version_string = java_ver_stdout != '' ? java_ver_stdout : java_ver_stderr
 
+      version_parts = []
+      major_version = 0
+      has_valid_version = false
+
       if java_version_string.contains('javac ')
         raw_version_list = java_version_string.split(' ')
-        version_number_str = raw_version_list[1]
-        version_parts = version_number_str.split('.')
-        major_version = version_parts[0].to_int()
-        
+        if raw_version_list.length() >= 2
+          version_number_str = raw_version_list[1]
+          no_hyphen_array = version_number_str.split('-')
+          prefix_str = no_hyphen_array[0]
+          no_plus_array = prefix_str.split('+')
+          version_number_clean = no_plus_array[0]
+          version_parts = version_number_clean.split('.')
+          
+          if version_parts.length() >= 1
+            major_version = version_parts[0].to_int()
+            has_valid_version = true
+          endif
+        endif
+      endif
+
+
+      if has_valid_version
         if major_version != 21
           error('[SRAL ERROR] Android builds require JDK 21. Found version: ' + major_version.to_string())
         else
           message('[SRAL] Android JDK 21 environment verification passed.')
         endif
       else
-        warning('[SRAL WARNING] Unexpected javac version format. Skipping validation.')
+        warning('[SRAL WARNING] Unexpected javac version format. Raw output was: "' + java_version_string + '". Skipping validation.')
       endif
     else
       warning('[SRAL WARNING] Could not execute javac --version. Skipping validation.')
@@ -612,7 +599,12 @@ else
   endif
 endif
 
-python_bin = import('python').find_installation()
+python_module = import('python')
+if path_python != '' and fs.is_dir(path_python)
+  python_bin = python_module.find_installation(path_python / 'python', required: false)
+else
+  python_bin = python_module.find_installation('python3', required: false)
+endif
 
 subdir('SRC')
 

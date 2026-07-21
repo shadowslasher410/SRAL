@@ -6,7 +6,6 @@
 #include <mutex>
 #include <string_view>
 
-#include "../Include/SRAL.h"
 #include "Engine.h"
 
 #if defined(__linux__) && !defined(__ANDROID__)
@@ -18,7 +17,7 @@ namespace Sral {
 class Orca final : public Engine {
 public:
 	Orca() noexcept = default;
-	~Orca() override = default;
+	~Orca() noexcept final = default;
 
 	Orca(const Orca&) = delete;
 	Orca& operator=(const Orca&) = delete;
@@ -29,43 +28,41 @@ public:
 	[[nodiscard]] bool SpeakSsml(std::string_view ssml, bool interrupt);
 	bool Braille(std::string_view text);
 
-	[[nodiscard]] bool Speak(const char* text, bool interrupt) override final {
+	[[nodiscard]] bool Speak(const char* text, bool interrupt) final {
 		return Speak(text ? std::string_view(text) : std::string_view(), interrupt);
 	}
 
-	[[nodiscard]] bool SpeakSsml(const char* ssml, bool interrupt) override final {
+	[[nodiscard]] bool SpeakSsml(const char* ssml, bool interrupt) final {
 		return SpeakSsml(ssml ? std::string_view(ssml) : std::string_view(), interrupt);
 	}
 
-	bool Braille(const char* text) override final {
+	bool Braille(const char* text) final {
 		return Braille(text ? std::string_view(text) : std::string_view());
 	}
 
 	[[nodiscard]] bool Speak(std::nullptr_t, bool) noexcept;
-
 	[[nodiscard]] bool SpeakSsml(std::nullptr_t, bool) noexcept;
-
 	bool Braille(std::nullptr_t) noexcept;
 
-	[[nodiscard]] bool StopSpeech() override final;
-	[[nodiscard]] bool IsSpeaking() override final;
-	[[nodiscard]] bool PauseSpeech() override final { return false; }
-	[[nodiscard]] bool ResumeSpeech() override final { return false; }
+	[[nodiscard]] bool StopSpeech() final;
+	[[nodiscard]] bool IsSpeaking() final;
+	[[nodiscard]] bool PauseSpeech() final { return false; }
+	[[nodiscard]] bool ResumeSpeech() final { return false; }
 
-	[[nodiscard]] int GetNumber() noexcept override final { return 1 << 12; }
-	[[nodiscard]] int GetCategory() noexcept override final { return SRAL_ENGINE_CATEGORY_SCREEN_READER; }
-	[[nodiscard]] int GetFeatures() noexcept override final { return SRAL_SUPPORTS_SPEECH; }
-	[[nodiscard]] int GetKeyFlags() noexcept override final { return HANDLE_NONE; }
+	[[nodiscard]] int GetNumber() noexcept final { return 1 << 12; }
+	[[nodiscard]] int GetCategory() noexcept final { return SRAL_ENGINE_CATEGORY_SCREEN_READER; }
+	[[nodiscard]] int GetFeatures() noexcept final { return SRAL_SUPPORTS_SPEECH; }
+	[[nodiscard]] int GetKeyFlags() noexcept final { return HANDLE_NONE; }
 
-	[[nodiscard]] bool GetActive() noexcept override final;
-	[[nodiscard]] bool Initialize() override final;
-	bool Uninitialize() noexcept override final;
+	[[nodiscard]] bool GetActive() noexcept final;
+	[[nodiscard]] bool Initialize() final;
+	bool Uninitialize() noexcept final;
 
 	[[nodiscard]] void* SpeakToMemory([[maybe_unused]] const char* text,
 		[[maybe_unused]] uint64_t* buffer_size,
 		[[maybe_unused]] int* channels,
 		[[maybe_unused]] int* sample_rate,
-		[[maybe_unused]] int* bits_per_sample) override final {
+		[[maybe_unused]] int* bits_per_sample) final {
 
 		if (buffer_size) {
 			*buffer_size = 0;
@@ -82,8 +79,8 @@ public:
 		return nullptr;
 	}
 
-	bool SetParameter([[maybe_unused]] int param, [[maybe_unused]] const void* value) override final { return false; }
-	bool GetParameter([[maybe_unused]] int param, [[maybe_unused]] void* value) override final { return false; }
+	bool SetParameter([[maybe_unused]] int param, [[maybe_unused]] const void* value) final { return false; }
+	bool GetParameter([[maybe_unused]] int param, [[maybe_unused]] void* value) final { return false; }
 
 private:
 	static std::atomic<bool> is_active;
@@ -91,8 +88,6 @@ private:
 
 #if defined(__linux__) && !defined(__ANDROID__)
 	static DBusConnection* _dbus_connection;
-#else
-	static void* _dbus_connection;
 #endif
 };
 

@@ -15,14 +15,27 @@
 #include <unistd.h>
 #endif
 
-static void sleep_ms(const int milliseconds) {
-#ifdef _WIN32
-	Sleep((DWORD)milliseconds);
+#include <stddef.h>
+
+void sleep_ms(unsigned int milliseconds) {
+#if defined(_WIN32) || defined(_WIN64)
+    extern void __stdcall Sleep(unsigned long dwMilliseconds);
+    Sleep((unsigned long)milliseconds);
+
+#elif defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L && !defined(__STDC_NO_THREADS__)
+    #include <threads.h>
+    #include <time.h>
+    struct timespec ts;
+    ts.tv_sec = (time_t)(milliseconds / 1000U);
+    ts.tv_nsec = (long)((milliseconds % 1000U) * 1000000UL);
+    (void)thrd_sleep(&ts, NULL);
+
 #else
-	if (milliseconds > 0) {
-		const useconds_t micro_seconds = (useconds_t)milliseconds * 1000U;
-		(void)usleep(micro_seconds);
-	}
+    #include <time.h>
+    struct timespec ts;
+    ts.tv_sec = (time_t)(milliseconds / 1000U);
+    ts.tv_nsec = (long)((milliseconds % 1000U) * 1000000UL);
+    (void)nanosleep(&ts, NULL);
 #endif
 }
 

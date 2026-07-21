@@ -122,25 +122,28 @@ jobs:
         shell: bash
         run: zip -r ${{ matrix.output-archive }} staging_dist/
 
+      - name: Download Certificates via App Store Connect API (iOS Only)
+        if: matrix.target-name == 'ios-universal'
+        uses: apple-actions/import-codesign-certs@v3
+        with:
+          p12-file-base64: ''
+          app-store-connect-key-id: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          app-store-connect-issuer-id: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          app-store-connect-private-key: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
+          certificate-type: 'Apple Development' 
+          create-keychain: true
+          keychain-password: ${{ secrets.APPLE_KEYCHAIN_PASSWORD || 'ephemeral-keychain-pass' }}
+
       - name: Code Sign and Package XCFramework Bundle (iOS Only)
         if: matrix.target-name == 'ios-universal'
-        env:
-          KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
-          ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
-          PRIVATE_KEY: ${{ secrets.APP_STORE_CONNECT_PRIVATE_KEY }}
         run: |
-          API_KEY_DIR="$RUNNER_TEMP/private_keys"
-          mkdir -p "$API_KEY_DIR"
-          API_KEY_PATH="$API_KEY_DIR/AuthKey_${KEY_ID}.p8"
-          echo "$PRIVATE_KEY" > "$API_KEY_PATH"
+          # 1. Identify the matching Development identity signature downloaded by the runner action step
+          IDENTITY_STRING="Apple Development"
           
-          xcodebuild archive \
-            -allowProvisioningUpdates \
-            -authenticationKeyID "$KEY_ID" \
-            -authenticationKeyIssuerID "$ISSUER_ID" \
-            -authenticationKeyPath "$API_KEY_PATH"
-
-          # 3. Zip your built artifact package 
+          # 2. Directly sign the framework container structure inside the unzipped extraction workspace folder
+          codesign --force --sign "$IDENTITY_STRING" --verbose staging_dist/SRAL.xcframework
+          
+          # 3. Zip up the cleanly signed production architecture bundle package
           cd staging_dist
           zip -r "../${{ matrix.output-archive }}" SRAL.xcframework
 

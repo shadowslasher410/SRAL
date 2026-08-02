@@ -36,88 +36,96 @@ SOFTWARE.
  * ==============================================================================
  */
 
-#pragma once
-
 #ifndef UTF8_ITER_H
 #define UTF8_ITER_H
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 
 #include <stddef.h>
 #include <stdint.h>
 
-/**
- * @struct utf8_iter
- * @brief Thread-safe UTF-8 string multi-byte iteration state tracker (C17 Standard Compliant).
- */
-typedef struct utf8_iter {
-	const char* ptr;	/* Pointer tracking the underlying raw character vector */
-	uint32_t codepoint; /* Decoded Unicode codepoint integer token value */
-	uint8_t size;		/* Current character footprint size calculated in bytes */
-	uint32_t position;	/* Current absolute byte position offset within array */
-	uint32_t next;		/* Imminent byte position marker index */
-	uint32_t count;		/* Logical multi-byte character sequence array counter */
-	uint32_t length;	/* Total physical byte size layout of string (strlen) */
-} utf8_iter;
-
-/* --- Lifecycle Management --- */
-
-/**
- * @brief Initializes a UTF-8 iterator by inspecting string length automatically.
- */
-void utf8_init(utf8_iter* iter, const char* ptr);
-
-/**
- * @brief Initializes a UTF-8 iterator with an explicit custom boundary execution scope length.
- */
-void utf8_initEx(utf8_iter* iter, const char* ptr, uint32_t length);
-
-/* --- Stream Navigation Routing Channels --- */
-
-/**
- * @brief Moves the iterator structure forward by one logical character sequence alignment.
- * @return Returns 1 if another character is successfully parsed, 0 if bounds limit hit.
- */
-uint8_t utf8_next(utf8_iter* iter);
-
-/**
- * @brief Steps the iterator backward by processing multi-byte header boundaries.
- * @return Returns 1 if previous character layout resolved cleanly, 0 if baseline hit.
- */
-uint8_t utf8_previous(utf8_iter* iter);
-
-/**
- * @brief Resolves the pointer referencing the current active character offset window.
- */
-const char* utf8_getchar(const utf8_iter* iter);
-
-/* --- General String Utilities --- */
-uint32_t utf8_strlen(const char* string);
-uint32_t utf8_strnlen(const char* string, uint32_t max_bytes);
-uint32_t utf8_to_unicode(const char* character);
-
-/**
- * @brief Thread-safe conversion of a Unicode codepoint down to a multi-byte UTF-8 character string.
- * @param[out] out_buffer Target character destination block array (C17 array constraint bounds tracking).
- * @return Returns the number of encoded bytes successfully written to the target destination layout.
- */
 #ifdef __cplusplus
-uint8_t unicode_to_utf8(uint32_t codepoint, char* out_buffer);
+#include <cstdalign>
+extern "C" {
 #else
-uint8_t unicode_to_utf8(uint32_t codepoint, char out_buffer[static 5]);
+#include <stdalign.h>
 #endif
 
-/* --- Advanced Engine Internal Processing Hooks --- */
-uint8_t utf8_charsize(const char* character);
-uint8_t unicode_charsize(uint32_t codepoint);
-uint32_t utf8_converter(const char* character, uint8_t size);
+#if defined(__GNUC__) || defined(__clang__)
+#define BS_RESTRICT __restrict__
+#define BS_PURE __attribute__((pure))
+#define BS_MUST_CHECK __attribute__((warn_unused_result))
+#define BS_FORCE_INLINE __attribute__((always_inline)) static inline
+#define BS_NONNULL_ALL __attribute__((nonnull))
+#define BS_NONNULL(...) __attribute__((nonnull(__VA_ARGS__)))
+#define BS_LEAF __attribute__((leaf))
+#elif defined(_MSC_VER)
+#define BS_RESTRICT __restrict
+#define BS_PURE
+#define BS_MUST_CHECK _Check_return_
+#define BS_FORCE_INLINE __forceinline static inline
+#define BS_NONNULL_ALL
+#define BS_NONNULL(...)
+#define BS_LEAF
+#else
+#define BS_RESTRICT restrict
+#define BS_PURE
+#define BS_MUST_CHECK
+#define BS_FORCE_INLINE static inline
+#define BS_NONNULL_ALL
+#define BS_NONNULL(...)
+#define BS_LEAF
+#endif
 
 /**
- * @brief Internal conversion execution step mapping codepoints down to native packed byte layouts safely.
+ * @struct utf8_iter
+ * @brief Thread-safe UTF-8 string multi-byte iteration state tracker.
+ * Explicitly aligned to a 16-byte boundary to guarantee a flawless 2-cycle
+ * vector register dump instruction generation during initialization passes.
  */
-uint32_t unicode_converter(uint32_t codepoint, uint8_t size);
+typedef struct utf8_iter {
+	const char* ptr;	// 8 Bytes (64-bit Target Native Alignment)
+	uint32_t codepoint; // 4 Bytes
+	uint32_t position;	// 4 Bytes
+	uint32_t next;		// 4 Bytes
+	uint32_t count;		// 4 Bytes
+	uint32_t length;	// 4 Bytes
+	uint8_t size;		// 1 Byte
+	uint8_t reserved_a; // 1 Byte
+	uint8_t reserved_b; // 1 Byte
+	uint8_t reserved_c; // 1 Byte
+} utf8_iter;
+
+#if defined(__cplusplus) || (defined(__STDC_VERSION__) && __STDC_VERSION__ >= 201112L)
+_Static_assert(sizeof(utf8_iter) == 32, "Structure memory layout must equal exactly 32 bytes.");
+#endif
+
+#define BS_UTF8_LUT_EXTRACT(x)                                                                                         \
+	((uint8_t)("\x01\x01\x01\x01\x01\x01\x01\x01\x00\x00\x00\x00\x02\x02\x03\x04"[(x) & 0x0F]))
+
+void utf8_init(utf8_iter* BS_RESTRICT const iter, const char* BS_RESTRICT const ptr) BS_NONNULL(1) BS_LEAF;
+void utf8_initEx(utf8_iter* BS_RESTRICT const iter, const char* BS_RESTRICT const ptr, const uint32_t length)
+	BS_NONNULL(1) BS_LEAF;
+
+BS_MUST_CHECK uint8_t utf8_next(utf8_iter* BS_RESTRICT const iter) BS_NONNULL_ALL BS_LEAF;
+BS_MUST_CHECK uint8_t utf8_previous(utf8_iter* BS_RESTRICT const iter) BS_NONNULL_ALL BS_LEAF;
+
+BS_FORCE_INLINE const char* utf8_getchar(const utf8_iter* BS_RESTRICT const iter) BS_NONNULL_ALL {
+	return (iter->size == 0) ? "" : (iter->ptr + iter->position);
+}
+
+BS_FORCE_INLINE uint8_t utf8_charsize(const char* BS_RESTRICT const character) BS_NONNULL_ALL {
+	return BS_UTF8_LUT_EXTRACT((uint8_t)*character >> 4);
+}
+
+BS_PURE BS_MUST_CHECK uint32_t utf8_strlen(const char* BS_RESTRICT const string) BS_NONNULL_ALL BS_LEAF;
+BS_PURE BS_MUST_CHECK uint32_t utf8_strnlen(
+	const char* BS_RESTRICT const string, const uint32_t max_bytes) BS_NONNULL_ALL BS_LEAF;
+BS_PURE BS_MUST_CHECK uint32_t utf8_to_unicode(const char* BS_RESTRICT const character) BS_NONNULL_ALL BS_LEAF;
+
+#ifdef __cplusplus
+uint8_t unicode_to_utf8(uint32_t codepoint, char* BS_RESTRICT out_buffer) BS_NONNULL_ALL BS_LEAF;
+#else
+uint8_t unicode_to_utf8(uint32_t codepoint, char out_buffer[static 5]) BS_NONNULL_ALL BS_LEAF;
+#endif
 
 #ifdef __cplusplus
 } /* extern "C" */

@@ -6,8 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "sral"
 version = "1.0.0"
 description = "Python ctypes bindings for the Screen Reader Abstraction Library (SRAL)"
-readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -16,9 +15,8 @@ classifiers = [
 ]
 dependencies = []
 
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["sral*"]
+[tool.setuptools]
+py-modules = ["sral"]
 
 [tool.setuptools.package-data]
-sral = ["*.dll", "*.so", "*.dylib"]
+"*" = ["*.dll", "*.so", "*.dylib"]

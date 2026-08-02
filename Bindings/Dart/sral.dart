@@ -1,379 +1,223 @@
 import 'dart:ffi';
-import 'dart:io';
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:ffi/ffi.dart';
 import 'sral_types.dart';
 
-typedef _sral_init_c = Bool Function(Int32);
-typedef _sral_init_dart = bool Function(int);
+class Sral {
+  
+  static bool _executeWithView(String input, bool Function(StringView) unmanagedCall) {
+    if (input.isEmpty) return false;
 
-typedef _sral_uninit_c = Void Function();
-typedef _sral_uninit_dart = void Function();
-
-typedef _sral_is_init_c = Bool Function();
-typedef _sral_is_init_dart = bool Function();
-
-typedef _sral_speak_c = Bool Function(Pointer<Utf8>, Bool);
-typedef _sral_speak_dart = bool Function(Pointer<Utf8>, bool);
-
-typedef _sral_speak_ex_c = Bool Function(Int32, Pointer<Utf8>, Bool);
-typedef _sral_speak_ex_dart = bool Function(int, Pointer<Utf8>, bool);
-
-typedef _sral_braille_c = Bool Function(Pointer<Utf8>);
-typedef _sral_braille_dart = bool Function(Pointer<Utf8>);
-
-typedef _sral_braille_ex_c = Bool Function(Int32, Pointer<Utf8>);
-typedef _sral_braille_ex_dart = bool Function(int, Pointer<Utf8>);
-
-typedef _sral_control_c = Bool Function();
-typedef _sral_control_dart = bool Function();
-
-typedef _sral_control_ex_c = Bool Function(Int32);
-typedef _sral_control_ex_dart = bool Function(int);
-
-typedef _sral_get_int_c = Int32 Function();
-typedef _sral_get_int_dart = int Function();
-
-typedef _sral_get_int_ex_c = Int32 Function(Int32);
-typedef _sral_get_int_ex_dart = int Function(int);
-
-typedef _sral_param_c = Bool Function(Int32, Int32, Pointer<Void>);
-typedef _sral_param_dart = bool Function(int, int, Pointer<Void>);
-
-typedef _sral_name_c = Pointer<Utf8> Function(Int32);
-typedef _sral_name_dart = Pointer<Utf8> Function(int);
-
-typedef _sral_delay_c = Void Function(Int32);
-typedef _sral_delay_dart = void Function(int);
-
-typedef _sral_delay_out_c = Bool Function(Pointer<Utf8>, Int32, Bool, Bool, Bool, Bool);
-typedef _sral_delay_out_dart = bool Function(Pointer<Utf8>, int, bool, bool, bool, bool);
-
-typedef _sral_delay_out_ex_c = Bool Function(Int32, Pointer<Utf8>, Int32, Bool, Bool, Bool, Bool);
-typedef _sral_delay_out_ex_dart = bool Function(int, Pointer<Utf8>, int, bool, bool, bool, bool);
-
-typedef _sral_mem_c = Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint64>, Pointer<Int32>, Pointer<Int32>, Pointer<Int32>);
-typedef _sral_mem_dart = Pointer<Void> Function(Pointer<Utf8>, Pointer<Uint64>, Pointer<Int32>, Pointer<Int32>, Pointer<Int32>);
-
-typedef _sral_mem_ex_c = Pointer<Void> Function(Int32, Pointer<Utf8>, Pointer<Uint64>, Pointer<Int32>, Pointer<Int32>, Pointer<Int32>);
-typedef _sral_mem_ex_dart = Pointer<Void> Function(int, Pointer<Utf8>, Pointer<Uint64>, Pointer<Int32>, Pointer<Int32>, Pointer<Int32>);
-
-typedef _sral_free_c = Void Function(Pointer<Void>);
-typedef _sral_free_dart = void Function(Pointer<Void>);
-
-class SRAL {
-  late DynamicLibrary _lib;
-
-  late _sral_init_dart _initialize;
-  late _sral_uninit_dart _uninitialize;
-  late _sral_is_init_dart _isInitialized;
-  late _sral_speak_dart _speak;
-  late _sral_speak_dart _speakSsml;
-  late _sral_braille_dart _braille;
-  late _sral_speak_dart _output;
-  late _sral_control_dart _stopSpeech;
-  late _sral_control_dart _pauseSpeech;
-  late _sral_control_dart _resumeSpeech;
-  late _sral_control_dart _isSpeaking;
-  late _sral_delay_dart _delay;
-  late _sral_get_int_dart _getCurrentEngine;
-  late _sral_get_int_ex_dart _getEngineFeatures;
-  late _sral_param_dart _setEngineParameter;
-  late _sral_param_dart _getEngineParameter;
-  late _sral_speak_ex_dart _speakEx;
-  late _sral_speak_ex_dart _speakSsmlEx;
-  late _sral_braille_ex_dart _brailleEx;
-  late _sral_speak_ex_dart _outputEx;
-  late _sral_control_ex_dart _stopSpeechEx;
-  late _sral_control_ex_dart _pauseSpeechEx;
-  late _sral_control_ex_dart _resumeSpeechEx;
-  late _sral_control_ex_dart _isSpeakingEx;
-  late _sral_control_dart _registerKeyboardHooks;
-  late _sral_control_dart _unregisterKeyboardHooks;
-  late _sral_get_int_dart _getAvailableEngines;
-  late _sral_get_int_dart _getActiveEngines;
-  late _sral_get_int_dart _getTTSEngines;
-  late _sral_get_int_dart _getAssistiveTechEngines;
-  late _sral_get_int_ex_dart _getEngineCategory;
-  late _sral_name_dart _getEngineName;
-  late _sral_init_dart _setEnginesExclude;
-  late _sral_get_int_dart _getEnginesExclude;
-  late _sral_delay_out_dart _delayOutput;
-  late _sral_delay_out_ex_dart _delayOutputEx;
-  late _sral_mem_dart _speakToMemory;
-  late _sral_mem_ex_dart _speakToMemoryEx;
-  late _sral_free_dart _sralFree;
-
-  SRAL() {
-    if (Platform.isWindows) {
-      _lib = DynamicLibrary.open('SRAL.dll');
-    } else if (Platform.isLinux) {
-      _lib = DynamicLibrary.open('libsral.so');
-    } else if (Platform.isMacOS) {
-      _lib = DynamicLibrary.open('libsral.dylib');
-    } else if (Platform.isAndroid) {
-      _lib = DynamicLibrary.open('libsral.so');
-    } else if (Platform.isIOS) {
-      _lib = DynamicLibrary.process();
-    } else {
-      throw UnsupportedError('Unsupported operational target system environment');
-    }
-
-    _initialize = _lib.lookupFunction<_sral_init_c, _sral_init_dart>('SRAL_Initialize');
-    _uninitialize = _lib.lookupFunction<_sral_uninit_c, _sral_uninit_dart>('SRAL_Uninitialize');
-    _isInitialized = _lib.lookupFunction<_sral_is_init_c, _sral_is_init_dart>('SRAL_IsInitialized');
-    _speak = _lib.lookupFunction<_sral_speak_c, _sral_speak_dart>('SRAL_Speak');
-    _speakSsml = _lib.lookupFunction<_sral_speak_c, _sral_speak_dart>('SRAL_SpeakSsml');
-    _braille = _lib.lookupFunction<_sral_braille_c, _sral_braille_dart>('SRAL_Braille');
-    _output = _lib.lookupFunction<_sral_speak_c, _sral_speak_dart>('SRAL_Output');
-    _stopSpeech = _lib.lookupFunction<_sral_control_c, _sral_control_dart>('SRAL_StopSpeech');
-    _pauseSpeech = _lib.lookupFunction<_sral_control_c, _sral_control_dart>('SRAL_PauseSpeech');
-    _resumeSpeech = _lib.lookupFunction<_sral_control_c, _sral_control_dart>('SRAL_ResumeSpeech');
-    _isSpeaking = _lib.lookupFunction<_sral_control_c, _sral_control_dart>('SRAL_IsSpeaking');
-    _delay = _lib.lookupFunction<_sral_delay_c, _sral_delay_dart>('SRAL_Delay');
-    _getCurrentEngine = _lib.lookupFunction<_sral_get_int_c, _sral_get_int_dart>('SRAL_GetCurrentEngine');
-    _getEngineFeatures = _lib.lookupFunction<_sral_get_int_ex_c, _sral_get_int_ex_dart>('SRAL_GetEngineFeatures');
-    _setEngineParameter = _lib.lookupFunction<_sral_param_c, _sral_param_dart>('SRAL_SetEngineParameter');
-    _getEngineParameter = _lib.lookupFunction<_sral_param_c, _sral_param_dart>('SRAL_GetEngineParameter');
-    _speakEx = _lib.lookupFunction<_sral_speak_ex_c, _sral_speak_ex_dart>('SRAL_SpeakEx');
-    _speakSsmlEx = _lib.lookupFunction<_sral_speak_ex_c, _sral_speak_ex_dart>('SRAL_SpeakSsmlEx');
-    _brailleEx = _lib.lookupFunction<_sral_braille_ex_c, _sral_braille_ex_dart>('SRAL_BrailleEx');
-    _outputEx = _lib.lookupFunction<_sral_speak_ex_c, _sral_speak_ex_dart>('SRAL_OutputEx');
-    _stopSpeechEx = _lib.lookupFunction<_sral_control_ex_c, _sral_control_ex_dart>('SRAL_StopSpeechEx');
-    _pauseSpeechEx = _lib.lookupFunction<_sral_control_ex_c, _sral_control_ex_dart>('SRAL_PauseSpeechEx');
-    _resumeSpeechEx = _lib.lookupFunction<_sral_control_ex_c, _sral_control_ex_dart>('SRAL_ResumeSpeechEx');
-    _isSpeakingEx = _lib.lookupFunction<_sral_control_ex_c, _sral_control_ex_dart>('SRAL_IsSpeakingEx');
-    _registerKeyboardHooks = _lib.lookupFunction<_sral_control_c, _sral_control_dart>('SRAL_RegisterKeyboardHooks');
-    _unregisterKeyboardHooks = _lib.lookupFunction<_sral_control_c, _sral_control_dart>('SRAL_UnregisterKeyboardHooks');
-    _getAvailableEngines = _lib.lookupFunction<_sral_get_int_c, _sral_get_int_dart>('SRAL_GetAvailableEngines');
-    _getActiveEngines = _lib.lookupFunction<_sral_get_int_c, _sral_get_int_dart>('SRAL_GetActiveEngines');
-    _getTTSEngines = _lib.lookupFunction<_sral_get_int_c, _sral_get_int_dart>('SRAL_GetTTSEngines');
-    _getAssistiveTechEngines = _lib.lookupFunction<_sral_get_int_c, _sral_get_int_dart>('SRAL_GetAssistiveTechEngines');
-    _getEngineCategory = _lib.lookupFunction<_sral_get_int_ex_c, _sral_get_int_ex_dart>('SRAL_GetEngineCategory');
-    _getEngineName = _lib.lookupFunction<_sral_name_c, _sral_name_dart>('SRAL_GetEngineName');
-    _setEnginesExclude = _lib.lookupFunction<_sral_init_c, _sral_init_dart>('SRAL_SetEnginesExclude');
-    _getEnginesExclude = _lib.lookupFunction<_sral_get_int_c, _sral_get_int_dart>('SRAL_GetEnginesExclude');
-    _delayOutput = _lib.lookupFunction<_sral_delay_out_c, _sral_delay_out_dart>('SRAL_DelayOutput');
-    _delayOutputEx = _lib.lookupFunction<_sral_delay_out_ex_c, _sral_delay_out_ex_dart>('SRAL_DelayOutputEx');
-    _speakToMemory = _lib.lookupFunction<_sral_mem_c, _sral_mem_dart>('SRAL_SpeakToMemory');
-    _speakToMemoryEx = _lib.lookupFunction<_sral_mem_ex_c, _sral_mem_ex_dart>('SRAL_SpeakToMemoryEx');
-    _sralFree = _lib.lookupFunction<_sral_free_c, _sral_free_dart>('SRAL_free');
-  }
-
-  bool initialize(int enginesExclude) => _initialize(enginesExclude);
-
-  void uninitialize() => _uninitialize();
-
-  bool isInitialized() => _isInitialized();
-
-  bool speak(String text, bool interrupt) {
-    final cText = text.toNativeUtf8();
+    final List<int> units = utf8.encode(input);
+    final Pointer<Uint8> pBuffer = calloc<Uint8>(units.length);
+    final Pointer<StringView> pView = calloc<StringView>();
+    
     try {
-      return _speak(cText, interrupt);
+      pBuffer.asTypedList(units.length).setAll(0, units);
+      pView.ref.data = pBuffer.cast<Utf8>();
+      pView.ref.length = units.length;
+      
+      return unmanagedCall(pView.ref);
     } finally {
-      malloc.free(cText);
+      calloc.free(pView);
+      calloc.free(pBuffer);
     }
   }
 
-  bool speakSsml(String ssml, bool interrupt) {
-    final cSsml = ssml.toNativeUtf8();
+  static SralPcmBuffer _executeWithMemoryBridge(String input, PcmBuffer Function(Pointer<Utf8>) bridgeCall) {
+    final Pointer<Utf8> pText = input.toNativeUtf8();
     try {
-      return _speakSsml(cSsml, interrupt);
+      final nativeStruct = bridgeCall(pText);
+      return SralPcmBuffer(nativeStruct);
     } finally {
-      malloc.free(cSsml);
+      malloc.free(pText);
     }
   }
 
-  bool braille(String text) {
-    final cText = text.toNativeUtf8();
-    try {
-      return _braille(cText);
-    } finally {
-      malloc.free(cText);
+  static bool initialize({int enginesExclude = SralEngine.none}) => 
+      SralNative.sralInitialize(enginesExclude);
+
+  static void uninitialize() => 
+      SralNative.sralUninitialize();
+
+  static bool isInitialized() => 
+      SralNative.sralIsInitialized();
+
+  static bool speak(String text, {required bool interrupt}) => 
+      _executeWithView(text, (v) => SralNative.safeSpeakAllocationBridge(v, interrupt));
+
+  static bool speakSsml(String ssml, {required bool interrupt}) => 
+      _executeWithView(ssml, (v) => SralNative.safeSpeakSsmlAllocationBridge(v, interrupt));
+
+  static bool braille(String text) => 
+      _executeWithView(text, (v) => SralNative.safeBrailleAllocationBridge(v));
+
+  static bool output(String text, {required bool interrupt}) => 
+      _executeWithView(text, (v) => SralNative.safeOutputAllocationBridge(v, interrupt));
+
+  static bool stopSpeech() => 
+      SralNative.sralStopSpeech();
+
+  static bool pauseSpeech() => 
+      SralNative.sralPauseSpeech();
+
+  static bool resumeSpeech() => 
+      SralNative.sralResumeSpeech();
+
+  static bool isSpeaking() => 
+      SralNative.sralIsSpeaking();
+
+  static int getCurrentEngine() => 
+      SralNative.sralGetCurrentEngine();
+
+  static int getEngineFeatures(int engine) => 
+      SralNative.sralGetEngineFeatures(engine);
+
+  static bool speakEx(int engine, String text, {required bool interrupt}) => 
+      _executeWithView(text, (v) => SralNative.safeSpeakExAllocationBridge(engine, v, interrupt));
+
+  static bool speakSsmlEx(int engine, String ssml, {required bool interrupt}) => 
+      _executeWithView(ssml, (v) => SralNative.safeSpeakSsmlExAllocationBridge(engine, v, interrupt));
+
+  static bool brailleEx(int engine, String text) => 
+      _executeWithView(text, (v) => SralNative.safeBrailleExAllocationBridge(engine, v));
+
+  static bool outputEx(int engine, String text, {required bool interrupt}) => 
+      _executeWithView(text, (v) => SralNative.safeOutputExAllocationBridge(engine, v, interrupt));
+
+    static bool stopSpeechEx(int engine) => 
+      SralNative.sralStopSpeechEx(engine) != 0;
+
+  static bool pauseSpeechEx(int engine) => 
+      SralNative.sralPauseSpeechEx(engine) != 0;
+
+  static bool resumeSpeechEx(int engine) => 
+      SralNative.sralResumeSpeechEx(engine) != 0;
+
+  static bool isSpeakingEx(int engine) => 
+      SralNative.sralIsSpeakingEx(engine) != 0;
+
+  static void delay(int timeMs) => 
+      SralNative.sralDelay(timeMs);
+
+  static bool delayOutput(int timeMs, String text, {required bool interrupt}) => 
+      _executeWithView(text, (v) => SralNative.safeDelayOutputAllocationBridge(timeMs, v, interrupt));
+
+  static bool delayOutputEx(int engine, int timeMs, String text, {required bool interrupt}) => 
+      _executeWithView(text, (v) => SralNative.safeDelayOutputExAllocationBridge(engine, timeMs, v, interrupt));
+
+  static bool registerKeyboardHooks() => 
+      SralNative.sralRegisterKeyboardHooks();
+
+  static void unregisterKeyboardHooks() => 
+      SralNative.sralUnregisterKeyboardHooks();
+
+  static int getAvailableEngines() => 
+      SralNative.sralGetAvailableEngines();
+
+  static int getActiveEngines() => 
+      SralNative.sralGetActiveEngines();
+
+  static int getTTSEngines() => 
+      SralNative.sralGetTTSEngines();
+
+  static int getAssistiveTechEngines() => 
+      SralNative.sralGetAssistiveTechEngines();
+
+  static bool setEnginesExclude(int mask) => 
+      SralNative.sralSetEnginesExclude(mask);
+
+  static int? getEnginesExclude() {
+    final result = SralNative.sralGetEnginesExclude();
+    return result == -1 ? null : result;
+  }
+
+  static SralEngineCategory getEngineCategory(int engine) {
+    final catIdx = SralNative.sralGetEngineCategory(engine);
+    if (catIdx >= 0 && catIdx < SralEngineCategory.values.length) {
+      return SralEngineCategory.values[catIdx];
     }
+    return SralEngineCategory.unknown;
   }
 
-  bool output(String text, bool interrupt) {
-    final cText = text.toNativeUtf8();
+  static String getEngineName(int engine) {
+    final view = SralNative.getEngineNameFastBridge(engine);
+    if (view.data == nullptr || view.length == 0) return '';
+    
+    return view.data.cast<Uint8>().asTypedList(view.length).map((c) => String.fromCharCode(c)).join();
+  }
+
+  static bool setEngineParameter<T extends NativeType>(int engine, int param, Pointer<T> value) =>
+      SralNative.sralSetEngineParameter(engine, param, value.cast<Void>());
+
+  static bool getEngineParameter<T extends NativeType>(int engine, int param, Pointer<T> outValue) =>
+      SralNative.sralGetEngineParameter(engine, param, outValue.cast<Void>());
+
+  static List<SralVoiceInfo> getEngineVoiceList(int engine) {
+    final List<SralVoiceInfo> list = [];
+    final Pointer<Int32> pCount = calloc<Int32>();
+    final Pointer<Pointer<CSralVoiceInfo>> pArrayHandle = calloc<Pointer<CSralVoiceInfo>>();
+
     try {
-      return _output(cText, interrupt);
-    } finally {
-      malloc.free(cText);
-    }
-  }
-
-  bool stopSpeech() => _stopSpeech();
-  bool pauseSpeech() => _pauseSpeech();
-  bool resumeSpeech() => _resumeSpeech();
-  bool isSpeaking() => _isSpeaking();
-  void delay(int timeMs) => _delay(timeMs);
-
-  int getCurrentEngine() => _getCurrentEngine();
-  int getEngineFeatures(int engine) => _getEngineFeatures(engine);
-  int getAvailableEngines() => _getAvailableEngines();
-  int getActiveEngines() => _getActiveEngines();
-  int getEngineCategory(int engine) => _getEngineCategory(engine);
-
-  String getEngineName(int engine) {
-    final ptr = _getEngineName(engine);
-    if (ptr == nullptr) return "Unknown Engine";
-    return ptr.toDartString();
-  }
-
-  bool setEnginesExclude(int enginesExclude) => _setEnginesExclude(enginesExclude);
-  int getEnginesExclude() => _getEnginesExclude();
-  int getTTSEngines() => _getTTSEngines();
-  int getAssistiveTechEngines() => _getAssistiveTechEngines();
-
-  bool speakEx(int engine, String text, bool interrupt) {
-    final cText = text.toNativeUtf8();
-    try {
-      return _speakEx(engine, cText, interrupt);
-    } finally {
-      malloc.free(cText);
-    }
-  }
-
-  bool speakSsmlEx(int engine, String ssml, bool interrupt) {
-    final cSsml = ssml.toNativeUtf8();
-    try {
-      return _speakSsmlEx(engine, cSsml, interrupt);
-    } finally {
-      malloc.free(cSsml);
-    }
-  }
-
-  bool brailleEx(int engine, String text) {
-    final cText = text.toNativeUtf8();
-    try {
-      return _brailleEx(engine, cText);
-    } finally {
-      malloc.free(cText);
-    }
-  }
-
-  bool outputEx(int engine, String text, bool interrupt) {
-    final cText = text.toNativeUtf8();
-    try {
-      return _outputEx(engine, cText, interrupt);
-    } finally {
-      malloc.free(cText);
-    }
-  }
-
-  bool stopSpeechEx(int engine) => _stopSpeechEx(engine);
-  bool pauseSpeechEx(int engine) => _pauseSpeechEx(engine);
-  bool resumeSpeechEx(int engine) => _resumeSpeechEx(engine);
-  bool isSpeakingEx(int engine) => _isSpeakingEx(engine);
-
-  bool registerKeyboardHooks() => _registerKeyboardHooks();
-  void unregisterKeyboardHooks() => _unregisterKeyboardHooks();
-
-  bool setIntParameter(int engine, int param, int value) {
-    final pValue = malloc<Int32>()..value = value;
-    try {
-      return _setEngineParameter(engine, param, pValue.cast<Void>());
-    } finally {
-      malloc.free(pValue);
-    }
-  }
-
-  int getIntParameter(int engine, int param) {
-    final pValue = malloc<Int32>()..value = -1;
-    try {
-      if (_getEngineParameter(engine, param, pValue.cast<Void>())) {
-        return pValue.value;
-      }
-      return -1;
-    } finally {
-      malloc.free(pValue);
-    }
-  }
-
-  List<SralVoiceInfo> getVoices(int engine) {
-    final pCount = malloc<Int32>()..value = 0;
-    try {
-      if (!_getEngineParameter(engine, 4, pCount.cast<Void>()) || pCount.value <= 0) {
-        return [];
+      if (!SralNative.sralGetEngineParameter(engine, SralParam.voiceCount, pCount.cast()) || pCount.value <= 0) {
+        return list;
       }
 
-      final pVoicePtr = malloc<Pointer<NativeSralVoiceInfo>>();
-      try {
-        if (!_getEngineParameter(engine, 3, pVoicePtr.cast<Void>()) || pVoicePtr.value == nullptr) {
-          return [];
-        }
-
-        final count = pCount.value;
-        final Pointer<NativeSralVoiceInfo> rawArray = pVoicePtr.value;
-        final List<SralVoiceInfo> voices = [];
-
-        for (int i = 0; i < count; i++) {
-          final structRef = rawArray[i];
-          voices.add(SralVoiceInfo(
-            index: structRef.index,
-            name: structRef.name == nullptr ? "" : structRef.name.toDartString(),
-            language: structRef.language == nullptr ? "" : structRef.language.toDartString(),
-            gender: structRef.gender == nullptr ? "" : structRef.gender.toDartString(),
-            vendor: structRef.vendor == nullptr ? "" : structRef.vendor.toDartString(),
+      if (SralNative.sralGetEngineParameter(engine, SralParam.voiceProperties, pArrayHandle.cast()) && pArrayHandle.value != nullptr) {
+        final Pointer<CSralVoiceInfo> nativeArray = pArrayHandle.value;
+        
+        for (int i = 0; i < pCount.value; i++) {
+          final element = (nativeArray + i).ref;
+          
+          list.add(SralVoiceInfo(
+            index: element.index,
+            name: element.name != nullptr ? element.name.toDartString() : '',
+            language: element.language != nullptr ? element.language.toDartString() : '',
+            gender: element.gender != nullptr ? element.gender.toDartString() : '',
+            vendor: element.vendor != nullptr ? element.vendor.toDartString() : '',
           ));
         }
-
-        _sralFree(rawArray.cast<Void>());
-        return voices;
-      } finally {
-        malloc.free(pVoicePtr);
+        
+        SralNative.sralFree(nativeArray.cast());
       }
     } finally {
-      malloc.free(pCount);
+      calloc.free(pArrayHandle);
+      calloc.free(pCount);
     }
+    return list;
   }
 
-  SralPCMData? speakToMemory(String text) {
-    final cText = text.toNativeUtf8();
-    final pSize = malloc<Uint64>()..value = 0;
-    final pChan = malloc<Int32>()..value = 0;
-    final pRate = malloc<Int32>()..value = 0;
-    final pBits = malloc<Int32>()..value = 0;
+  static SralPcmBuffer speakToMemory(String text) => 
+      _executeWithMemoryBridge(text, (pText) => SralNative.directMemoryBridge(pText));
 
-    try {
-      final ptr = _speakToMemory(cText, pSize, pChan, pRate, pBits);
-      if (ptr == nullptr) return null;
+  static SralPcmBuffer speakToMemoryEx(int engine, String text) => 
+      _executeWithMemoryBridge(text, (pText) => SralNative.directMemoryExBridge(engine, pText));
 
-      final size = pSize.value;
-      final data = ptr.cast<Uint8>().asTypedList(size);
-      final bufferCopy = Uint8List.fromList(data);
+}
 
-      _sralFree(ptr.cast<Void>());
-      
-      return SralPCMData(
-        buffer: bufferCopy,
-        channels: pChan.value,
-        sampleRate: pRate.value,
-        bitsPerSample: pBits.value,
-      );
-    } finally {
-      malloc.free(cText);
-      malloc.free(pSize);
-      malloc.free(pChan);
-      malloc.free(pRate);
-      malloc.free(pBits);
-    }
+class SralPcmBuffer {
+  final PcmBuffer _nativeStruct;
+  bool _isDisposed = false;
+
+  SralPcmBuffer(this._nativeStruct);
+
+  bool get isEmpty => _nativeStruct.dataPointer == nullptr || _isDisposed;
+  int get channels => _isDisposed ? 0 : _nativeStruct.channels;
+  int get sampleRate => _isDisposed ? 0 : _nativeStruct.sampleRate;
+  int get bitsPerSample => _isDisposed ? 0 : _nativeStruct.bitsPerSample;
+
+  Uint8List get bytes {
+    if (isEmpty) return Uint8List(0);
+    return _nativeStruct.dataPointer.asTypedList(_nativeStruct.dataLength);
   }
 
-  bool delayOutput(String text, int timeMs, bool interrupt, bool speak, bool braille, bool ssml) {
-    final cText = text.toNativeUtf8();
-    try {
-      return _delayOutput(cText, timeMs, interrupt, speak, braille, ssml);
-    } finally {
-      malloc.free(cText);
-    }
-  }
-
-  bool delayOutputEx(int engine, String text, int timeMs, bool interrupt, bool speak, bool braille, bool ssml) {
-    final cText = text.toNativeUtf8();
-    try {
-      return _delayOutputEx(engine, cText, timeMs, interrupt, speak, braille, ssml);
-    } finally {
-      malloc.free(cText);
+  void dispose() {
+    if (!_isDisposed) {
+      if (_nativeStruct.dataPointer != nullptr) {
+        SralNative.sralFree(_nativeStruct.dataPointer.cast<Void>());
+      }
+      _isDisposed = true;
     }
   }
 }

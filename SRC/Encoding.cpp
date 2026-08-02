@@ -1,5 +1,5 @@
 #include "Encoding.h"
-
+#include <algorithm>
 #include <array>
 #include <climits>
 #include <cstring>
@@ -14,257 +14,160 @@
 
 namespace Sral {
 
-bool UnicodeConvert(std::string_view input, std::wstring& output) {
-	output.clear();
-	if (input.empty()) {
-		return true;
-	}
+bool UnicodeConvert(std::string_view input, std::wstring& output) noexcept {
+    output.clear();
+    if (input.empty()) [[unlikely]] {
+        return true;
+    }
 
 #if defined(_WIN32) || defined(_WIN64)
-	if (input.size() > static_cast<size_t>(INT_MAX)) [[unlikely]] {
-		return false;
-	}
+    if (input.size() > static_cast<size_t>(INT_MAX)) [[unlikely]] {
+        return false;
+    }
 
-	const int input_size = static_cast<int>(input.size());
-	const int size_needed = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input.data(), input_size, nullptr, 0);
-	if (size_needed <= 0) [[unlikely]] {
-		return false;
-	}
+    const int input_size = static_cast<int>(input.size());
+    const int size_needed = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input.data(), input_size, nullptr, 0);
+    if (size_needed <= 0) [[unlikely]] {
+        return false;
+    }
 
-	constexpr int kStackBufferSize = 512;
-	if (size_needed <= kStackBufferSize) {
-		std::array<wchar_t, kStackBufferSize> stack_buffer;
-		const int result = ::MultiByteToWideChar(
-			CP_UTF8, MB_ERR_INVALID_CHARS, input.data(), input_size, stack_buffer.data(), size_needed);
-		if (result > 0) {
-			output.assign(stack_buffer.data(), static_cast<size_t>(result));
-			return true;
-		}
-	}
-	else {
-		output.resize(static_cast<size_t>(size_needed));
-		const int result =
-			::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input.data(), input_size, output.data(), size_needed);
-		if (result > 0) {
-			return true;
-		}
-		output.clear();
-	}
-	return false;
+#if defined(__cpp_lib_string_resize_and_overwrite)
+    output.resize_and_overwrite(static_cast<size_t>(size_needed), [input, input_size, size_needed](wchar_t* buf, size_t) noexcept -> size_t {
+        const int result = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input.data(), input_size, buf, size_needed);
+        return (result > 0) ? static_cast<size_t>(result) : 0;
+    });
+    return !output.empty();
 #else
-	std::mbstate_t state{};
-	const char* ptr = input.data();
-	const char* end = input.data() + input.size();
+    output.resize(static_cast<size_t>(size_needed));
+    const int result = ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, input.data(), input_size, output.data(), size_needed);
+    if (result > 0) [[likely]] {
+        return true;
+    }
+    output.clear();
+    return false;
+#endif
 
-	constexpr size_t kStackBufferSize = 512;
-	size_t converted_chars = 0;
+#else
+    std::mbstate_t state{};
+    const char* ptr = input.data();
+    const char* const end = input.data() + input.size();
 
-	std::array<wchar_t, kStackBufferSize> stack_buffer;
-	std::wstring heap_buffer;
-	wchar_t* current_dest = stack_buffer.data();
-	size_t current_capacity = kStackBufferSize;
+    output.reserve(input.size());
 
-	while (ptr < end) {
-		char32_t c32 = 0;
-		size_t rc = mbrtoc32(&c32, ptr, static_cast<size_t>(end - ptr), &state);
+    while (ptr < end) {
+        char32_t c32 = 0;
+        const size_t rc = mbrtoc32(&c32, ptr, static_cast<size_t>(end - ptr), &state);
 
-		if (rc == static_cast<size_t>(-1) || rc == static_cast<size_t>(-2)) [[unlikely]] {
-			return false;
-		}
-		if (rc == 0) {
-			rc = 1;
-		}
-
-		if (converted_chars >= current_capacity) {
-			if (current_dest == stack_buffer.data()) {
-				heap_buffer.assign(stack_buffer.data(), converted_chars);
-			}
-			heap_buffer.resize(heap_buffer.size() + kStackBufferSize);
-			current_dest = heap_buffer.data();
-			current_capacity = heap_buffer.size();
-		}
-
-		current_dest[converted_chars++] = static_cast<wchar_t>(c32);
-		ptr += rc;
-	}
-
-	if (current_dest == stack_buffer.data()) {
-		output.assign(stack_buffer.data(), converted_chars);
-	}
-	else {
-		heap_buffer.resize(converted_chars);
-		output = std::move(heap_buffer);
-	}
-	return true;
+        if (rc == static_cast<size_t>(-1) || rc == static_cast<size_t>(-2)) [[unlikely]] {
+            output.clear();
+            return false;
+        }
+        
+        const size_t advance = (rc == 0) ? 1 : rc;
+        output.push_back(static_cast<wchar_t>(c32));
+        ptr += advance;
+    }
+    return true;
 #endif
 }
 
-bool UnicodeConvert(std::wstring_view input, std::string& output) {
-	output.clear();
-	if (input.empty()) {
-		return true;
-	}
+bool UnicodeConvert(std::wstring_view input, std::string& output) noexcept {
+    output.clear();
+    if (input.empty()) [[unlikely]] {
+        return true;
+    }
 
 #if defined(_WIN32) || defined(_WIN64)
-	if (input.size() > static_cast<size_t>(INT_MAX)) [[unlikely]] {
-		return false;
-	}
+    if (input.size() > static_cast<size_t>(INT_MAX)) [[unlikely]] {
+        return false;
+    }
 
-	const int input_size = static_cast<int>(input.size());
-	const int size_needed =
-		::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, input.data(), input_size, nullptr, 0, nullptr, nullptr);
-	if (size_needed <= 0) [[unlikely]] {
-		return false;
-	}
+    const int input_size = static_cast<int>(input.size());
+    const int size_needed = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, input.data(), input_size, nullptr, 0, nullptr, nullptr);
+    if (size_needed <= 0) [[unlikely]] {
+        return false;
+    }
 
-	constexpr int kStackBufferSize = 512;
-	if (size_needed <= kStackBufferSize) {
-		std::array<char, kStackBufferSize> stack_buffer;
-		const int result = ::WideCharToMultiByte(CP_UTF8,
-			WC_ERR_INVALID_CHARS,
-			input.data(),
-			input_size,
-			stack_buffer.data(),
-			size_needed,
-			nullptr,
-			nullptr);
-		if (result > 0) {
-			output.assign(stack_buffer.data(), static_cast<size_t>(result));
-			return true;
-		}
-	}
-	else {
-		output.resize(static_cast<size_t>(size_needed));
-		const int result = ::WideCharToMultiByte(
-			CP_UTF8, WC_ERR_INVALID_CHARS, input.data(), input_size, output.data(), size_needed, nullptr, nullptr);
-		if (result > 0) {
-			return true;
-		}
-		output.clear();
-	}
-	return false;
+#if defined(__cpp_lib_string_resize_and_overwrite)
+    output.resize_and_overwrite(static_cast<size_t>(size_needed), [input, input_size, size_needed](char* buf, size_t) noexcept -> size_t {
+        const int result = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, input.data(), input_size, buf, size_needed, nullptr, nullptr);
+        return (result > 0) ? static_cast<size_t>(result) : 0;
+    });
+    return !output.empty();
 #else
-	std::mbstate_t state{};
-	constexpr size_t kStackBufferSize = 1024;
-	std::array<char, kStackBufferSize> stack_buffer;
-	std::string heap_buffer;
+    output.resize(static_cast<size_t>(size_needed));
+    const int result = ::WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, input.data(), input_size, output.data(), size_needed, nullptr, nullptr);
+    if (result > 0) [[likely]] {
+        return true;
+    }
+    output.clear();
+    return false;
+#endif
 
-	char* current_dest = stack_buffer.data();
-	size_t bytes_written = 0;
-	size_t current_capacity = kStackBufferSize;
+#else
+    std::mbstate_t state{};
+    output.reserve(input.size() * 4); 
 
-	for (const wchar_t wch : input) {
-		char32_t c32 = static_cast<char32_t>(wch);
-		std::array<char, 4> bytes{};
+    std::array<char, 4> bytes{};
 
-		size_t rc = c32rtomb(bytes.data(), c32, &state);
-		if (rc == static_cast<size_t>(-1)) [[unlikely]] {
-			return false;
-		}
+    for (const wchar_t wch : input) {
+        const char32_t c32 = static_cast<char32_t>(wch);
+        const size_t rc = c32rtomb(bytes.data(), c32, &state);
+        
+        if (rc == static_cast<size_t>(-1)) [[unlikely]] {
+            output.clear();
+            return false;
+        }
 
-		if (bytes_written + rc >= current_capacity) {
-			if (current_dest == stack_buffer.data()) {
-				heap_buffer.assign(stack_buffer.data(), bytes_written);
-			}
-			heap_buffer.resize(heap_buffer.size() + kStackBufferSize * 2);
-			current_dest = heap_buffer.data();
-			current_capacity = heap_buffer.size();
-		}
-
-		std::memcpy(current_dest + bytes_written, bytes.data(), rc);
-		bytes_written += rc;
-	}
-
-	if (current_dest == stack_buffer.data()) {
-		output.assign(stack_buffer.data(), bytes_written);
-	}
-	else {
-		heap_buffer.resize(bytes_written);
-		output = std::move(heap_buffer);
-	}
-	return true;
+        output.append(bytes.data(), rc);
+    }
+    return true;
 #endif
 }
 
-void XmlEncode(std::string& data) {
-	if (data.empty()) {
-		return;
-	}
+void XmlEncode(std::string& data) noexcept {
+    if (data.empty()) [[unlikely]] {
+        return;
+    }
 
-	size_t expansion_size = 0;
-	for (const char c : data) {
-		switch (c) {
-		case '&':
-			expansion_size += 4;
-			break;
-		case '<':
-			expansion_size += 3;
-			break;
-		case '>':
-			expansion_size += 3;
-			break;
-		case '"':
-			expansion_size += 5;
-			break;
-		case '\'':
-			expansion_size += 5;
-			break;
-		default:
-			break;
-		}
-	}
+    size_t expansion_size = 0;
+    for (const char c : data) {
+        switch (c) {
+        case '&':  expansion_size += 4; break;
+        case '<':  expansion_size += 3; break;
+        case '>':  expansion_size += 3; break;
+        case '"':  expansion_size += 5; break;
+        case '\'': expansion_size += 5; break;
+        default: break;
+        }
+    }
 
-	if (expansion_size == 0) {
-		return;
-	}
+    if (expansion_size == 0) {
+        return; 
+    }
 
-	const size_t total_size = data.size() + expansion_size;
-	if (total_size < data.size()) [[unlikely]] {
-		return;
-	}
+    const size_t original_size = data.size();
+    const size_t total_size = original_size + expansion_size;
+    if (total_size < original_size) [[unlikely]] {
+        return;
+    }
 
-	std::string encoded;
-	encoded.reserve(total_size);
+    std::string encoded;
+    encoded.reserve(total_size);
 
-	std::string_view source_view(data);
-	constexpr std::string_view targets = "&<>'\"";
+    for (size_t i = 0; i < original_size; ++i) {
+        const char c = data[i];
+        switch (c) {
+        case '&':  encoded.append("&amp;"); break;
+        case '<':  encoded.append("&lt;"); break;
+        case '>':  encoded.append("&gt;"); break;
+        case '"':  encoded.append("&quot;"); break;
+        case '\'': encoded.append("&apos;"); break;
+        default:   encoded.push_back(c); break;
+        }
+    }
 
-	while (!source_view.empty()) {
-		const size_t i = source_view.find_first_of(targets);
-
-		if (i == std::string_view::npos) {
-			encoded.append(source_view);
-			break;
-		}
-
-		if (i > 0) {
-			encoded.append(source_view.substr(0, i));
-		}
-
-		switch (source_view[i]) {
-		case '&':
-			encoded.append("&amp;");
-			break;
-		case '<':
-			encoded.append("&lt;");
-			break;
-		case '>':
-			encoded.append("&gt;");
-			break;
-		case '"':
-			encoded.append("&quot;");
-			break;
-		case '\'':
-			encoded.append("&apos;");
-			break;
-		default:
-			[[unlikely]] break;
-		}
-
-		source_view.remove_prefix(i + 1);
-	}
-
-	data = std::move(encoded);
+    data = std::move(encoded);
 }
 
 } // namespace Sral

@@ -21,32 +21,30 @@ namespace Sral {
 VoiceOver::~VoiceOver() noexcept { (void)Uninitialize(); }
 
 bool VoiceOver::Initialize() {
-  if (m_running.load(std::memory_order_acquire)) {
-    return true;
-  }
-
   std::lock_guard<std::mutex> lock(instanceMutex);
-  if (m_running.load(std::memory_order_relaxed)) {
+  if (isInitialized.load(std::memory_order_acquire)) {
     return true;
   }
 
-  m_running.store(true, std::memory_order_release);
-  m_workerThread = std::thread(&VoiceOver::BackgroundWorkerLoop, this);
+  m_workerThread =
+      std::jthread([this](std::stop_token st) noexcept { this->BackgroundWorkerLoop(st); });
+
+  isInitialized.store(true, std::memory_order_release);
   return true;
 }
 
 bool VoiceOver::Uninitialize() {
-  if (!m_running.load(std::memory_order_acquire)) {
-    return true;
+  m_workerThread.request_stop();
+  {
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    m_cv.notify_all();
   }
-
-  m_running.store(false, std::memory_order_release);
-  m_cv.notify_all();
 
   if (m_workerThread.joinable()) {
     m_workerThread.join();
   }
 
+  isInitialized.store(false, std::memory_order_release);
   m_isSpeakingCache.store(false, std::memory_order_release);
   return true;
 }
@@ -56,9 +54,11 @@ bool VoiceOver::GetActive() {
 #if TARGET_OS_IOS || TARGET_OS_TV
   return UIAccessibilityIsVoiceOverRunning() == YES;
 #elif TARGET_OS_OSX
-  if ([[NSWorkspace sharedWorkspace] isVoiceOverEnabled]) {
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101000
+  if (NSAccessibilityIsVoiceOverRunning() == YES) {
     return true;
   }
+#endif
   return AXIsProcessTrusted() == YES;
 #endif
 #else
@@ -69,7 +69,7 @@ bool VoiceOver::GetActive() {
 bool VoiceOver::IsSpeaking() { return m_isSpeakingCache.load(std::memory_order_acquire); }
 
 bool VoiceOver::Speak(const char* text, bool interrupt) {
-  if (!text || !m_running.load(std::memory_order_acquire)) [[unlikely]] {
+  if (!text || !isInitialized.load(std::memory_order_acquire)) [[unlikely]] {
     return false;
   }
 
@@ -87,12 +87,12 @@ bool VoiceOver::Speak(const char* text, bool interrupt) {
     }
     m_commandQueue.push(ThreadCommand{CommandType::Speak, std::string(textStr), interrupt});
   }
-  m_cv.notify_one();
+  m_cv.notify_all();
   return true;
 }
 
 bool VoiceOver::StopSpeech() {
-  if (!m_running.load(std::memory_order_acquire)) {
+  if (!isInitialized.load(std::memory_order_acquire)) {
     return false;
   }
   {
@@ -101,75 +101,75 @@ bool VoiceOver::StopSpeech() {
     std::swap(m_commandQueue, empty);
     m_commandQueue.push(ThreadCommand{CommandType::Stop, "", true});
   }
-  m_cv.notify_one();
+  m_cv.notify_all();
   return true;
 }
 
-void VoiceOver::BackgroundWorkerLoop() noexcept {
-  while (m_running.load(std::memory_order_acquire)) {
+void VoiceOver::BackgroundWorkerLoop(std::stop_token stop_token) noexcept {
+  while (!stop_token.stop_requested()) [[likely]] {
     ThreadCommand cmd;
     bool hasCommand = false;
 
     {
       std::unique_lock<std::mutex> lock(m_queueMutex);
-      if (!m_commandQueue.empty()) {
-        cmd = std::move(m_commandQueue.front());
-        m_commandQueue.pop();
-        hasCommand = true;
+
+      m_cv.wait(lock, stop_token, [this] { return !m_commandQueue.empty(); });
+
+      if (stop_token.stop_requested() && m_commandQueue.empty()) [[unlikely]] {
+        break;
       }
+
+      cmd = std::move(m_commandQueue.front());
+      m_commandQueue.pop();
+      hasCommand = true;
     }
 
     if (hasCommand) {
 #if APPLE_ACCESSIBILITY_SUPPORTED
       @autoreleasepool {
-        std::string rawPayload = cmd.payload;
-        [[maybe_unused]] bool interruptAction = cmd.interrupt;
+        std::string rawPayload = std::move(cmd.payload);
+        const bool interruptAction = cmd.interrupt;
 
         if (cmd.type == CommandType::Stop) {
           dispatch_async(dispatch_get_main_queue(), ^{
 #if TARGET_OS_IOS || TARGET_OS_TV
               UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, nil);
 #elif TARGET_OS_OSX
-						id targetElement = NSApp ? (id)NSApp : (id)[NSApplication sharedApplication];
-						NSDictionary* userInfo = @{NSAccessibilityAnnouncementKey : @"",
-												   NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)};
-						NSAccessibilityPostNotificationWithUserInfo(targetElement, NSAccessibilityAnnouncementRequestedNotification, userInfo);
+			  id targetElement = NSApp ? (id)NSApp : (id)[NSApplication sharedApplication];
+			  NSDictionary* userInfo = @{NSAccessibilityAnnouncementKey : @"",
+										 NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)};
+			  NSAccessibilityPostNotificationWithUserInfo(targetElement, NSAccessibilityAnnouncementRequestedNotification, userInfo);
 #endif
           });
         } else if (cmd.type == CommandType::Speak) {
-          NSString* msg = [NSString stringWithUTF8String:rawPayload.c_str()];
-          if (!msg) {
-            msg = [NSString stringWithCString:rawPayload.c_str() encoding:NSASCIIStringEncoding];
-          }
-
-          if (msg) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-#if TARGET_OS_IOS || TARGET_OS_TV
-                if (interruptAction) {
-                  UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, nil);
+          dispatch_async(dispatch_get_main_queue(), ^{
+              @autoreleasepool {
+                NSString* msg = [NSString stringWithUTF8String:rawPayload.c_str()];
+                if (!msg) {
+                  msg = [NSString stringWithCString:rawPayload.c_str()
+                                           encoding:NSASCIIStringEncoding];
                 }
-                UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, msg);
+
+                if (msg) {
+#if TARGET_OS_IOS || TARGET_OS_TV
+                  if (interruptAction) {
+                    UIAccessibilityPostNotification(UIAccessibilityLayoutChangedNotification, nil);
+                  }
+                  UIAccessibilityPostNotification(UIAccessibilityAnnouncementNotification, msg);
 #elif TARGET_OS_OSX
-							id targetElement = NSApp ? (id)NSApp : (id)[NSApplication sharedApplication];
-							NSDictionary* userInfo = @{NSAccessibilityAnnouncementKey : msg,
-													   NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)};
-							NSAccessibilityPostNotificationWithUserInfo(targetElement, NSAccessibilityAnnouncementRequestedNotification, userInfo);
+                      id targetElement = NSApp ? (id)NSApp : (id)[NSApplication sharedApplication];
+                      NSDictionary* userInfo = @{NSAccessibilityAnnouncementKey : msg,
+                                                 NSAccessibilityPriorityKey : @(NSAccessibilityPriorityHigh)};
+                      NSAccessibilityPostNotificationWithUserInfo(targetElement, NSAccessibilityAnnouncementRequestedNotification, userInfo);
 #endif
-            });
-          }
+                }
+              }
+          });
         }
       }
 #endif
     }
-
     m_isSpeakingCache.store(hasCommand, std::memory_order_release);
-
-    if (!hasCommand) {
-      std::unique_lock<std::mutex> lock(m_queueMutex);
-      if (m_commandQueue.empty() && m_running.load(std::memory_order_acquire)) {
-        m_cv.wait_for(lock, std::chrono::milliseconds(20));
-      }
-    }
   }
 }
 

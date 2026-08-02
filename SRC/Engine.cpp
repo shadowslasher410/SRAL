@@ -1,7 +1,5 @@
 #include "Engine.h"
-
 #include <cstddef>
-
 #include "SRAL.h"
 
 namespace Sral {
@@ -13,10 +11,11 @@ bool Engine::SpeakSsml(const char* ssml, bool interrupt) {
 void* Engine::SpeakToMemory(
 	const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) {
 	(void)text;
-	(void)buffer_size;
-	(void)channels;
-	(void)sample_rate;
-	(void)bits_per_sample;
+	
+	if (buffer_size != nullptr)     { *buffer_size = 0; }
+	if (channels != nullptr)        { *channels = 0; }
+	if (sample_rate != nullptr)     { *sample_rate = 0; }
+	if (bits_per_sample != nullptr) { *bits_per_sample = 0; }
 	return nullptr;
 }
 
@@ -44,8 +43,14 @@ bool Engine::SetParameter(int param, const void* value) {
 }
 
 bool Engine::GetParameter(int param, void* value) {
-	(void)param;
-	(void)value;
+	if (value == nullptr) [[unlikely]] {
+		return false;
+	}
+
+	if (param == SRAL_PARAM_ENGINE_IS_PAUSED) {
+		*static_cast<int*>(value) = paused ? 1 : 0;
+		return true;
+	}
 	return false;
 }
 

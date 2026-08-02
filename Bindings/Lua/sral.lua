@@ -1,263 +1,347 @@
 local ffi = require("ffi")
+local bit = require("bit")
 
 ffi.cdef[[
+    void free(void* ptr);
+
     typedef struct {
-        int index;
         const char* name;
         const char* language;
         const char* gender;
         const char* vendor;
-    } SRAL_VoiceInfo;
+        int index;
+    } CSralVoiceInfo;
 
-    void* SRAL_malloc(size_t size);
+    typedef struct {
+        uint8_t* data_pointer;
+        uint64_t data_length;
+        int channels;
+        int sample_rate;
+        int bits_per_sample;
+    } PcmBufferNative;
+
+    typedef struct {
+        const char* data;
+        size_t length;
+    } StringViewNative;
+
     void SRAL_free(void* memory);
-
-    bool SRAL_Speak(const char* text, bool interrupt);
-    bool SRAL_SpeakSsml(const char* ssml, bool interrupt);
-    bool SRAL_Braille(const char* text);
-    bool SRAL_Output(const char* text, bool interrupt);
-
+    bool SRAL_Initialize(int engines_exclude);
+    void SRAL_Uninitialize(void);
+    bool SRAL_IsInitialized(void);
     bool SRAL_StopSpeech(void);
     bool SRAL_PauseSpeech(void);
     bool SRAL_ResumeSpeech(void);
     bool SRAL_IsSpeaking(void);
-    void SRAL_Delay(int time);
-
     int SRAL_GetCurrentEngine(void);
     int SRAL_GetEngineFeatures(int engine);
     bool SRAL_SetEngineParameter(int engine, int param, const void* value);
     bool SRAL_GetEngineParameter(int engine, int param, void* value);
-    bool SRAL_Initialize(int engines_exclude);
-    void SRAL_Uninitialize(void);
-
-    bool SRAL_SpeakEx(int engine, const char* text, bool interrupt);
-    void* SRAL_SpeakToMemory(const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample);
-    void* SRAL_SpeakToMemoryEx(int engine, const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample);
-    bool SRAL_SpeakSsmlEx(int engine, const char* ssml, bool interrupt);
-    bool SRAL_BrailleEx(int engine, const char* text);
-    bool SRAL_OutputEx(int engine, const char* text, bool interrupt);
+    void SRAL_Delay(int time);
+    int SRAL_GetAvailableEngines(void);
+    int SRAL_GetActiveEngines(void);
+    int SRAL_GetEngineCategory(int engine);
+    int SRAL_GetTTSEngines(void);
+    int SRAL_GetAssistiveTechEngines(void);
+    bool SRAL_SetEnginesExclude(int engines_exclude);
+    int SRAL_GetEnginesExclude(void);
     bool SRAL_StopSpeechEx(int engine);
     bool SRAL_PauseSpeechEx(int engine);
     bool SRAL_ResumeSpeechEx(int engine);
     bool SRAL_IsSpeakingEx(int engine);
-    bool SRAL_IsInitialized(void);
-
     bool SRAL_RegisterKeyboardHooks(void);
     void SRAL_UnregisterKeyboardHooks(void);
-    int SRAL_GetAvailableEngines(void);
-    int SRAL_GetActiveEngines(void);
-    int SRAL_GetTTSEngines(void);
-    int SRAL_GetAssistiveTechEngines(void);
-    int SRAL_GetEngineCategory(int engine);
-    const char* SRAL_GetEngineName(int engine);
-    bool SRAL_SetEnginesExclude(int engines_exclude);
-    int SRAL_GetEnginesExclude(void);
 
-    bool SRAL_DelayOutput(const char* text, int time, bool interrupt, bool speak, bool braille, bool ssml);
-    bool SRAL_DelayOutputEx(int engine, const char* text, int time, bool interrupt, bool speak, bool braille, bool ssml);
+    bool SafeSpeakAllocationBridge(StringViewNative text, bool interrupt);
+    bool SafeSpeakSsmlAllocationBridge(StringViewNative ssml, bool interrupt);
+    bool SafeBrailleAllocationBridge(StringViewNative text);
+    bool SafeOutputAllocationBridge(StringViewNative text, bool interrupt);
+    bool SafeSpeakExAllocationBridge(uint32_t engine, StringViewNative text, bool interrupt);
+    bool SafeSpeakSsmlExAllocationBridge(uint32_t engine, StringViewNative ssml, bool interrupt);
+    bool SafeBrailleExAllocationBridge(uint32_t engine, StringViewNative text);
+    bool SafeOutputExAllocationBridge(uint32_t engine, StringViewNative text, bool interrupt);
+    bool SafeDelayOutputAllocationBridge(int time, StringViewNative text, bool interrupt);
+    bool SafeDelayOutputExAllocationBridge(uint32_t engine, int time, StringViewNative text, bool interrupt);
+    PcmBufferNative DirectMemoryBridge(const char* text);
+    PcmBufferNative DirectMemoryExBridge(uint32_t engine, const char* text);
+    StringViewNative GetEngineNameFastBridge(uint32_t engine);
 ]]
 
-local sral = {
-    Engines = {
-        NONE                         = 0,
-        NVDA                         = 0x02,   -- 1 << 1
-        JAWS                         = 0x04,   -- 1 << 2
-        ZDSR                         = 0x08,   -- 1 << 3
-        NARRATOR                     = 0x10,   -- 1 << 4
-        UIA                          = 0x20,   -- 1 << 5
-        SAPI                         = 0x40,   -- 1 << 6
-        SPEECH_DISPATCHER            = 0x80,   -- 1 << 7
-        ORCA                         = 0x0100, -- 1 << 8
-        VOICE_OVER                   = 0x0200, -- 1 << 9
-        NS_SPEECH                    = 0x0400, -- 1 << 10
-        AV_SPEECH                    = 0x0800, -- 1 << 11
-        ANDROID_ACCESSIBILITY_MGR    = 0x1000, -- 1 << 12
-        ANDROID_TEXT_TO_SPEECH       = 0x2000, -- 1 << 13
-        CHROMEVOX                    = 0x4000, -- 1 << 14
-        ACCESS_KIT                   = 0x8000, -- 1 << 15   
-        CURRENT                      = -1
-    },
+local libSRAL
+local status, err = pcall(function()
+    if ffi.os == "Windows" then
+        return ffi.load("SRAL")
+    elseif ffi.os == "OSX" then
+        return ffi.load("libsral.dylib")
+    else
+        return ffi.load("libsral.so")
+	end
+end)
 
-    EngineCategory = {
-        UNKNOWN                = 0,
-        SCREEN_READER          = 1,
-        TEXT_TO_SPEECH_ENGINE  = 2,
-        ACCESSIBILITY_PROVIDER = 3
-    },
-
-    SupportedFeatures = {
-        SPEECH          = 0x02,   -- 1 << 1
-        BRAILLE         = 0x04,   -- 1 << 2
-        SPEECH_RATE     = 0x08,   -- 1 << 3
-        SPEECH_VOLUME   = 0x10,   -- 1 << 4
-        SELECT_VOICE    = 0x20,   -- 1 << 5
-        PAUSE_SPEECH    = 0x40,   -- 1 << 6
-        SSML            = 0x80,   -- 1 << 7
-        SPEAK_TO_MEMORY = 0x0100, -- 1 << 8
-        SPELLING        = 0x0200  -- 1 << 9
-    },
-
-    EngineParams = {
-        SPEECH_RATE                = 0,
-        SPEECH_VOLUME              = 1,
-        VOICE_INDEX                = 2,
-        VOICE_PROPERTIES           = 3,
-        VOICE_COUNT                = 4,
-        SYMBOL_LEVEL               = 5,
-        SAPI_TRIM_THRESHOLD        = 6,
-        ENABLE_SPELLING            = 7,
-        USE_CHARACTER_DESCRIPTIONS = 8,
-        NVDA_IS_CONTROL_EX         = 9,
-        ENGINE_IS_PAUSED           = 10,
-        ANDROID_JNI_ENV            = 11,
-        ANDROID_ACTIVITY           = 12
-    }
-}
-
-local libsral = nil
-local sral_dir = debug.getinfo(1).source:match("@?(.*[/\\])") or ""
-local lib_subfolder = sral_dir .. "lib/"
-if ffi.os == "Windows" then
-    libsral = ffi.load("SRAL.dll")
-elseif ffi.os == "OSX" then
-    libsral = ffi.load("libsral.dylib")
-elseif ffi.os == "iOS" then
-    libsral = ffi.C
+if status then
+    libSRAL = err
 else
-    libsral = ffi.load("libsral.so")
+    error("[SRAL ERROR] Failed to load native library driver. Verify path configuration variables: " .. tostring(err))
 end
 
+local sral = {}
+
+sral.Engine = {
+    NONE = 0,
+    CURRENT = 0,
+    NO_SPECIFIED = 0,
+    NVDA = bit.lshift(1, 1),
+    JAWS = bit.lshift(1, 2),
+    ZDSR = bit.lshift(1, 3),
+    NARRATOR = bit.lshift(1, 4),
+    UIA = bit.lshift(1, 5),
+    SAPI = bit.lshift(1, 6),
+    SPEECH_DISPATCHER = bit.lshift(1, 7),
+    ORCA = bit.lshift(1, 8),
+    VOICE_OVER = bit.lshift(1, 9),
+    NS_SPEECH = bit.lshift(1, 10),
+    AV_SPEECH = bit.lshift(1, 11),
+    ANDROID_ACCESSIBILITY_MANAGER = bit.lshift(1, 12),
+    ANDROID_TEXT_TO_SPEECH = bit.lshift(1, 13),
+    CHROME_VOX = bit.lshift(1, 14),
+    ACCESS_KIT = bit.lshift(1, 15)
+}
+
+sral.EngineCategory = {
+    UNKNOWN = 0,
+    SCREEN_READER = 1,
+    TEXT_TO_SPEECH_ENGINE = 2,
+    ACCESSIBILITY_PROVIDER = 3
+}
+
+sral.Feature = {
+    SPEECH = bit.lshift(1, 1),
+    BRAILLE = bit.lshift(1, 2),
+    SPEECH_RATE = bit.lshift(1, 3),
+    SPEECH_VOLUME = bit.lshift(1, 4),
+    SELECT_VOICE = bit.lshift(1, 5),
+    PAUSE_SPEECH = bit.lshift(1, 6),
+    SSML = bit.lshift(1, 7),
+    SPEAK_TO_MEMORY = bit.lshift(1, 8),
+    SPELLING = bit.lshift(1, 9)
+}
+
+sral.Param = {
+    SPEECH_RATE = 0,
+    SPEECH_VOLUME = 1,
+    VOICE_INDEX = 2,
+    VOICE_PROPERTIES = 3,
+    VOICE_COUNT = 4,
+    SYMBOL_LEVEL = 5,
+    SAPI_TRIM_THRESHOLD = 6,
+    ENABLE_SPELLING = 7,
+    USE_CHARACTER_DESCRIPTIONS = 8,
+    NVDA_IS_CONTROL_EX = 9,
+    ENGINE_IS_PAUSED = 10,
+    ANDROID_JNI_ENV = 11,
+    ANDROID_ACTIVITY = 12
+}
+
+local function make_string_view(str)
+    local sv = ffi.new("StringViewNative")
+    sv.data = str
+    sv.length = #str
+    return sv
+end
 
 function sral.initialize(engines_exclude)
-    return libsral.SRAL_Initialize(engines_exclude or 0)
+    return libSRAL.SRAL_Initialize(engines_exclude or sral.Engine.NONE)
 end
 
 function sral.uninitialize()
-    libsral.SRAL_Uninitialize()
+    libSRAL.SRAL_Uninitialize()
 end
 
 function sral.is_initialized()
-    return libsral.SRAL_IsInitialized()
+    return libSRAL.SRAL_IsInitialized()
 end
 
 function sral.speak(text, interrupt)
-    return libsral.SRAL_Speak(text, interrupt == true)
+    if not text or text == "" then return false end
+    return libSRAL.SafeSpeakAllocationBridge(make_string_view(text), interrupt or false)
 end
 
 function sral.speak_ssml(ssml, interrupt)
-    return libsral.SRAL_SpeakSsml(ssml, interrupt == true)
+    if not ssml or ssml == "" then return false end
+    return libSRAL.SafeSpeakSsmlAllocationBridge(make_string_view(ssml), interrupt or false)
 end
 
 function sral.braille(text)
-    return libsral.SRAL_Braille(text)
+    if not text or text == "" then return false end
+    return libSRAL.SafeBrailleAllocationBridge(make_string_view(text))
 end
 
 function sral.output(text, interrupt)
-    return libsral.SRAL_Output(text, interrupt == true)
+    if not text or text == "" then return false end
+    return libSRAL.SafeOutputAllocationBridge(make_string_view(text), interrupt or false)
 end
 
-function sral.stop_speech() return libsral.SRAL_StopSpeech() end
-function sral.pause_speech() return libsral.SRAL_PauseSpeech() end
-function sral.resume_speech() return libsral.SRAL_ResumeSpeech() end
-function sral.is_speaking() return libsral.SRAL_IsSpeaking() end
-function sral.delay(ms) libsral.SRAL_Delay(ms) end
-function sral.get_current_engine() return libsral.SRAL_GetCurrentEngine() end
-function sral.get_engine_features(engine) return libsral.SRAL_GetEngineFeatures(engine or 0) end
-function sral.get_available_engines() return libsral.SRAL_GetAvailableEngines() end
-function sral.get_active_engines() return libsral.SRAL_GetActiveEngines() end
-function sral.get_engines_exclude() return libsral.SRAL_GetEnginesExclude() end
-function sral.set_engines_exclude(mask) return libsral.SRAL_SetEnginesExclude(mask) end
-function sral.get_tts_engines() return libsral.SRAL_GetTTSEngines() end
-function sral.get_assistive_tech_engines() return libsral.SRAL_GetAssistiveTechEngines() end
-function sral.get_engine_category(engine) return libsral.SRAL_GetEngineCategory(engine) end
+function sral.stop_speech() return libSRAL.SRAL_StopSpeech() end
+function sral.pause_speech() return libSRAL.SRAL_PauseSpeech() end
+function sral.resume_speech() return libSRAL.SRAL_ResumeSpeech() end
+function sral.is_speaking() return libSRAL.SRAL_IsSpeaking() end
+function sral.get_current_engine() return libSRAL.SRAL_GetCurrentEngine() end
+function sral.get_engine_features(engine) return libSRAL.SRAL_GetEngineFeatures(engine or sral.Engine.NONE) end
+
+function sral.speak_ex(engine, text, interrupt)
+    if not text or text == "" then return false end
+    return libSRAL.SafeSpeakExAllocationBridge(engine, make_string_view(text), interrupt or false)
+end
+
+function sral.speak_ssml_ex(engine, ssml, interrupt)
+    if not ssml or ssml == "" then return false end
+    return libSRAL.SafeSpeakSsmlExAllocationBridge(engine, make_string_view(ssml), interrupt or false)
+end
+
+function sral.braille_ex(engine, text)
+    if not text or text == "" then return false end
+    return libSRAL.SafeBrailleExAllocationBridge(engine, make_string_view(text))
+end
+
+function sral.output_ex(engine, text, interrupt)
+    if not text or text == "" then return false end
+    return libSRAL.SafeOutputExAllocationBridge(engine, make_string_view(text), interrupt or false)
+end
+
+function sral.stop_speech_ex(engine) return libSRAL.SRAL_StopSpeechEx(engine) end
+function sral.pause_speech_ex(engine) return libSRAL.SRAL_PauseSpeechEx(engine) end
+function sral.resume_speech_ex(engine) return libSRAL.SRAL_ResumeSpeechEx(engine) end
+function sral.is_speaking_ex(engine) return libSRAL.SRAL_IsSpeakingEx(engine) end
+function sral.delay(time_ms) libSRAL.SRAL_Delay(time_ms) end
+
+function sral.delay_output(time_ms, text, interrupt)
+    if not text or text == "" then return false end
+    return libSRAL.SafeDelayOutputAllocationBridge(time_ms, make_string_view(text), interrupt or false)
+end
+
+function sral.delay_output_ex(engine, time_ms, text, interrupt)
+    if not text or text == "" then return false end
+    return libSRAL.SafeDelayOutputExAllocationBridge(engine, time_ms, make_string_view(text), interrupt or false)
+end
+
+function sral.register_keyboard_hooks() return libSRAL.SRAL_RegisterKeyboardHooks() end
+function sral.unregister_keyboard_hooks() libSRAL.SRAL_UnregisterKeyboardHooks() end
+function sral.get_available_engines() return libSRAL.SRAL_GetAvailableEngines() end
+function sral.get_active_engines() return libSRAL.SRAL_GetActiveEngines() end
+function sral.get_tts_engines() return libSRAL.SRAL_GetTTSEngines() end
+function sral.get_assistive_tech_engines() return libSRAL.SRAL_GetAssistiveTechEngines() end
+function sral.set_engines_exclude(mask) return libSRAL.SRAL_SetEnginesExclude(mask) end
+
+function sral.get_engines_exclude()
+    local res = libSRAL.SRAL_GetEnginesExclude()
+    return res == -1 and nil or res
+end
+
+function sral.get_engine_category(engine)
+    return libSRAL.SRAL_GetEngineCategory(engine)
+end
 
 function sral.get_engine_name(engine)
-    local ptr = libsral.SRAL_GetEngineName(engine)
-    return ptr ~= nil and ffi.string(ptr) or "Unknown"
-end
-
-function sral.speak_ex(engine, text, interrupt) return libsral.SRAL_SpeakEx(engine, text, interrupt == true) end
-function sral.speak_ssml_ex(engine, ssml, interrupt) return libsral.SRAL_SpeakSsmlEx(engine, ssml, interrupt == true) end
-function sral.braille_ex(engine, text) return libsral.SRAL_BrailleEx(engine, text) end
-function sral.output_ex(engine, text, interrupt) return libsral.SRAL_OutputEx(engine, text, interrupt == true) end
-function sral.stop_speech_ex(engine) return libsral.SRAL_StopSpeechEx(engine) end
-function sral.pause_speech_ex(engine) return libsral.SRAL_PauseSpeechEx(engine) end
-function sral.resume_speech_ex(engine) return libsral.SRAL_ResumeSpeechEx(engine) end
-function sral.is_speaking_ex(engine) return libsral.SRAL_IsSpeakingEx(engine) end
-
-function sral.register_keyboard_hooks() return libsral.SRAL_RegisterKeyboardHooks() end
-function sral.unregister_keyboard_hooks() libsral.SRAL_UnregisterKeyboardHooks() end
-
-if ffi.os ~= "Linux" or not os.getenv("ANDROID_ROOT") then
-    function sral.delay_output(text, time, interrupt, speak, braille, ssml)
-        return libsral.SRAL_DelayOutput(text, time, interrupt == true, speak == true, braille == true, ssml == true)
-    end
-    function sral.delay_output_ex(engine, text, time, interrupt, speak, braille, ssml)
-        return libsral.SRAL_DelayOutputEx(engine, text, time, interrupt == true, speak == true, braille == true, ssml == true)
-    end
+	local view = libSRAL.GetEngineNameFastBridge(engine)
+	if view.data == nil or view.length == 0 then
+		return ""
+	end
+	return ffi.string(view.data, view.length)
 end
 
 function sral.set_int_parameter(engine, param, value)
-    local int_ptr = ffi.new("int", value)
-    return libsral.SRAL_SetEngineParameter(engine, param, int_ptr)
+    local v = ffi.new("int[1]", value)
+    return libSRAL.SRAL_SetEngineParameter(engine, param, v)
 end
 
 function sral.get_int_parameter(engine, param)
-    local int_ptr = ffi.new("int", -1)
-    if libsral.SRAL_GetEngineParameter(engine, param, int_ptr) then
-        return int_ptr[0]
+    local v = ffi.new("int[1]", -1)
+    if libSRAL.SRAL_GetEngineParameter(engine, param, v) then
+        return v[0]
     end
     return -1
 end
 
-local function parse_memory_stream(ptr, size_ptr, chan_ptr, rate_ptr, bits_ptr)
-    if ptr == nil or ptr == ffi.cast("void*", 0) then return nil end
-    return {
-        buffer = ptr,
-        size = tonumber(size_ptr[0]),
-        channels = tonumber(chan_ptr[0]),
-        sample_rate = tonumber(rate_ptr[0]),
-        bits_per_sample = tonumber(bits_ptr[0])
-    }
+function sral.get_engine_voice_list(engine)
+    local voices_list = {}
+    local count = ffi.new("int[1]", 0)
+    
+    if not libSRAL.SRAL_GetEngineParameter(engine, sral.Param.VOICE_COUNT, count) or count[0] <= 0 then
+        return voices_list
+    end
+
+    local raw_array_ptr = ffi.new("void*[1]")
+    if libSRAL.SRAL_GetEngineParameter(engine, sral.Param.VOICE_PROPERTIES, raw_array_ptr) and raw_array_ptr[0] ~= nil then
+        
+        local array_head = ffi.cast("CSralVoiceInfo*", raw_array_ptr[0])
+        
+        for i = 0, count[0] - 1 do
+            local item = array_head[i]
+            table.insert(voices_list, {
+                index = item.index,
+                name = item.name ~= nil and ffi.string(item.name) or "",
+                language = item.language ~= nil and ffi.string(item.language) or "",
+                gender = item.gender ~= nil and ffi.string(item.gender) or "",
+                vendor = item.vendor ~= nil and ffi.string(item.vendor) or ""
+            })
+        end
+        libSRAL.SRAL_free(raw_array_ptr[0])
+    end
+    return voices_list
 end
 
 function sral.speak_to_memory(text)
-    local size, chan, rate, bits = ffi.new("uint64_t[1]"), ffi.new("int[1]"), ffi.new("int[1]"), ffi.new("int[1]")
-    local ptr = libsral.SRAL_SpeakToMemory(text, size, chan, rate, bits)
-    return parse_memory_stream(ptr, size, chan, rate, bits)
+    if not text or text == "" then return nil end
+    local res = libSRAL.DirectMemoryBridge(text)
+    if res.data_pointer == nil then return nil end
+    
+    return setmetatable({
+        channels = res.channels,
+        sample_rate = res.sample_rate,
+        bits_per_sample = res.bits_per_sample,
+        length = tonumber(res.data_length),
+        _ptr = res.data_pointer
+    }, {
+        __index = {
+            free = function(self)
+                if self._ptr then
+                    libSRAL.SRAL_free(self._ptr)
+                    self._ptr = nil
+                end
+            end,
+            get_bytes = function(self)
+                if not self._ptr then return "" end
+                return ffi.string(self._ptr, self.length)
+            end
+        }
+    })
 end
 
 function sral.speak_to_memory_ex(engine, text)
-    local size, chan, rate, bits = ffi.new("uint64_t[1]"), ffi.new("int[1]"), ffi.new("int[1]"), ffi.new("int[1]")
-    local ptr = libsral.SRAL_SpeakToMemoryEx(engine, text, size, chan, rate, bits)
-    return parse_memory_stream(ptr, size, chan, rate, bits)
-end
-
-function sral.get_voices(engine)
-    local count = sral.get_int_parameter(engine, sral.EngineParams.VOICE_COUNT)
-    if count <= 0 then return {} end
-
-    local voice_ptr_container = ffi.new("void*[1]")
-    if not libsral.SRAL_GetEngineParameter(engine, sral.EngineParams.VOICE_PROPERTIES, voice_ptr_container) then
-        return {}
-    end
-
-    local raw_array = ffi.cast("SRAL_VoiceInfo*", voice_ptr_container[0])
-    if raw_array == nil then return {} end
-
-    local voices = {}
-    for i = 0, count - 1 do
-        table.insert(voices, {
-            index = raw_array[i].index,
-            name = ffi.string(raw_array[i].name),
-            language = ffi.string(raw_array[i].language),
-            gender = ffi.string(raw_array[i].gender),
-            vendor = ffi.string(raw_array[i].vendor)
-        })
-    end
-
-    libsral.SRAL_free(voice_ptr_container[0])
-    return voices
+    if not text or text == "" then return nil end
+    local res = libSRAL.DirectMemoryExBridge(engine, text)
+    if res.data_pointer == nil then return nil end
+    
+    return setmetatable({
+        channels = res.channels,
+        sample_rate = res.sample_rate,
+        bits_per_sample = res.bits_per_sample,
+        length = tonumber(res.data_length),
+        _ptr = res.data_pointer
+    }, {
+        __index = {
+            free = function(self)
+                if self._ptr then
+                    libSRAL.SRAL_free(self._ptr)
+                    self._ptr = nil
+                end
+            end,
+            get_bytes = function(self)
+                if not self._ptr then return "" end
+                return ffi.string(self._ptr, self.length)
+            end
+        }
+    })
 end
 
 return sral

@@ -3,6 +3,7 @@
 #include "wasapi.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstring>
@@ -43,7 +44,7 @@ WasapiPlayer::WasapiPlayer(
 	std::wstring_view targetDeviceName, const WAVEFORMATEX& audioFormat, ChunkCompletedCallback endChunkCallback)
 	: format(audioFormat), deviceName(targetDeviceName), callback(endChunkCallback) {
 
-	std::call_once(g_notificationInitFlag, []() {
+	std::call_once(g_notificationInitFlag, []() noexcept {
 		IMMDeviceEnumeratorPtr enumerator;
 		HRESULT hr = enumerator.CreateInstance(__uuidof(MMDeviceEnumerator));
 		if (SUCCEEDED(hr)) {
@@ -58,33 +59,18 @@ WasapiPlayer::WasapiPlayer(
 	ringBuffer = std::make_unique<unsigned char[]>(ringBufferCapacity);
 	rbHead.store(0, std::memory_order_relaxed);
 	rbTail.store(0, std::memory_order_relaxed);
+
 	audioEvent = ::CreateEventW(nullptr, FALSE, FALSE, nullptr);
-
 	isRunning.store(true, std::memory_order_release);
-	workerThread = std::thread(&WasapiPlayer::processAudioLoop, this);
+
+	workerThread = std::jthread([this](std::stop_token st) noexcept { this->processAudioLoop(st); });
 }
 
-WasapiPlayer::~WasapiPlayer() {
-	{
-		std::lock_guard<std::mutex> lock(queueMutex);
-		isRunning.store(false, std::memory_order_release);
-		playState = PlayState::stopping;
-	}
-	queueCV.notify_all();
-	if (audioEvent)
-		::SetEvent(audioEvent);
-
-	if (workerThread.joinable()) {
-		workerThread.join();
-	}
-
-	if (audioEvent) {
-		::CloseHandle(audioEvent);
-		audioEvent = nullptr;
-	}
+WasapiPlayer::~WasapiPlayer() noexcept {
+	static_cast<void>(this->stop());
 }
 
-size_t WasapiPlayer::getAvailableWriteSpace() const {
+size_t WasapiPlayer::getAvailableWriteSpace() const noexcept {
 	size_t h = rbHead.load(std::memory_order_acquire);
 	size_t t = rbTail.load(std::memory_order_relaxed);
 	if (t >= h) {
@@ -93,13 +79,13 @@ size_t WasapiPlayer::getAvailableWriteSpace() const {
 	return h - t - 1;
 }
 
-size_t WasapiPlayer::getAvailableReadSpace() const {
+size_t WasapiPlayer::getAvailableReadSpace() const noexcept {
 	size_t h = rbHead.load(std::memory_order_relaxed);
 	size_t t = rbTail.load(std::memory_order_acquire);
 	return (t >= h) ? (t - h) : (ringBufferCapacity - h + t);
 }
 
-void WasapiPlayer::writeToRingBuffer(size_t& tail, const unsigned char* src, size_t len) {
+void WasapiPlayer::writeToRingBuffer(size_t& tail, const unsigned char* src, size_t len) noexcept {
 	unsigned char* rbPtr = ringBuffer.get();
 	size_t bytesToEnd = ringBufferCapacity - tail;
 	if (len <= bytesToEnd) {
@@ -108,12 +94,12 @@ void WasapiPlayer::writeToRingBuffer(size_t& tail, const unsigned char* src, siz
 	}
 	else {
 		std::memcpy(&rbPtr[tail], src, bytesToEnd);
-		std::memcpy(&rbPtr[0], src + bytesToEnd, len - bytesToEnd);
+		std::memcpy(rbPtr, src + bytesToEnd, len - bytesToEnd);
 		tail = len - bytesToEnd;
 	}
 }
 
-void WasapiPlayer::readFromRingBuffer(size_t& head, unsigned char* dest, size_t len) {
+void WasapiPlayer::readFromRingBuffer(size_t& head, unsigned char* dest, size_t len) noexcept {
 	const unsigned char* rbPtr = ringBuffer.get();
 	size_t bytesToEnd = ringBufferCapacity - head;
 	if (len <= bytesToEnd) {
@@ -122,12 +108,12 @@ void WasapiPlayer::readFromRingBuffer(size_t& head, unsigned char* dest, size_t 
 	}
 	else {
 		std::memcpy(dest, &rbPtr[head], bytesToEnd);
-		std::memcpy(dest + bytesToEnd, &rbPtr[0], len - bytesToEnd);
+		std::memcpy(dest + bytesToEnd, rbPtr, len - bytesToEnd);
 		head = len - bytesToEnd;
 	}
 }
 
-HRESULT WasapiPlayer::open(bool force) {
+HRESULT WasapiPlayer::open(bool force) noexcept {
 	if (client && !force)
 		return S_OK;
 	if (!g_notificationClient) [[unlikely]]
@@ -202,7 +188,7 @@ HRESULT WasapiPlayer::open(bool force) {
 	return S_OK;
 }
 
-HRESULT WasapiPlayer::feed(const unsigned char* data, unsigned int size, unsigned int* id) {
+HRESULT WasapiPlayer::feed(const unsigned char* data, unsigned int size, unsigned int* id) noexcept {
 	if (format.nBlockAlign == 0) [[unlikely]]
 		return E_INVALIDARG;
 	if (size == 0 || !data)
@@ -235,32 +221,32 @@ HRESULT WasapiPlayer::feed(const unsigned char* data, unsigned int size, unsigne
 	return S_OK;
 }
 
-void WasapiPlayer::processAudioLoop() {
-	size_t allocatedHeapSize = 16384;
+void WasapiPlayer::processAudioLoop(std::stop_token stopToken) noexcept {
+	(void)SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_HIGHEST);
+	const size_t allocatedHeapSize = 2 * 1024 * 1024;
 	auto localHeapBlock = std::make_unique<unsigned char[]>(allocatedHeapSize);
 
-	while (isRunning.load(std::memory_order_acquire)) {
+	IAudioClient* const pClient = client.GetInterfacePtr();
+	IAudioRenderClient* const pRender = render.GetInterfacePtr();
+	if (!pClient || !pRender) [[unlikely]]
+		return;
+
+	while (!stopToken.stop_requested() && isRunning.load(std::memory_order_acquire)) {
 		size_t availableBytes = getAvailableReadSpace();
 
 		if (availableBytes < (sizeof(unsigned int) + sizeof(unsigned int))) {
 			std::unique_lock<std::mutex> lock(queueMutex);
-			queueCV.wait(lock, [this]() {
+			queueCV.wait(lock, [this, stopToken]() noexcept {
 				return (getAvailableReadSpace() >= (sizeof(unsigned int) + sizeof(unsigned int))) ||
-					!isRunning.load(std::memory_order_acquire) || playState != PlayState::playing;
+					!isRunning.load(std::memory_order_acquire) ||
+					playState.load(std::memory_order_relaxed) != PlayState::playing || stopToken.stop_requested();
 			});
 
-			if (!isRunning.load(std::memory_order_acquire))
+			if (stopToken.stop_requested() || !isRunning.load(std::memory_order_acquire))
 				break;
-			if (playState != PlayState::playing)
+			if (playState.load(std::memory_order_relaxed) != PlayState::playing)
 				continue;
 			availableBytes = getAvailableReadSpace();
-		}
-
-		if (!client) {
-			if (FAILED(open(false))) {
-				::Sleep(100);
-				continue;
-			}
 		}
 
 		size_t h = rbHead.load(std::memory_order_relaxed);
@@ -270,27 +256,33 @@ void WasapiPlayer::processAudioLoop() {
 		readFromRingBuffer(h, reinterpret_cast<unsigned char*>(&trackingChunkId), sizeof(trackingChunkId));
 		readFromRingBuffer(h, reinterpret_cast<unsigned char*>(&dataPayloadSize), sizeof(dataPayloadSize));
 
-		if (dataPayloadSize > allocatedHeapSize) {
-			allocatedHeapSize = dataPayloadSize;
-			localHeapBlock = std::make_unique<unsigned char[]>(allocatedHeapSize);
+		if (dataPayloadSize > allocatedHeapSize) [[unlikely]] {
+			dataPayloadSize = static_cast<unsigned int>(allocatedHeapSize);
 		}
 
 		readFromRingBuffer(h, localHeapBlock.get(), dataPayloadSize);
 		rbHead.store(h, std::memory_order_release);
 
-		UINT32 totalFrames = static_cast<UINT32>(dataPayloadSize / format.nBlockAlign);
-		if (totalFrames > 0) {
+		const UINT32 totalFrames = static_cast<UINT32>(dataPayloadSize / format.nBlockAlign);
+		if (totalFrames > 0) [[likely]] {
 			(void)writeFramesToWasapi(localHeapBlock.get(), totalFrames, trackingChunkId);
 		}
 	}
 }
 
-HRESULT WasapiPlayer::writeFramesToWasapi(const unsigned char* data, UINT32 totalFrames, unsigned int chunkId) {
+HRESULT WasapiPlayer::writeFramesToWasapi(
+	const unsigned char* data, UINT32 totalFrames, unsigned int chunkId) noexcept {
 	UINT32 remainingFrames = totalFrames;
 	HRESULT hr = S_OK;
+	IAudioClient* const pClient = client.GetInterfacePtr();
+	IAudioRenderClient* const pRender = render.GetInterfacePtr();
+	NotificationClient* const pClientImpl = static_cast<NotificationClient*>(g_notificationClient.GetInterfacePtr());
 
-	auto reopenUsingNewDev = [&] {
-		hr = open(true);
+	if (!pClient || !pRender || !pClientImpl) [[unlikely]]
+		return E_UNEXPECTED;
+
+	auto reopenUsingNewDev = [&]() noexcept -> bool {
+		hr = this->open(true);
 		if (FAILED(hr))
 			return false;
 
@@ -307,15 +299,12 @@ HRESULT WasapiPlayer::writeFramesToWasapi(const unsigned char* data, UINT32 tota
 	};
 
 	while (remainingFrames > 0 && isRunning.load(std::memory_order_acquire)) {
-		// FIX: Thread-safe acquisition of playState to eliminate data race undefined behavior
 		{
 			std::lock_guard<std::mutex> lock(queueMutex);
-			if (playState != PlayState::playing)
+			if (playState.load(std::memory_order_relaxed) != PlayState::playing)
 				break;
 		}
 
-		NotificationClient* const pClientImpl =
-			static_cast<NotificationClient*>(g_notificationClient.GetInterfacePtr());
 		if (didPreferredDeviceBecomeAvailable() ||
 			(!isUsingPreferredDevice && defaultDeviceChangeCount != pClientImpl->getDefaultDeviceChangeCount())) {
 			if (!reopenUsingNewDev())
@@ -323,22 +312,21 @@ HRESULT WasapiPlayer::writeFramesToWasapi(const unsigned char* data, UINT32 tota
 		}
 
 		UINT32 paddingFrames = 0;
-		hr = client->GetCurrentPadding(&paddingFrames);
+		hr = pClient->GetCurrentPadding(&paddingFrames);
 		if (hr == AUDCLNT_E_DEVICE_INVALIDATED || hr == AUDCLNT_E_NOT_INITIALIZED) {
 			if (!reopenUsingNewDev())
 				return hr;
-			hr = client->GetCurrentPadding(&paddingFrames);
+			hr = pClient->GetCurrentPadding(&paddingFrames);
 		}
 		if (FAILED(hr))
 			return hr;
 
-		// OPTIMIZATION: Instant kernel-level wakeups via audioEvent (No slow thread-sleep cycles)
 		if (paddingFrames >= bufferFrames) {
 			::WaitForSingleObject(audioEvent, 20);
 			continue;
 		}
 
-		const UINT32 sendFrames = std::min(remainingFrames, bufferFrames - paddingFrames);
+		const UINT32 sendFrames = (std::min)(remainingFrames, bufferFrames - paddingFrames);
 		if (sendFrames == 0) {
 			::WaitForSingleObject(audioEvent, 5);
 			continue;
@@ -346,13 +334,12 @@ HRESULT WasapiPlayer::writeFramesToWasapi(const unsigned char* data, UINT32 tota
 
 		const UINT32 sendBytes = sendFrames * format.nBlockAlign;
 		BYTE* buffer = nullptr;
-
-		hr = render->GetBuffer(sendFrames, &buffer);
+		hr = pRender->GetBuffer(sendFrames, &buffer);
 		if (FAILED(hr))
 			return hr;
 
 		std::memcpy(buffer, data, sendBytes);
-		hr = render->ReleaseBuffer(sendFrames, 0);
+		hr = pRender->ReleaseBuffer(sendFrames, 0);
 		if (FAILED(hr))
 			return hr;
 
@@ -361,7 +348,7 @@ HRESULT WasapiPlayer::writeFramesToWasapi(const unsigned char* data, UINT32 tota
 			if (SUCCEEDED(clock->GetPosition(&rawPos, nullptr))) {
 				baseDevicePos = rawPos;
 			}
-			(void)client->Start();
+			(void)pClient->Start();
 		}
 
 		{
@@ -378,27 +365,33 @@ HRESULT WasapiPlayer::writeFramesToWasapi(const unsigned char* data, UINT32 tota
 	return hr;
 }
 
-void WasapiPlayer::maybeFireCallbackInternal() {
+void WasapiPlayer::maybeFireCallbackInternal() noexcept {
 	if (!callback)
 		return;
 	const UINT64 playPos = getPlayPosInternal();
+	size_t write_idx = 0;
+	const size_t total_items = feedEnds.size();
 
-	std::erase_if(feedEnds, [&](const auto& val) noexcept -> bool {
-		const auto [id, end] = val;
-		if (playPos >= end) {
-			callback(this, id);
-			return true;
+	for (size_t read_idx = 0; read_idx < total_items; ++read_idx) {
+		if (playPos >= feedEnds[read_idx].second) {
+			callback(this, feedEnds[read_idx].first);
 		}
-		return false;
-	});
+		else {
+			if (read_idx != write_idx) {
+				feedEnds[write_idx] = std::move(feedEnds[read_idx]);
+			}
+			write_idx++;
+		}
+	}
+	feedEnds.resize(write_idx);
 }
 
-void WasapiPlayer::maybeFireCallback() {
+void WasapiPlayer::maybeFireCallback() noexcept {
 	std::lock_guard<std::mutex> lock(queueMutex);
 	maybeFireCallbackInternal();
 }
 
-UINT64 WasapiPlayer::getPlayPosInternal() {
+UINT64 WasapiPlayer::getPlayPosInternal() noexcept {
 	if (!clock || clockFreq == 0) [[unlikely]] {
 		return framesToMs(sentFrames);
 	}
@@ -406,16 +399,16 @@ UINT64 WasapiPlayer::getPlayPosInternal() {
 	if (FAILED(clock->GetPosition(&pos, nullptr))) {
 		return framesToMs(sentFrames);
 	}
-	UINT64 relativePos = (pos >= baseDevicePos) ? (pos - baseDevicePos) : 0;
+	const UINT64 relativePos = (pos >= baseDevicePos) ? (pos - baseDevicePos) : 0;
 	return (relativePos * 1000) / clockFreq;
 }
 
-UINT64 WasapiPlayer::getPlayPos() {
+UINT64 WasapiPlayer::getPlayPos() noexcept {
 	std::lock_guard<std::mutex> lock(queueMutex);
 	return getPlayPosInternal();
 }
 
-void WasapiPlayer::waitUntilNeeded(UINT64 maxWait) {
+void WasapiPlayer::waitUntilNeeded(UINT64 maxWait) noexcept {
 	if (maxWait == 0)
 		return;
 
@@ -424,19 +417,20 @@ void WasapiPlayer::waitUntilNeeded(UINT64 maxWait) {
 		const UINT64 feedEnd = feedEnds.front().second;
 		const UINT64 playPos = getPlayPosInternal();
 		if (feedEnd > playPos) {
-			maxWait = std::min(maxWait, feedEnd - playPos);
+			maxWait = (std::min)(maxWait, feedEnd - playPos);
 		}
 		else {
 			return;
 		}
 	}
 
-	(void)queueCV.wait_for(lock, std::chrono::milliseconds(maxWait), [this]() {
-		return !isRunning.load(std::memory_order_acquire) || (playState != PlayState::playing);
+	(void)queueCV.wait_for(lock, std::chrono::milliseconds(maxWait), [this]() noexcept {
+		return !isRunning.load(std::memory_order_acquire) ||
+			(playState.load(std::memory_order_relaxed) != PlayState::playing);
 	});
 }
 
-HRESULT WasapiPlayer::getPreferredDevice(IMMDevicePtr& preferredDevice) {
+HRESULT WasapiPlayer::getPreferredDevice(IMMDevicePtr& preferredDevice) noexcept {
 	IMMDeviceEnumeratorPtr enumerator;
 	HRESULT hr = enumerator.CreateInstance(__uuidof(MMDeviceEnumerator));
 	if (FAILED(hr))
@@ -465,11 +459,11 @@ HRESULT WasapiPlayer::getPreferredDevice(IMMDevicePtr& preferredDevice) {
 			continue;
 
 		PROPVARIANT val;
-		PropVariantInit(&val);
+		::PropVariantInit(&val);
 		hr = props->GetValue(PKEY_Device_FriendlyName, &val);
 		if (SUCCEEDED(hr) && val.vt == VT_LPWSTR && val.pwszVal) {
 			std::wstring_view systemDevName(val.pwszVal);
-			size_t checkLen = std::min({systemDevName.length(), deviceName.length(), MAX_CHARS});
+			const size_t checkLen = (std::min)({systemDevName.length(), deviceName.length(), MAX_CHARS});
 			if (systemDevName.substr(0, checkLen) == deviceName.substr(0, checkLen)) {
 				(void)::PropVariantClear(&val);
 				preferredDevice = std::move(device);
@@ -481,7 +475,7 @@ HRESULT WasapiPlayer::getPreferredDevice(IMMDevicePtr& preferredDevice) {
 	return E_NOTFOUND;
 }
 
-bool WasapiPlayer::didPreferredDeviceBecomeAvailable() {
+bool WasapiPlayer::didPreferredDeviceBecomeAvailable() noexcept {
 	if (isUsingPreferredDevice || deviceName.empty() || !g_notificationClient) {
 		return false;
 	}
@@ -496,11 +490,11 @@ bool WasapiPlayer::didPreferredDeviceBecomeAvailable() {
 HRESULT WasapiPlayer::stop() {
 	{
 		std::lock_guard<std::mutex> lock(queueMutex);
-		playState = PlayState::stopping;
+		playState.store(PlayState::stopping, std::memory_order_relaxed);
 		rbHead.store(rbTail.load(std::memory_order_relaxed), std::memory_order_release);
 	}
 	queueCV.notify_all();
-	if (audioEvent)
+	if (audioEvent.isValid())
 		::SetEvent(audioEvent);
 
 	if (client) {
@@ -517,21 +511,19 @@ void WasapiPlayer::completeStop() {
 	nextFeedId = 0;
 	sentFrames = 0;
 	feedEnds.clear();
-	playState = PlayState::stopped;
+	playState.store(PlayState::stopped, std::memory_order_relaxed);
 }
 
-HRESULT WasapiPlayer::sync() {
+HRESULT WasapiPlayer::sync() noexcept {
 	while (true) {
-		const auto [sentMs, currentPlayState] = [this]() {
-			std::lock_guard<std::mutex> lock(queueMutex);
-			return std::make_pair(framesToMs(sentFrames), playState);
-		}();
+		const UINT64 sentMs = framesToMs(sentFrames);
+		const PlayState currentPlayState = playState.load(std::memory_order_relaxed);
 
 		if (currentPlayState != PlayState::playing) {
 			return S_OK;
 		}
 
-		UINT64 playPos = getPlayPos();
+		const UINT64 playPos = getPlayPos();
 		if (playPos >= sentMs) {
 			break;
 		}
@@ -545,24 +537,24 @@ HRESULT WasapiPlayer::sync() {
 	}
 
 	std::lock_guard<std::mutex> lock(queueMutex);
-	if (playState == PlayState::playing) {
+	if (playState.load(std::memory_order_relaxed) == PlayState::playing) {
 		maybeFireCallbackInternal();
 	}
 	return S_OK;
 }
 
-HRESULT WasapiPlayer::idle() {
-	HRESULT hr = sync();
+HRESULT WasapiPlayer::idle() noexcept {
+	HRESULT hr = this->sync();
 	if (FAILED(hr))
 		return hr;
-	return stop();
+	return this->stop();
 }
 
-HRESULT WasapiPlayer::pause() {
+HRESULT WasapiPlayer::pause() noexcept {
 	{
 		std::lock_guard<std::mutex> lock(queueMutex);
-		if (playState == PlayState::playing) {
-			playState = PlayState::paused;
+		if (playState.load(std::memory_order_relaxed) == PlayState::playing) {
+			playState.store(PlayState::paused, std::memory_order_relaxed);
 		}
 	}
 	if (client) {
@@ -571,16 +563,17 @@ HRESULT WasapiPlayer::pause() {
 	return S_OK;
 }
 
-HRESULT WasapiPlayer::resume() {
+HRESULT WasapiPlayer::resume() noexcept {
 	{
 		std::lock_guard<std::mutex> lock(queueMutex);
-		if (playState == PlayState::paused) {
-			playState = PlayState::playing;
+		if (playState.load(std::memory_order_relaxed) == PlayState::paused) {
+			playState.store(PlayState::playing, std::memory_order_relaxed);
 		}
 	}
 	queueCV.notify_one();
-	if (audioEvent)
+	if (audioEvent.isValid()) {
 		::SetEvent(audioEvent);
+	}
 
 	if (client) {
 		return client->Start();
@@ -588,49 +581,57 @@ HRESULT WasapiPlayer::resume() {
 	return S_OK;
 }
 
-HRESULT WasapiPlayer::setChannelVolume(unsigned int channel, float level) {
+HRESULT WasapiPlayer::setChannelVolume(unsigned int channel, float level) noexcept {
 	if (!client)
 		return E_UNEXPECTED;
 
-	level = std::max(0.0f, std::min(level, 1.0f));
-	IAudioStreamVolumePtr streamVolume = nullptr;
+	level = (std::max)(0.0f, (std::min)(level, 1.0f));
+	IAudioStreamVolume* pStreamVolume = nullptr;
 
-	HRESULT hr = client->GetService(__uuidof(IAudioStreamVolume), reinterpret_cast<void**>(&streamVolume));
-	if (SUCCEEDED(hr)) {
+	HRESULT hr = client->GetService(__uuidof(IAudioStreamVolume), reinterpret_cast<void**>(&pStreamVolume));
+	if (SUCCEEDED(hr) && pStreamVolume) {
 		UINT32 channelCount = 0;
-		hr = streamVolume->GetChannelCount(&channelCount);
+		hr = pStreamVolume->GetChannelCount(&channelCount);
 		if (SUCCEEDED(hr) && channel < channelCount) {
-			hr = streamVolume->SetChannelVolume(channel, level);
+			hr = pStreamVolume->SetChannelVolume(channel, level);
 		}
+		pStreamVolume->Release();
 	}
-
-	streamVolume = nullptr;
 	return hr;
 }
 
-HRESULT WasapiPlayer::setVolume(float volume) {
-	if (!client) {
+HRESULT WasapiPlayer::setVolume(float volume) noexcept {
+	if (!client)
 		return E_UNEXPECTED;
-	}
 
-	volume = std::max(0.0f, std::min(volume, 1.0f));
+	volume = (std::max)(0.0f, (std::min)(volume, 1.0f));
+	IAudioStreamVolume* pStreamVolume = nullptr;
 
-	IAudioStreamVolumePtr streamVolume = nullptr;
-	HRESULT hr = client->GetService(__uuidof(IAudioStreamVolume), reinterpret_cast<void**>(&streamVolume));
-	if (FAILED(hr)) {
+	HRESULT hr = client->GetService(__uuidof(IAudioStreamVolume), reinterpret_cast<void**>(&pStreamVolume));
+	if (FAILED(hr))
 		return hr;
-	}
+
+	if (!pStreamVolume)
+		return E_UNEXPECTED;
 
 	UINT32 channelCount = 0;
-	hr = streamVolume->GetChannelCount(&channelCount);
+	hr = pStreamVolume->GetChannelCount(&channelCount);
 	if (FAILED(hr)) {
-		streamVolume = nullptr;
+		pStreamVolume->Release();
 		return hr;
 	}
 
-	std::vector<float> volumes(channelCount, volume);
-	hr = streamVolume->SetAllVolumes(channelCount, volumes.data());
+	if (channelCount <= 8) {
+		std::array<float, 8> volumes;
+		volumes.fill(volume);
+		hr = pStreamVolume->SetAllVolumes(channelCount, volumes.data());
+	}
+	else {
+		std::unique_ptr<float[]> volumes = std::make_unique<float[]>(channelCount);
+		std::fill_n(volumes.get(), channelCount, volume);
+		hr = pStreamVolume->SetAllVolumes(channelCount, volumes.get());
+	}
 
-	streamVolume = nullptr;
+	pStreamVolume->Release();
 	return hr;
 }

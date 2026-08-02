@@ -1,9 +1,7 @@
--keepdirectories org.sral
--keepclassmembers class org.sral.** { *; }
--keep class org.sral.** {
-    <init>(...);
-    *;
-}
+-keepattributes InnerClasses, EnclosingMethod, Signature, *Annotation*
+
+-dontwarn org.sral.**
+
 -keepclassmembers class * extends android.speech.tts.UtteranceProgressListener {
     public void onStart(java.lang.String);
     public void onDone(java.lang.String);
@@ -15,13 +13,9 @@
 -keepclassmembers class * implements android.speech.tts.TextToSpeech$OnInitListener {
     public void onInit(int);
 }
--keep class * implements androidx.lifecycle.DefaultLifecycleObserver {
-    public void onCreate(androidx.lifecycle.LifecycleOwner);
-    public void onStart(androidx.lifecycle.LifecycleOwner);
-    public void onResume(androidx.lifecycle.LifecycleOwner);
-    public void onPause(androidx.lifecycle.LifecycleOwner);
-    public void onStop(androidx.lifecycle.LifecycleOwner);
-    public void onDestroy(androidx.lifecycle.LifecycleOwner);
+
+-assumenosideeffects class android.util.Log {
+    public static boolean isLoggable(java.lang.String, int);
+    public static int v(...);
+    public static int d(...);
 }
--keepattributes InnerClasses, Signature, EnclosingMethod, *Annotation*, MethodParameters
--dontwarn org.sral.**

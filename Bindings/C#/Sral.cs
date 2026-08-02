@@ -1,10 +1,11 @@
-using System;
-using System.Runtime.InteropServices;
 using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text;
+using System.Runtime.CompilerServices;
 
 namespace SralCSharp
 {
-	public enum SralEngineCategory : int
+	public enum SralEngineCategory : uint
 	{
 		Unknown = 0,
 		ScreenReader = 1,
@@ -12,7 +13,7 @@ namespace SralCSharp
 		AccessibilityProvider = 3
 	}
 
-	public enum SralEngineParameters : int
+	public enum SralEngineParameters : uint
 	{
 		SpeechRate = 0,
 		SpeechVolume = 1,
@@ -30,302 +31,452 @@ namespace SralCSharp
 	};
 
 	[Flags]
-	public enum SralEngineFlags : int
+	public enum SralEngines : uint
 	{
 		None = 0,
-		Nvda = 1 << 1,
-		Jaws = 1 << 2,
-		Zdsr = 1 << 3,
-		Narrator = 1 << 4,
-		Uia = 1 << 5,
-		Sapi = 1 << 6,
-		SpeechDispatcher = 1 << 7,
-		Orca = 1 << 8,
-		VoiceOver = 1 << 9,
-		NSSpeech = 1 << 10,
-		AvSpeech = 1 << 11,
-		AndroidAccessibilityManager = 1 << 12,
-		AndroidTextToSpeech = 1 << 13,
-		WebSpeech = 1 << 14,
-		ChromeVox = 1 << 15,
-		AccessKit = 1 << 16,
-		Any = -1
+		Nvda = 1u << 1,
+		Jaws = 1u << 2,
+		Zdsr = 1u << 3,
+		Narrator = 1u << 4,
+		Uia = 1u << 5,
+		Sapi = 1u << 6,
+		SpeechDispatcher = 1u << 7,
+		Orca = 1u << 8,
+		VoiceOver = 1u << 9,
+		NSSpeech = 1u << 10,
+		AvSpeech = 1u << 11,
+		AndroidAccessibilityManager = 1u << 12,
+		AndroidTextToSpeech = 1u << 13,
+		ChromeVox = 1u << 14,
+		AccessKit = 1u << 15,
 	}
 
 	[Flags]
-	public enum SralFeatureFlags : int
+	public enum SralSupportedFeatures : uint
 	{
 		None = 0,
-		SRAL_SUPPORTS_SPEECH = 1 << 0,
-		SRAL_SUPPORTS_BRAILLE = 1 << 1,
-		SRAL_SUPPORTS_SPEECH_RATE = 1 << 2,
-		SRAL_SUPPORTS_SPEECH_VOLUME = 1 << 3,
-		SRAL_SUPPORTS_SELECT_VOICE = 1 << 4,
-		SRAL_SUPPORTS_PAUSE_SPEECH = 1 << 5,
-		SRAL_SUPPORTS_SSML = 1 << 6,
-		SRAL_SUPPORTS_SPEAK_TO_MEMORY = 1 << 7,
-		SRAL_SUPPORTS_SPELLING = 1 << 8
+		SRAL_SUPPORTS_SPEECH = 1u << 1,
+		SRAL_SUPPORTS_BRAILLE = 1u << 2,
+		SRAL_SUPPORTS_SPEECH_RATE = 1u << 3,
+		SRAL_SUPPORTS_SPEECH_VOLUME = 1u << 4,
+		SRAL_SUPPORTS_SELECT_VOICE = 1u << 5,
+		SRAL_SUPPORTS_PAUSE_SPEECH = 1u << 6,
+		SRAL_SUPPORTS_SSML = 1u << 7,
+		SRAL_SUPPORTS_SPEAK_TO_MEMORY = 1u << 8,
+		SRAL_SUPPORTS_SPELLING = 1u << 9
 	};
 
-	[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-	public struct SralVoiceInfo
+	[StructLayout(LayoutKind.Sequential)]
+	public unsafe struct SralVoiceInfo
 	{
+		public byte* Name;
+		public byte* Language;
+		public byte* Gender;
+		public byte* Vendor;
 		public int Index;
-		public string Name;
-		public string Language;
-		public string Gender;
-		public string Vendor;
+
+		public readonly string? NameString => Name == null ? null : Marshal.PtrToStringAnsi((nint)Name);
+		public readonly string? LanguageString => Language == null ? null : Marshal.PtrToStringAnsi((nint)Language);
+		public readonly string? GenderString => Gender == null ? null : Marshal.PtrToStringAnsi((nint)Gender);
+		public readonly string? VendorString => Vendor == null ? null : Marshal.PtrToStringAnsi((nint)Vendor);
 	}
 
-	public static class Sral
+	[StructLayout(LayoutKind.Sequential)]
+	public unsafe struct PcmBuffer
 	{
-#if IOS || __IOS__
-					private const string DllName = "__Internal";
-#else
-		private const string DllName = "SRAL";
-#endif
+		public byte* DataPointer;
+		public nuint DataLength;
+		public int Channels;
+		public int SampleRate;
+		public int BitsPerSample;
 
+		public readonly bool IsEmpty => DataPointer == null || DataLength == 0;
+
+		public readonly ReadOnlySpan<byte> Data => IsEmpty
+			? ReadOnlySpan<byte>.Empty
+			: new ReadOnlySpan<byte>(DataPointer, (int)DataLength);
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	public unsafe struct StringView
+	{
+		public byte* Data;
+		public nuint Length;
+	}
+
+	public static unsafe partial class Sral
+	{
+		private const string LibraryName = "SRAL";
 		static Sral()
 		{
-#if !IOS && !__IOS__
-			NativeLibrary.SetDllImportResolver(typeof(Sral).Assembly, ResolveSralNativeBinary);
-#endif
+			NativeLibrary.SetDllImportResolver(Assembly.GetExecutingAssembly(), ResolveNativeLibraryLocation);
 		}
 
-#if !IOS && !__IOS__
-		private static IntPtr ResolveSralNativeBinary(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
+		private static nint ResolveNativeLibraryLocation(string libraryName, Assembly assembly, DllImportSearchPath? searchPath)
 		{
-			if (libraryName != "SRAL")
+			if (libraryName != LibraryName) return nint.Zero;
+			if (OperatingSystem.IsIOS() || OperatingSystem.IsTvOS() || OperatingSystem.IsWatchOS())
 			{
-				return IntPtr.Zero;
+				return NativeLibrary.GetMainProgramHandle();
 			}
 
 			string fileName;
-			if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+			if (OperatingSystem.IsWindows())
 			{
 				fileName = "SRAL.dll";
 			}
-			else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-			{
-				fileName = "libsral.so";
-			}
-			else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+			else if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
 			{
 				fileName = "libsral.dylib";
 			}
 			else
 			{
-				return IntPtr.Zero;
+				fileName = "libsral.so";
 			}
 
-			string baseDir = AppContext.BaseDirectory;
-
-			string cmakeBuildPath = Path.Combine(baseDir, "..", "..", "..", "out", "build", fileName);
-			string relativeAssetPath = Path.Combine(baseDir, "runtimes", fileName);
-			string applicationRootPath = Path.Combine(baseDir, fileName);
-
-			if (File.Exists(cmakeBuildPath) && NativeLibrary.TryLoad(cmakeBuildPath, out IntPtr handleCMake))
+			if (NativeLibrary.TryLoad(fileName, assembly, searchPath, out nint handle))
 			{
-				return handleCMake;
+				return handle;
 			}
-			if (File.Exists(relativeAssetPath) && NativeLibrary.TryLoad(relativeAssetPath, out IntPtr handleAsset))
+
+			string fallbackPath = Path.Combine(AppContext.BaseDirectory, fileName);
+			if (NativeLibrary.TryLoad(fallbackPath, out handle))
 			{
-				return handleAsset;
-			}
-			if (File.Exists(applicationRootPath) && NativeLibrary.TryLoad(applicationRootPath, out IntPtr handleRoot))
-			{
-				return handleRoot;
+				return handle;
 			}
 
 			return IntPtr.Zero;
 		}
-#endif
 
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_Initialize(int enginesExclude);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern void SRAL_Uninitialize();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_IsInitialized();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern bool SRAL_Speak(string text, bool interrupt);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern bool SRAL_SpeakSsml(string ssml, bool interrupt);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern bool SRAL_Braille(string text);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern bool SRAL_Output(string text, bool interrupt);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_StopSpeech();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_PauseSpeech();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_ResumeSpeech();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_IsSpeaking();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern void SRAL_Delay(int time);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern int SRAL_GetCurrentEngine();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern int SRAL_GetEngineFeatures(int engine);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern SralEngineCategory SRAL_GetEngineCategory(int engine);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		private static extern IntPtr SRAL_GetEngineName(int engine);
-		public static string GetEngineName(int engine)
+		[MethodImpl(MethodImplOptions.AggressiveInlining)]
+		private static bool ExecuteWithView(string input, Func<StringView, bool> unmanagedCall)
 		{
-			IntPtr ptr = SRAL_GetEngineName(engine);
-			return ptr == IntPtr.Zero ? "Unknown Engine" : (Marshal.PtrToStringAnsi(ptr) ?? "Unknown Engine");
-		}
+			if (string.IsNullOrEmpty(input)) return false;
 
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_SetEnginesExclude(int enginesExclude);
+			int byteCount = Encoding.UTF8.GetByteCount(input);
+			byte* buffer = stackalloc byte[byteCount];
 
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern int SRAL_GetEnginesExclude();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern int SRAL_GetAvailableEngines();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern int SRAL_GetActiveEngines();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern int SRAL_GetTTSEngines();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern int SRAL_GetAssistiveTechEngines();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_RegisterKeyboardHooks();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern void SRAL_UnregisterKeyboardHooks();
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern bool SRAL_SpeakEx(int engine, string text, bool interrupt);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern bool SRAL_SpeakSsmlEx(int engine, string ssml, bool interrupt);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern bool SRAL_BrailleEx(int engine, string text);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern bool SRAL_OutputEx(int engine, string text, bool interrupt);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_StopSpeechEx(int engine);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_PauseSpeechEx(int engine);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_ResumeSpeechEx(int engine);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_IsSpeakingEx(int engine);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern IntPtr SRAL_SpeakToMemory(string text, out ulong bufferSize, out int channels, out int sampleRate, out int bitsPerSample);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern IntPtr SRAL_SpeakToMemoryEx(int engine, string text, out ulong bufferSize, out int channels, out int sampleRate, out int bitsPerSample);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern IntPtr SRAL_malloc(UIntPtr size);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern void SRAL_free(IntPtr memory);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern bool SRAL_DelayOutput(string text, int time, bool interrupt, bool speak, bool braille, bool ssml);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-		public static extern bool SRAL_DelayOutputEx(int engine, string text, int time, bool interrupt, bool speak, bool braille, bool ssml);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		private static extern bool SRAL_SetEngineParameter(int engine, int param, ref int value);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		private static extern bool SRAL_GetEngineParameter(int engine, int param, ref int value);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		private static extern bool SRAL_SetEngineParameter(int engine, int param, IntPtr value);
-
-		[DllImport(DllName, CallingConvention = CallingConvention.Cdecl)]
-		public static extern bool SRAL_GetEngineParameter(int engine, int param, out IntPtr value);
-
-		public static bool SetIntParameter(int engine, SralEngineParameters param, int value)
-		{
-			return SRAL_SetEngineParameter(engine, (int)param, ref value);
-		}
-
-		public static int GetIntParameter(int engine, SralEngineParameters param)
-		{
-			int val = 0;
-			return SRAL_GetEngineParameter(engine, (int)param, ref val) ? val : -1;
-		}
-
-		public static bool GetVoicesParameter(int engine, SralEngineParameters param, out SralVoiceInfo[] voices)
-		{
-			voices = Array.Empty<SralVoiceInfo>();
-
-			int count = GetIntParameter(engine, SralEngineParameters.VoiceCount);
-			if (count <= 0) return false;
-
-			if (SRAL_GetEngineParameter(engine, (int)param, out IntPtr arrayPtr) && arrayPtr != IntPtr.Zero)
+			fixed (char* pStr = input)
 			{
-				voices = new SralVoiceInfo[count];
+				Encoding.UTF8.GetBytes(pStr, input.Length, buffer, byteCount);
+			}
 
-				for (int i = 0; i < count; i++)
-				{
-					IntPtr currentPtrLocation = IntPtr.Add(arrayPtr, i * IntPtr.Size);
+			StringView view = new() { Data = buffer, Length = (nuint)byteCount };
+			return unmanagedCall(view);
+		}
 
-					IntPtr structPtr = Marshal.ReadIntPtr(currentPtrLocation);
+		public static void* Malloc(nuint size) => SralNative.SRAL_Malloc(size);
 
-					if (structPtr != IntPtr.Zero)
-					{
-						voices[i] = Marshal.PtrToStructure<SralVoiceInfo>(structPtr);
-						SRAL_free(structPtr);
-					}
-				}
-				SRAL_free(arrayPtr);
+   		public static void* Malloc(int size) => SralNative.SRAL_Malloc((nuint)size);
+
+		public static void Free(void* memory) => SralNative.SRAL_Free(memory);
+
+		public static void Free(nint memory) => SralNative.SRAL_Free((void*)memory);
+
+		public static bool Initialize(SralEngines enginesExclude = SralEngines.None) => SralNative.SRAL_Initialize((int)enginesExclude);
+
+		public static void Uninitialize() => SralNative.SRAL_Uninitialize();
+
+		public static bool IsInitialized() => SralNative.SRAL_IsInitialized();
+
+		public static bool Speak(string text, bool interrupt = false) =>
+			ExecuteWithView(text, v => SralNative.SafeSpeakAllocationBridge(v, interrupt));
+
+		public static bool SpeakSsml(string ssml, bool interrupt = false) =>
+			ExecuteWithView(ssml, v => SralNative.SafeSpeakSsmlAllocationBridge(v, interrupt));
+
+		public static bool Braille(string text) =>
+			ExecuteWithView(text, v => SralNative.SafeBrailleAllocationBridge(v));
+
+		public static bool Output(string text, bool interrupt = false) =>
+			ExecuteWithView(text, v => SralNative.SafeOutputAllocationBridge(v, interrupt));
+
+		public static bool StopSpeech() => SralNative.SRAL_StopSpeech();
+
+		public static bool PauseSpeech() => SralNative.SRAL_PauseSpeech();
+
+		public static bool ResumeSpeech() => SralNative.SRAL_ResumeSpeech();
+
+		public static bool IsSpeaking() => SralNative.SRAL_IsSpeaking();
+
+		public static SralEngines GetCurrentEngine() => (SralEngines)SralNative.SRAL_GetCurrentEngine();
+
+		public static uint GetEngineFeatures(SralEngines engine = SralEngines.None) => (uint)SralNative.SRAL_GetEngineFeatures((int)engine);
+
+		public static bool SpeakEx(SralEngines engine, string text, bool interrupt = false) =>
+			ExecuteWithView(text, v => SralNative.SafeSpeakExAllocationBridge(engine, v, interrupt));
+
+		public static bool SpeakSsmlEx(SralEngines engine, string ssml, bool interrupt = false) =>
+			ExecuteWithView(ssml, v => SralNative.SafeSpeakSsmlExAllocationBridge(engine, v, interrupt));
+
+		public static bool BrailleEx(SralEngines engine, string text) =>
+			ExecuteWithView(text, v => SralNative.SafeBrailleExAllocationBridge(engine, v));
+
+		public static bool OutputEx(SralEngines engine, string text, bool interrupt = false) =>
+			ExecuteWithView(text, v => SralNative.SafeOutputExAllocationBridge(engine, v, interrupt));
+
+		public static bool StopSpeechEx(SralEngines engine) => SralNative.SRAL_StopSpeechEx((int)engine);
+
+		public static bool PauseSpeechEx(SralEngines engine) => SralNative.SRAL_PauseSpeechEx((int)engine);
+
+		public static bool ResumeSpeechEx(SralEngines engine) => SralNative.SRAL_ResumeSpeechEx((int)engine);
+
+		public static bool IsSpeakingEx(SralEngines engine) => SralNative.SRAL_IsSpeakingEx((int)engine);
+		public static void Delay(int timeMs) => SralNative.SRAL_Delay(timeMs);
+
+		public static bool DelayOutput(int timeMs, string text, bool interrupt = false) =>
+			ExecuteWithView(text, v => SralNative.SafeDelayOutputAllocationBridge(timeMs, v, interrupt));
+
+		public static bool DelayOutputEx(SralEngines engine, int timeMs, string text, bool interrupt = false) =>
+			ExecuteWithView(text, v => SralNative.SafeDelayOutputExAllocationBridge(engine, timeMs, v, interrupt));
+
+		public static bool RegisterKeyboardHooks() => SralNative.SRAL_RegisterKeyboardHooks();
+		public static void UnregisterKeyboardHooks() => SralNative.SRAL_UnregisterKeyboardHooks();
+
+		public static SralEngines GetAvailableEngines() => (SralEngines)SralNative.SRAL_GetAvailableEngines();
+		public static SralEngines GetActiveEngines() => (SralEngines)SralNative.SRAL_GetActiveEngines();
+		public static SralEngineCategory GetEngineCategory(SralEngines engine) => SralNative.SRAL_GetEngineCategory((int)engine);
+		public static SralEngines GetTTSEngines() => (SralEngines)SralNative.SRAL_GetTTSEngines();
+		public static SralEngines GetAssistiveTechEngines() => (SralEngines)SralNative.SRAL_GetAssistiveTechEngines();
+		public static bool SetEnginesExclude(uint enginesExcludeMask) => SralNative.SRAL_SetEnginesExclude((int)enginesExcludeMask);
+		public static uint? GetEnginesExclude() { int result = SralNative.SRAL_GetEnginesExclude(); return result == -1 ? null : (uint)result; }
+		public static string GetEngineName(SralEngines engine)
+		{
+			StringView view = SralNative.GetEngineNameFastBridge(engine);
+			if (view.Data == null || view.Length == 0) return string.Empty;
+			return Encoding.UTF8.GetString(view.Data, (int)view.Length);
+		}
+
+		public static bool SetEngineParameter<T>(SralEngines engine, SralEngineParameters param, T value) where T : unmanaged =>
+		SralNative.SRAL_SetEngineParameter((int)engine, (int)param, &value);
+
+		public static bool SetEngineParameterContext(SralEngines engine, SralEngineParameters param, nint platformContextAddress) =>
+			SralNative.SRAL_SetEngineParameter((int)engine, (int)param, (void*)platformContextAddress);
+
+		public static bool GetEngineParameter<T>(SralEngines engine, SralEngineParameters param, out T value) where T : unmanaged
+		{
+			Unsafe.SkipInit(out value);
+			fixed (T* pVal = &value)
+			{
+				return SralNative.SRAL_GetEngineParameter((int)engine, (int)param, pVal);
+			}
+		}
+
+
+		public static bool GetEngineVoiceList(SralEngines engine, out SralVoiceInfo* voicesArray, out int voiceCount)
+		{
+			voicesArray = null;
+			int count = 0;
+
+			if (!SralNative.SRAL_GetEngineParameter((int)engine, (int)SralEngineParameters.VoiceCount, &count) || count <= 0)
+			{
+				voiceCount = 0;
+				return false;
+			}
+
+			void* rawArrayPtr = null;
+			if (SralNative.SRAL_GetEngineParameter((int)engine, (int)SralEngineParameters.VoiceProperties, &rawArrayPtr) && rawArrayPtr != null)
+			{
+				voicesArray = (SralVoiceInfo*)rawArrayPtr;
+				voiceCount = count;
 				return true;
 			}
+
+			voiceCount = 0;
 			return false;
 		}
 
-		public static bool SetAndroidContext(IntPtr jniEnv, IntPtr activityContext)
-		{
-			if (RuntimeInformation.IsOSPlatform(OSPlatform.Create("ANDROID")))
-			{
-				bool envOk = SRAL_SetEngineParameter(-1, (int)SralEngineParameters.AndroidJniEnv, jniEnv);
-				bool actOk = SRAL_SetEngineParameter(-1, (int)SralEngineParameters.AndroidActivity, activityContext);
-				return envOk && actOk;
-			}
-			return false;
-		}
 
-		public static bool IsApplePlatform()
-		{
-			return RuntimeInformation.IsOSPlatform(OSPlatform.OSX) || RuntimeInformation.IsOSPlatform(OSPlatform.Create("IOS"));
-		}
+		public static PcmBuffer SpeakToMemory(string text) => string.IsNullOrEmpty(text) ? default : SralNative.DirectMemoryBridge(text);
+		public static PcmBuffer SpeakToMemoryEx(SralEngines engine, string text) => string.IsNullOrEmpty(text) ? default : SralNative.DirectMemoryExBridge(engine, text);
+	}
+
+	internal static unsafe partial class SralNative
+	{
+		private const string LibraryName = "SRAL";
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial void* SRAL_Malloc(nuint size);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial void SRAL_Free(void* memory);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_Initialize(int enginesExclude);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial void SRAL_Uninitialize();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_IsInitialized();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_StopSpeech();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_PauseSpeech();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_ResumeSpeech();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_IsSpeaking();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial int SRAL_GetCurrentEngine();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial int SRAL_GetEngineFeatures(int engine);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_SetEngineParameter(int engine, int param, void* value);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_GetEngineParameter(int engine, int param, void* value);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial void SRAL_Delay(int time);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial int SRAL_GetAvailableEngines();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial int SRAL_GetActiveEngines();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial SralEngineCategory SRAL_GetEngineCategory(int engine);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial int SRAL_GetTTSEngines();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial int SRAL_GetAssistiveTechEngines();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_SetEnginesExclude(int enginesExclude);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial int SRAL_GetEnginesExclude();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_StopSpeechEx(int engine);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_PauseSpeechEx(int engine);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_ResumeSpeechEx(int engine);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_IsSpeakingEx(int engine);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SRAL_RegisterKeyboardHooks();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial void SRAL_UnregisterKeyboardHooks();
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SafeSpeakAllocationBridge(StringView text, [MarshalAs(UnmanagedType.U1)] bool interrupt);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SafeSpeakSsmlAllocationBridge(StringView ssml, [MarshalAs(UnmanagedType.U1)] bool interrupt);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SafeBrailleAllocationBridge(StringView text);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SafeOutputAllocationBridge(StringView text, [MarshalAs(UnmanagedType.U1)] bool interrupt);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SafeSpeakExAllocationBridge(SralEngines engine, StringView text, [MarshalAs(UnmanagedType.U1)] bool interrupt);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SafeSpeakSsmlExAllocationBridge(SralEngines engine, StringView ssml, [MarshalAs(UnmanagedType.U1)] bool interrupt);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SafeBrailleExAllocationBridge(SralEngines engine, StringView text);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SafeOutputExAllocationBridge(SralEngines engine, StringView text, [MarshalAs(UnmanagedType.U1)] bool interrupt);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SafeDelayOutputAllocationBridge(int time, StringView text, [MarshalAs(UnmanagedType.U1)] bool interrupt);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		[return: MarshalAs(UnmanagedType.U1)]
+		public static partial bool SafeDelayOutputExAllocationBridge(SralEngines engine, int time, StringView text, [MarshalAs(UnmanagedType.U1)] bool interrupt);
+
+		[LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial PcmBuffer DirectMemoryBridge(string text);
+
+		[LibraryImport(LibraryName, StringMarshalling = StringMarshalling.Utf8)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial PcmBuffer DirectMemoryExBridge(SralEngines engine, string text);
+
+		[LibraryImport(LibraryName)]
+		[UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+		public static partial StringView GetEngineNameFastBridge(SralEngines engine);
 	}
 }

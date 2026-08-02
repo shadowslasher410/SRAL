@@ -1,886 +1,411 @@
-from enum import IntEnum
-import ctypes
 import os
 import sys
+from ctypes import (
+    CDLL, Structure, POINTER, c_bool, c_int, c_uint32, c_uint64, 
+    c_char_p, c_void_p, c_size_t, c_uint8, create_string_buffer, cast
+)
 
-try:
-    if os.name == 'nt':
-        _sral_lib = ctypes.CDLL('./SRAL.dll')
-    elif sys.platform == 'darwin':
-        _sral_lib = ctypes.CDLL('./libSRAL.dylib')  # macOS uses .dylib
-    else:
-        _sral_lib = ctypes.CDLL('./libSRAL.so')
-except OSError as e:
-    print(f"Error loading SRAL library: {e}")
-    _sral_lib = None
+class SralEngine:
+    none = 0
+    current = 0
+    noSpecified = 0
+    nvda = 1 << 1
+    jaws = 1 << 2
+    zdsr = 1 << 3
+    narrator = 1 << 4
+    uia = 1 << 5
+    sapi = 1 << 6
+    speechDispatcher = 1 << 7
+    orca = 1 << 8
+    voiceOver = 1 << 9
+    nsSpeech = 1 << 10
+    avSpeech = 1 << 11
+    androidAccessibilityManager = 1 << 12
+    androidTextToSpeech = 1 << 13
+    chromeVox = 1 << 14
+    accessKit = 1 << 15
 
+class SralEngineCategory:
+    unknown = 0
+    screenReader = 1
+    textToSpeechEngine = 2
+    accessibilityProvider = 3
 
-class SRALEngine(IntEnum):
-    """
-    Defines bit flags representing various accessibility engines.
-    """
-    NONE = 0
-    NVDA = 1 << 1
-    JAWS = 1 << 2
-    ZDSR = 1 << 3
-    NARRATOR = 1 << 4
-    UIA = 1 << 5
-    SAPI = 1 << 6
-    SPEECH_DISPATCHER = 1 << 7
-    ORCA = 1 << 8
-    VOICE_OVER = 1 << 9
-    NS_SPEECH = 1 << 10
-    AV_SPEECH = 1 << 11
-    ANDROID_ACCESSIBILITY_MANAGER = 1 << 12
-    ANDROID_TEXT_TO_SPEECH = 1 << 13
-    CHROMEVOX = 1 << 14
-    ACCESS_KIT = 1 << 15
+class SralFeature:
+    speech = 1 << 1
+    braille = 1 << 2
+    speechRate = 1 << 3
+    speechVolume = 1 << 4
+    selectVoice = 1 << 5
+    pauseSpeech = 1 << 6
+    ssml = 1 << 7
+    speakToMemory = 1 << 8
+    spelling = 1 << 9
 
+class SralParam:
+    speechRate = 0
+    speechVolume = 1
+    voiceIndex = 2
+    voiceProperties = 3
+    voiceCount = 4
+    symbolLevel = 5
+    sapiTrimThreshold = 6
+    enableSpelling = 7
+    useCharacterDescriptions = 8
+    nvdaIsControlEx = 9
+    engineIsPaused = 10
+    androidJniEnv = 11
+    androidActivity = 12
 
-class SRALFeature(IntEnum):
-    """
-    Enumeration of supported features in the engines.
-    """
-    SPEECH = 1 << 1
-    BRAILLE = 1 << 2
-    SPEECH_RATE = 1 << 3
-    SPEECH_VOLUME = 1 << 4
-    SELECT_VOICE = 1 << 5
-    PAUSE_SPEECH = 1 << 6
-    SSML = 1 << 7
-    SPEAK_TO_MEMORY = 1 << 8
-    SPELLING = 1 << 9
-
-class SRALEngineCategory(IntEnum):
-    """
-    Broad categories an engine can belong to.
-
-    Unlike SRALEngine, these values are not bit flags; an engine has exactly
-    one category.
-    """
-    UNKNOWN = 0
-    SCREEN_READER = 1
-    TEXT_TO_SPEECH_ENGINE = 2
-    ACCESSIBILITY_PROVIDER = 3
-
-class SRALParam(IntEnum):
-    """
-    Enumeration of engine parameters.
-    """
-    SPEECH_RATE = 0
-    SPEECH_VOLUME = 1
-    VOICE_INDEX = 2
-    VOICE_PROPERTIES = 3
-    VOICE_COUNT = 4
-    SYMBOL_LEVEL = 5
-    SAPI_TRIM_THRESHOLD = 6
-    ENABLE_SPELLING = 7
-    USE_CHARACTER_DESCRIPTIONS = 8
-    NVDA_IS_CONTROL_EX = 9
-    ENGINE_IS_PAUSED = 10
-    ANDROID_JNI_ENV = 11
-    ANDROID_JNI_ACTIVITY = 12
-
-
-class SRALVoiceInfo(ctypes.Structure):
-    """
-    Voice information values.
-    """
+class CSralVoiceInfo(Structure):
+    """Mirrors unmanaged SRAL_VoiceInfo layout precisely."""
     _fields_ = [
-        ("index", ctypes.c_int),
-        ("name", ctypes.c_char_p),
-        ("language", ctypes.c_char_p),
-        ("gender", ctypes.c_char_p),
-        ("vendor", ctypes.c_char_p),
+        ("name", c_char_p),
+        ("language", c_char_p),
+        ("gender", c_char_p),
+        ("vendor", c_char_p),
+        ("index", c_int)
     ]
 
-    def __repr__(self):
-        return (f"SRALVoiceInfo(index={self.index}, name='{self.name.decode('utf-8') if self.name else 'N/A'}',"
-                f" language='{self.language.decode('utf-8') if self.language else 'N/A'}',"
-                f" gender='{self.gender.decode('utf-8') if self.gender else 'N/A'}',"
-                f" vendor='{self.vendor.decode('utf-8') if self.vendor else 'N/A'}')")
+class PcmBufferNative(Structure):
+    """Mirrors unmanaged PCMBuffer footprint layout."""
+    _fields_ = [
+        ("data_pointer", POINTER(c_uint8)),
+        ("data_length", c_uint64),
+        ("channels", c_int),
+        ("sample_rate", c_int),
+        ("bits_per_sample", c_int)
+    ]
 
-class SRALMemory:
-    def __init__(self, size_or_ptr, is_ptr=False):
-        if is_ptr:
-            self._ptr = size_or_ptr
-            self._allocated_by_python = False
-        else:
-            if _sral_lib:
-                self._ptr = _sral_lib.SRAL_malloc(size_or_ptr)
-                self._allocated_by_python = True
-            else:
-                self._ptr = None
-                self._allocated_by_python = False
+class StringViewNative(Structure):
+    """Mirrors unmanaged sral::allocationbridges::StringView layout."""
+    _fields_ = [
+        ("data", c_char_p),
+        ("length", c_size_t)
+    ]
 
-    def __enter__(self):
-        return self._ptr
+class SralVoiceInfo:
+    """Safe, copyable data class returned to python domains."""
+    def __init__(self, index, name, language, gender, vendor):
+        self.index = index
+        self.name = name
+        self.language = language
+        self.gender = gender
+        self.vendor = vendor
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        if self._ptr and self._allocated_by_python and _sral_lib:
-            _sral_lib.SRAL_free(self._ptr)
-        self._ptr = None
+class SralPcmBuffer:
+    """Exception-proof RAII context wrapper managing native PCM buffers."""
+    def __init__(self, native_struct):
+        self._struct = native_struct
+        self._is_freed = False
 
     @property
-    def ptr(self):
-        return self._ptr
+    def is_empty(self):
+        return not self._struct.data_pointer or self._is_freed
 
-if _sral_lib:
-    _sral_lib.SRAL_malloc.argtypes = [ctypes.c_size_t]
-    _sral_lib.SRAL_malloc.restype = ctypes.c_void_p
+    @property
+    def channels(self): return 0 if self.is_empty else self._struct.channels
 
-    _sral_lib.SRAL_free.argtypes = [ctypes.c_void_p]
-    _sral_lib.SRAL_free.restype = None
+    @property
+    def sample_rate(self): return 0 if self.is_empty else self._struct.sample_rate
 
-    _sral_lib.SRAL_Speak.argtypes = [ctypes.c_char_p, ctypes.c_bool]
-    _sral_lib.SRAL_Speak.restype = ctypes.c_bool
+    @property
+    def bits_per_sample(self): return 0 if self.is_empty else self._struct.bits_per_sample
 
-    _sral_lib.SRAL_SpeakToMemory.argtypes = [
-        ctypes.c_char_p,
-        ctypes.POINTER(ctypes.c_uint64),
-        ctypes.POINTER(ctypes.c_int),
-        ctypes.POINTER(ctypes.c_int),
-        ctypes.POINTER(ctypes.c_int)
-    ]
-    _sral_lib.SRAL_SpeakToMemory.restype = ctypes.c_void_p
+    @property
+    def data(self):
+        """Returns a zero-copy memoryview overlay pointing to unmanaged memory."""
+        if self.is_empty:
+            return memoryview(b"")
+        return memoryview((c_uint8 * self._struct.data_length).from_address(
+            cast(self._struct.data_pointer, c_void_p).value
+        ))
 
-    _sral_lib.SRAL_SpeakSsml.argtypes = [ctypes.c_char_p, ctypes.c_bool]
-    _sral_lib.SRAL_SpeakSsml.restype = ctypes.c_bool
+    def free(self):
+        if not self._is_freed:
+            if self._struct.data_pointer:
+                _dll.SRAL_free(self._struct.data_pointer)
+            self._is_freed = True
 
-    _sral_lib.SRAL_Braille.argtypes = [ctypes.c_char_p]
-    _sral_lib.SRAL_Braille.restype = ctypes.c_bool
+    def __enter__(self): return self
+    def __exit__(self, exc_type, exc_val, exc_tb): self.free()
 
-    _sral_lib.SRAL_Output.argtypes = [ctypes.c_char_p, ctypes.c_bool]
-    _sral_lib.SRAL_Output.restype = ctypes.c_bool
+def _load_dll():
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    if sys.platform == "win32":
+        possible_paths = [
+            os.path.join(script_dir, "SRAL.dll"),
+            os.path.join(script_dir, "..", "..", "out", "build", "SRAL.dll"),
+            os.path.join(script_dir, "..", "..", "build-cmake-clang", "SRAL.dll")
+        ]
+        for path in possible_paths:
+            if os.path.exists(path):
+                return CDLL(path)
+        return CDLL("SRAL.dll")
+        
+    elif sys.platform == "darwin":
+        return CDLL("libsral.dylib")
+    else:
+        return CDLL("libsral.so")
 
-    _sral_lib.SRAL_StopSpeech.argtypes = []
-    _sral_lib.SRAL_StopSpeech.restype = ctypes.c_bool
+_dll = _load_dll()
 
-    _sral_lib.SRAL_PauseSpeech.argtypes = []
-    _sral_lib.SRAL_PauseSpeech.restype = ctypes.c_bool
+_dll.SRAL_free.argtypes = [c_void_p]
+_dll.SRAL_free.restype = None
 
-    _sral_lib.SRAL_ResumeSpeech.argtypes = []
-    _sral_lib.SRAL_ResumeSpeech.restype = ctypes.c_bool
+_dll.SRAL_Initialize.argtypes = [c_int]
+_dll.SRAL_Initialize.restype = c_bool
 
-    _sral_lib.SRAL_IsSpeaking.argtypes = []
-    _sral_lib.SRAL_IsSpeaking.restype = ctypes.c_bool
+_dll.SRAL_Uninitialize.argtypes = []
+_dll.SRAL_Uninitialize.restype = None
 
-    _sral_lib.SRAL_GetCurrentEngine.argtypes = []
-    _sral_lib.SRAL_GetCurrentEngine.restype = ctypes.c_int
+_dll.SRAL_IsInitialized.argtypes = []
+_dll.SRAL_IsInitialized.restype = c_bool
 
-    _sral_lib.SRAL_GetEngineFeatures.argtypes = [ctypes.c_int]
-    _sral_lib.SRAL_GetEngineFeatures.restype = ctypes.c_int
+_dll.SRAL_StopSpeech.argtypes = []
+_dll.SRAL_StopSpeech.restype = c_bool
 
-    _sral_lib.SRAL_SetEngineParameter.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
-    _sral_lib.SRAL_SetEngineParameter.restype = ctypes.c_bool
+_dll.SRAL_PauseSpeech.argtypes = []
+_dll.SRAL_PauseSpeech.restype = c_bool
 
-    _sral_lib.SRAL_GetEngineParameter.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p]
-    _sral_lib.SRAL_GetEngineParameter.restype = ctypes.c_bool
+_dll.SRAL_ResumeSpeech.argtypes = []
+_dll.SRAL_ResumeSpeech.restype = c_bool
 
-    _sral_lib.SRAL_Initialize.argtypes = [ctypes.c_int]
-    _sral_lib.SRAL_Initialize.restype = ctypes.c_bool
+_dll.SRAL_IsSpeaking.argtypes = []
+_dll.SRAL_IsSpeaking.restype = c_bool
 
-    _sral_lib.SRAL_Uninitialize.argtypes = []
-    _sral_lib.SRAL_Uninitialize.restype = None
+_dll.SRAL_GetCurrentEngine.argtypes = []
+_dll.SRAL_GetCurrentEngine.restype = c_int
 
-    _sral_lib.SRAL_SpeakEx.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_bool]
-    _sral_lib.SRAL_SpeakEx.restype = ctypes.c_bool
+_dll.SRAL_GetEngineFeatures.argtypes = [c_int]
+_dll.SRAL_GetEngineFeatures.restype = c_int
 
-    _sral_lib.SRAL_SpeakToMemoryEx.argtypes = [
-        ctypes.c_int,
-        ctypes.c_char_p,
-        ctypes.POINTER(ctypes.c_uint64),
-        ctypes.POINTER(ctypes.c_int),
-        ctypes.POINTER(ctypes.c_int),
-        ctypes.POINTER(ctypes.c_int)
-    ]
-    _sral_lib.SRAL_SpeakToMemoryEx.restype = ctypes.c_void_p
+_dll.SRAL_SetEngineParameter.argtypes = [c_int, c_int, c_void_p]
+_dll.SRAL_SetEngineParameter.restype = c_bool
 
-    _sral_lib.SRAL_SpeakSsmlEx.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_bool]
-    _sral_lib.SRAL_SpeakSsmlEx.restype = ctypes.c_bool
+_dll.SRAL_GetEngineParameter.argtypes = [c_int, c_int, c_void_p]
+_dll.SRAL_GetEngineParameter.restype = c_bool
 
-    _sral_lib.SRAL_BrailleEx.argtypes = [ctypes.c_int, ctypes.c_char_p]
-    _sral_lib.SRAL_BrailleEx.restype = ctypes.c_bool
+_dll.SRAL_Delay.argtypes = [c_int]
+_dll.SRAL_Delay.restype = None
 
-    _sral_lib.SRAL_OutputEx.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_bool]
-    _sral_lib.SRAL_OutputEx.restype = ctypes.c_bool
+_dll.SRAL_GetAvailableEngines.argtypes = []
+_dll.SRAL_GetAvailableEngines.restype = c_int
 
-    _sral_lib.SRAL_StopSpeechEx.argtypes = [ctypes.c_int]
-    _sral_lib.SRAL_StopSpeechEx.restype = ctypes.c_bool
+_dll.SRAL_GetActiveEngines.argtypes = []
+_dll.SRAL_GetActiveEngines.restype = c_int
 
-    _sral_lib.SRAL_PauseSpeechEx.argtypes = [ctypes.c_int]
-    _sral_lib.SRAL_PauseSpeechEx.restype = ctypes.c_bool
+_dll.SRAL_GetEngineCategory.argtypes = [c_int]
+_dll.SRAL_GetEngineCategory.restype = c_int
 
-    _sral_lib.SRAL_ResumeSpeechEx.argtypes = [ctypes.c_int]
-    _sral_lib.SRAL_ResumeSpeechEx.restype = ctypes.c_bool
+_dll.SRAL_GetTTSEngines.argtypes = []
+_dll.SRAL_GetTTSEngines.restype = c_int
 
-    _sral_lib.SRAL_IsSpeakingEx.argtypes = [ctypes.c_int]
-    _sral_lib.SRAL_IsSpeakingEx.restype = ctypes.c_bool
+_dll.SRAL_GetAssistiveTechEngines.argtypes = []
+_dll.SRAL_GetAssistiveTechEngines.restype = c_int
 
-    _sral_lib.SRAL_IsInitialized.argtypes = []
-    _sral_lib.SRAL_IsInitialized.restype = ctypes.c_bool
+_dll.SRAL_SetEnginesExclude.argtypes = [c_int]
+_dll.SRAL_SetEnginesExclude.restype = c_bool
 
-    _sral_lib.SRAL_Delay.argtypes = [ctypes.c_int]
-    _sral_lib.SRAL_Delay.restype = None
+_dll.SRAL_GetEnginesExclude.argtypes = []
+_dll.SRAL_GetEnginesExclude.restype = c_int
 
-    _sral_lib.SRAL_RegisterKeyboardHooks.argtypes = []
-    _sral_lib.SRAL_RegisterKeyboardHooks.restype = ctypes.c_bool
+_dll.SRAL_StopSpeechEx.argtypes = [c_int]
+_dll.SRAL_StopSpeechEx.restype = c_bool
 
-    _sral_lib.SRAL_UnregisterKeyboardHooks.argtypes = []
-    _sral_lib.SRAL_UnregisterKeyboardHooks.restype = None
+_dll.SRAL_PauseSpeechEx.argtypes = [c_int]
+_dll.SRAL_PauseSpeechEx.restype = c_bool
 
-    _sral_lib.SRAL_GetAvailableEngines.argtypes = []
-    _sral_lib.SRAL_GetAvailableEngines.restype = ctypes.c_int
+_dll.SRAL_ResumeSpeechEx.argtypes = [c_int]
+_dll.SRAL_ResumeSpeechEx.restype = c_bool
 
-    _sral_lib.SRAL_GetActiveEngines.argtypes = []
-    _sral_lib.SRAL_GetActiveEngines.restype = ctypes.c_int
+_dll.SRAL_IsSpeakingEx.argtypes = [c_int]
+_dll.SRAL_IsSpeakingEx.restype = c_bool
 
-    _sral_lib.SRAL_GetTTSEngines.argtypes = []
-    _sral_lib.SRAL_GetTTSEngines.restype = ctypes.c_int
+_dll.SRAL_RegisterKeyboardHooks.argtypes = []
+_dll.SRAL_RegisterKeyboardHooks.restype = c_bool
 
-    _sral_lib.SRAL_GetAssistiveTechEngines.argtypes = []
-    _sral_lib.SRAL_GetAssistiveTechEngines.restype = ctypes.c_int
+_dll.SRAL_UnregisterKeyboardHooks.argtypes = []
+_dll.SRAL_UnregisterKeyboardHooks.restype = None
 
-    _sral_lib.SRAL_GetEngineCategory.argtypes = [ctypes.c_int]
-    _sral_lib.SRAL_GetEngineCategory.restype = ctypes.c_int
+_dll.SafeSpeakAllocationBridge.argtypes = [StringViewNative, c_bool]
+_dll.SafeSpeakAllocationBridge.restype = c_bool
 
-    _sral_lib.SRAL_GetEngineName.argtypes = [ctypes.c_int]
-    _sral_lib.SRAL_GetEngineName.restype = ctypes.c_char_p
+_dll.SafeSpeakSsmlAllocationBridge.argtypes = [StringViewNative, c_bool]
+_dll.SafeSpeakSsmlAllocationBridge.restype = c_bool
 
-    _sral_lib.SRAL_SetEnginesExclude.argtypes = [ctypes.c_int]
-    _sral_lib.SRAL_SetEnginesExclude.restype = ctypes.c_bool
+_dll.SafeBrailleAllocationBridge.argtypes = [StringViewNative]
+_dll.SafeBrailleAllocationBridge.restype = c_bool
 
-    _sral_lib.SRAL_GetEnginesExclude.argtypes = []
-    _sral_lib.SRAL_GetEnginesExclude.restype = ctypes.c_int
+_dll.SafeOutputAllocationBridge.argtypes = [StringViewNative, c_bool]
+_dll.SafeOutputAllocationBridge.restype = c_bool
 
+_dll.SafeSpeakExAllocationBridge.argtypes = [c_uint32, StringViewNative, c_bool]
+_dll.SafeSpeakExAllocationBridge.restype = c_bool
 
-class SRAL:
-    """
-    A Python wrapper for the Screen Reader Abstraction Library (SRAL).
+_dll.SafeSpeakSsmlExAllocationBridge.argtypes = [c_uint32, StringViewNative, c_bool]
+_dll.SafeSpeakSsmlExAllocationBridge.restype = c_bool
 
-    """
-    def __init__(self):
-        if not _sral_lib:
-            raise RuntimeError("SRAL C library not loaded.")
+_dll.SafeBrailleExAllocationBridge.argtypes = [c_uint32, StringViewNative]
+_dll.SafeBrailleExAllocationBridge.restype = c_bool
 
+_dll.SafeOutputExAllocationBridge.argtypes = [c_uint32, StringViewNative, c_bool]
+_dll.SafeOutputExAllocationBridge.restype = c_bool
+
+_dll.SafeDelayOutputAllocationBridge.argtypes = [c_int, StringViewNative, c_bool]
+_dll.SafeDelayOutputAllocationBridge.restype = c_bool
+
+_dll.SafeDelayOutputExAllocationBridge.argtypes = [c_uint32, c_int, StringViewNative, c_bool]
+_dll.SafeDelayOutputExAllocationBridge.restype = c_bool
+
+_dll.DirectMemoryBridge.argtypes = [c_char_p]
+_dll.DirectMemoryBridge.restype = PcmBufferNative
+
+_dll.DirectMemoryExBridge.argtypes = [c_uint32, c_char_p]
+_dll.DirectMemoryExBridge.restype = PcmBufferNative
+
+_dll.GetEngineNameFastBridge.argtypes = [c_uint32]
+_dll.GetEngineNameFastBridge.restype = StringViewNative
+
+class Sral:
     @staticmethod
-    def _check_initialized():
-        if not SRAL.is_initialized():
-            print("Warning: SRAL is not initialized. Call SRAL.initialize() first.")
-
-    @staticmethod
-    def sral_malloc(size: int) -> SRALMemory:
-        """
-        Allocate memory using SRAL's internal allocator.
-        The returned SRALMemory object can be used as a context manager
-        to ensure memory is freed.
-
-        Args:
-            size: The size in bytes to allocate.
-
-        Returns:
-            An SRALMemory object containing a pointer to the allocated memory.
-        """
-        if not _sral_lib: return None
-        return SRALMemory(size)
-
-    @staticmethod
-    def sral_free(ptr: ctypes.c_void_p):
-        """
-        Free memory allocated by SRAL_malloc.
-        Typically, you'd use SRALMemory as a context manager and not call this directly.
-
-        Args:
-            ptr: A ctypes void pointer to the memory to free.
-        """
-        if not _sral_lib: return
-        _sral_lib.SRAL_free(ptr)
-
-
-    def speak(self, text: str, interrupt: bool = True) -> bool:
-        """
-        Speak the given text using the currently active engine.
-
-        Args:
-            text: The string to be spoken.
-            interrupt: If True, stop current speech before speaking new text.
-
-        Returns:
-            True if speaking was successful, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_Speak(text.encode('utf-8'), interrupt)
-
-    def speak_to_memory(self, text: str) -> tuple[memoryview | None, int, int, int]:
-        """
-        Speak the given text into a PCM audio buffer in memory.
-
-        Args:
-            text: The string to be spoken.
-
-        Returns:
-            A tuple containing:
-            - A memoryview object of the PCM buffer (or None if failed).
-            - The buffer size in bytes.
-            - The number of channels.
-            - The sample rate in HZ.
-            - The bits per sample.
-            The memoryview is managed by a context manager and will be freed upon exit.
-        """
-        self._check_initialized()
-        if not _sral_lib: return None, 0, 0, 0
-
-        buffer_size = ctypes.c_uint64(0)
-        channels = ctypes.c_int(0)
-        sample_rate = ctypes.c_int(0)
-        bits_per_sample = ctypes.c_int(0)
-
-        pcm_buffer_ptr = _sral_lib.SRAL_SpeakToMemory(
-            text.encode('utf-8'),
-            ctypes.byref(buffer_size),
-            ctypes.byref(channels),
-            ctypes.byref(sample_rate),
-            ctypes.byref(bits_per_sample)
-        )
-        if pcm_buffer_ptr:
-            mem_view = memoryview(
-                (ctypes.c_char * buffer_size.value).from_address(pcm_buffer_ptr)
-            )
-            return mem_view, buffer_size.value, channels.value, sample_rate.value, bits_per_sample.value
-        return None, 0, 0, 0, 0
-
-
-    def speak_ssml(self, ssml: str, interrupt: bool = True) -> bool:
-        """
-        Speak the given text using SSML tags with the currently active engine.
-
-        Args:
-            ssml: The SSML string to be spoken.
-            interrupt: If True, stop current speech before speaking new text.
-
-        Returns:
-            True if speaking was successful, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_SpeakSsml(ssml.encode('utf-8'), interrupt)
-
-    def braille(self, text: str) -> bool:
-        """
-        Output text to a Braille display using the currently active engine.
-
-        Args:
-            text: The string to be output in Braille.
-
-        Returns:
-            True if Braille output was successful, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_Braille(text.encode('utf-8'))
-
-    def output(self, text: str, interrupt: bool = True) -> bool:
-        """
-        Output text using all currently supported speech engine methods (speech and/or braille).
-
-        Args:
-            text: The string to be output.
-            interrupt: If True, stop current speech before speaking new text.
-
-        Returns:
-            True if output was successful, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_Output(text.encode('utf-8'), interrupt)
-
-    def stop_speech(self) -> bool:
-        """
-        Stop speech if it is active for the currently active engine.
-
-        Returns:
-            True if speech was stopped successfully, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_StopSpeech()
-
-    def pause_speech(self) -> bool:
-        """
-        Pause speech if it is active and the current speech engine supports this.
-
-        Returns:
-            True if speech was paused successfully, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_PauseSpeech()
-
-    def resume_speech(self) -> bool:
-        """
-        Resume speech if it was active and the current speech engine supports this.
-
-        Returns:
-            True if speech was resumed successfully, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_ResumeSpeech()
-
-    def is_speaking(self) -> bool:
-        """
-        Get status: is the currently active engine speaking now?
-
-        Returns:
-            True if the engine is currently speaking, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_IsSpeaking()
-
-    def get_current_engine(self) -> SRALEngine:
-        """
-        Get the current speech engine in use.
-
-        Returns:
-            The identifier of the current speech engine as an SRALEngine enum.
-        """
-        self._check_initialized()
-        if not _sral_lib: return SRALEngine.NONE
-        return SRALEngine(_sral_lib.SRAL_GetCurrentEngine())
-
-    def get_engine_features(self, engine: SRALEngine = SRALEngine.NONE) -> int:
-        """
-        Get features supported by the specified engine.
-
-        Args:
-            engine: The identifier of the engine to query. Defaults to SRALEngine.NONE
-                    (current engine).
-
-        Returns:
-            An integer representing the features supported by the engine as a bitmask
-            of SRALFeature enums.
-        """
-        self._check_initialized()
-        if not _sral_lib: return 0
-        return _sral_lib.SRAL_GetEngineFeatures(engine.value)
-
-    def set_engine_parameter(self, engine: SRALEngine, param: SRALParam, value: any) -> bool:
-        """
-        Set a parameter for the specified speech engine.
-
-        Args:
-            engine: The engine to set the parameter for.
-            param: The desired parameter as an SRALParam enum.
-            value: The value to set (int, bool, or a specific structure/pointer for advanced cases).
-
-        Returns:
-            True if the parameter was set successfully, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        c_value = None
-        if isinstance(value, bool):
-            c_value = ctypes.byref(ctypes.c_bool(value))
-        elif isinstance(value, int):
-            c_value = ctypes.byref(ctypes.c_int(value))
-        elif isinstance(value, str):
-             c_value = ctypes.byref(ctypes.c_char_p(value.encode('utf-8')))
-        else:
-            print(f"Warning: Unsupported parameter value type for set_engine_parameter: {type(value)}")
+    def _execute_with_view(text: str, callback) -> bool:
+        if not text:
             return False
+        encoded_bytes = text.encode("utf-8")
+        view = StringViewNative(encoded_bytes, len(encoded_bytes))
+        return callback(view)
 
-        return _sral_lib.SRAL_SetEngineParameter(engine.value, param.value, c_value)
+    @staticmethod
+    def initialize(engines_exclude: int = SralEngine.none) -> bool:
+        return _dll.SRAL_Initialize(engines_exclude)
 
-    def get_engine_parameter(self, engine: SRALEngine, param: SRALParam) -> any:
-        """
-        Get a parameter for the specified speech engine.
-
-        Args:
-            engine: The engine to get the parameter for.
-            param: The desired parameter as an SRALParam enum.
-
-        Returns:
-            The retrieved value, or None if unsuccessful.
-            Special handling for VOICE_COUNT and VOICE_PROPERTIES.
-        """
-        self._check_initialized()
-        if not _sral_lib: return None
-
-        if param == SRALParam.VOICE_COUNT:
-            count_val = ctypes.c_int()
-            success = _sral_lib.SRAL_GetEngineParameter(engine.value, param.value, ctypes.byref(count_val))
-            return count_val.value if success else None
-        elif param == SRALParam.VOICE_PROPERTIES:
-            voice_count = self.get_engine_parameter(engine, SRALParam.VOICE_COUNT)
-            if voice_count is None or voice_count <= 0:
-                return []
-            voice_array_type = SRALVoiceInfo * voice_count
-            voice_array = voice_array_type()
-            success = _sral_lib.SRAL_GetEngineParameter(
-                engine.value,
-                param.value,
-                ctypes.byref(voice_array)
-            )
-            if success:
-                voices = []
-                for i in range(voice_count):
-                    voice_info = voice_array[i]
-                    voices.append({
-                        "index": voice_info.index,
-                        "name": voice_info.name.decode('utf-8') if voice_info.name else None,
-                        "language": voice_info.language.decode('utf-8') if voice_info.language else None,
-                        "gender": voice_info.gender.decode('utf-8') if voice_info.gender else None,
-                        "vendor": voice_info.vendor.decode('utf-8') if voice_info.vendor else None,
-                    })
-                return voices
-            return []
-        else:
-            val = ctypes.c_int()
-            success = _sral_lib.SRAL_GetEngineParameter(engine.value, param.value, ctypes.byref(val))
-            if success:
-                if param in [SRALParam.ENABLE_SPELLING, SRALParam.USE_CHARACTER_DESCRIPTIONS, SRALParam.NVDA_IS_CONTROL_EX]:
-                    return bool(val.value)
-                return val.value
-            return None
-
-    def initialize(self, engines_exclude: int = 0) -> bool:
-        """
-        Initialize the library and optionally exclude certain engines from auto-update.
-
-        Args:
-            engines_exclude: A bitmask of SRALEngine enums specifying engines to exclude.
-                             Defaults to 0 (include all).
-
-        Returns:
-            True if initialization was successful, False otherwise.
-        """
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_Initialize(engines_exclude)
-
-    def uninitialize(self):
-        """
-        Uninitialize the library, freeing resources.
-        """
-        if not _sral_lib: return
-        _sral_lib.SRAL_Uninitialize()
-
-    def speak_ex(self, engine: SRALEngine, text: str, interrupt: bool = True) -> bool:
-        """
-        Speak the given text with the specified engine.
-
-        Args:
-            engine: The engine to use for speaking.
-            text: The string to be spoken.
-            interrupt: If True, stop current speech before speaking new text.
-
-        Returns:
-            True if speaking was successful, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_SpeakEx(engine.value, text.encode('utf-8'), interrupt)
-
-    def speak_to_memory_ex(self, engine: SRALEngine, text: str) -> tuple[memoryview | None, int, int, int]:
-        """
-        Speak the given text into a PCM audio buffer in memory using a specific engine.
-
-        Args:
-            engine: The engine to use for speaking.
-            text: The string to be spoken.
-
-        Returns:
-            A tuple containing:
-            - A memoryview object of the PCM buffer (or None if failed).
-            - The buffer size in bytes.
-            - The number of channels.
-            - The sample rate in HZ.
-            - The bits per sample.
-            The memoryview is managed by a context manager and will be freed upon exit.
-        """
-        self._check_initialized()
-        if not _sral_lib: return None, 0, 0, 0
-
-        buffer_size = ctypes.c_uint64(0)
-        channels = ctypes.c_int(0)
-        sample_rate = ctypes.c_int(0)
-        bits_per_sample = ctypes.c_int(0)
-
-        with SRALMemory(
-            _sral_lib.SRAL_SpeakToMemoryEx(
-                engine.value,
-                text.encode('utf-8'),
-                ctypes.byref(buffer_size),
-                ctypes.byref(channels),
-                ctypes.byref(sample_rate),
-                ctypes.byref(bits_per_sample)
-            ), is_ptr=True
-        ) as pcm_buffer_ptr:
-            if pcm_buffer_ptr:
-                mem_view = memoryview(
-                    (ctypes.c_char * buffer_size.value).from_address(pcm_buffer_ptr)
-                )
-                return mem_view, buffer_size.value, channels.value, sample_rate.value, bits_per_sample.value
-            return None, 0, 0, 0, 0
-
-
-    def speak_ssml_ex(self, engine: SRALEngine, ssml: str, interrupt: bool = True) -> bool:
-        """
-        Speak the given text using SSML tags with the specified engine.
-
-        Args:
-            engine: The engine to use for speaking.
-            ssml: The SSML string to be spoken.
-            interrupt: If True, stop current speech before speaking new text.
-
-        Returns:
-            True if speaking was successful, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_SpeakSsmlEx(engine.value, ssml.encode('utf-8'), interrupt)
-
-    def braille_ex(self, engine: SRALEngine, text: str) -> bool:
-        """
-        Output text to a Braille display using the specified engine.
-
-        Args:
-            engine: The engine to use for Braille output.
-            text: The string to be output in Braille.
-
-        Returns:
-            True if Braille output was successful, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_BrailleEx(engine.value, text.encode('utf-8'))
-
-    def output_ex(self, engine: SRALEngine, text: str, interrupt: bool = True) -> bool:
-        """
-        Output text using the specified engine (speech and/or braille).
-
-        Args:
-            engine: The engine to use for output.
-            text: The string to be output.
-            interrupt: If True, stop current speech before speaking new text.
-
-        Returns:
-            True if output was successful, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_OutputEx(engine.value, text.encode('utf-8'), interrupt)
-
-    def stop_speech_ex(self, engine: SRALEngine) -> bool:
-        """
-        Stop speech for the specified engine.
-
-        Args:
-            engine: The engine to stop speech for.
-
-        Returns:
-            True if speech was stopped successfully, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_StopSpeechEx(engine.value)
-
-    def pause_speech_ex(self, engine: SRALEngine) -> bool:
-        """
-        Pause speech for the specified engine.
-
-        Args:
-            engine: The engine to pause speech for.
-
-        Returns:
-            True if speech was paused successfully, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_PauseSpeechEx(engine.value)
-
-    def resume_speech_ex(self, engine: SRALEngine) -> bool:
-        """
-        Resume speech for the specified engine.
-
-        Args:
-            engine: The engine to resume speech for.
-
-        Returns:
-            True if speech was resumed successfully, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_ResumeSpeechEx(engine.value)
-
-    def is_speaking_ex(self, engine: SRALEngine) -> bool:
-        """
-        Get status: is the specified engine speaking now?
-
-        Args:
-            engine: The engine to get speaking status for.
-
-        Returns:
-            True if the engine is currently speaking, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_IsSpeakingEx(engine.value)
+    @staticmethod
+    def uninitialize():
+        _dll.SRAL_Uninitialize()
 
     @staticmethod
     def is_initialized() -> bool:
-        """
-        Check if the library has been initialized.
+        return _dll.SRAL_IsInitialized()
+    
+    @staticmethod
+    def speak(text: str, interrupt: bool = False) -> bool:
+        return Sral._execute_with_view(text, lambda v: _dll.SafeSpeakAllocationBridge(v, interrupt))
 
-        Returns:
-            True if the library is initialized, False otherwise.
-        """
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_IsInitialized()
+    @staticmethod
+    def speak_ssml(ssml: str, interrupt: bool = False) -> bool:
+        return Sral._execute_with_view(ssml, lambda v: _dll.SafeSpeakSsmlAllocationBridge(v, interrupt))
 
-    def delay(self, time_ms: int):
-        """
-        Delays the next speech or output operation by a given time.
+    @staticmethod
+    def braille(text: str) -> bool:
+        return Sral._execute_with_view(text, lambda v: _dll.SafeBrailleAllocationBridge(v))
 
-        Args:
-            time_ms: Delay time in milliseconds.
-        """
-        self._check_initialized()
-        if not _sral_lib: return
-        _sral_lib.SRAL_Delay(time_ms)
+    @staticmethod
+    def output(text: str, interrupt: bool = False) -> bool:
+        return Sral._execute_with_view(text, lambda v: _dll.SafeOutputAllocationBridge(v, interrupt))
 
-    def register_keyboard_hooks(self) -> bool:
-        """
-        Install speech interruption and pause keyboard hooks for speech engines
-        other than screen readers (e.g., SAPI 5, SpeechDispatcher).
-        These hooks work globally. (Ctrl - Interrupt, Shift - Pause)
+    @staticmethod
+    def stop_speech() -> bool: 
+        return _dll.SRAL_StopSpeech()
 
-        Returns:
-            True if the hooks are successfully installed, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_RegisterKeyboardHooks()
+    @staticmethod
+    def pause_speech() -> bool: 
+        return _dll.SRAL_PauseSpeech()
 
-    def unregister_keyboard_hooks(self):
-        """
-        Uninstall speech interruption and pause keyboard hooks.
-        """
-        self._check_initialized()
-        if not _sral_lib: return
-        _sral_lib.SRAL_UnregisterKeyboardHooks()
+    @staticmethod
+    def resume_speech() -> bool: 
+        return _dll.SRAL_ResumeSpeech()
 
-    def get_available_engines(self) -> int:
-        """
-        Get all available engines for the current platform.
+    @staticmethod
+    def is_speaking() -> bool: 
+        return _dll.SRAL_IsSpeaking()
 
-        Returns:
-            A bitmask of SRALEngine enums with available engines.
-        """
-        self._check_initialized()
-        if not _sral_lib: return 0
-        return _sral_lib.SRAL_GetAvailableEngines()
+    @staticmethod
+    def get_current_engine() -> int: 
+        return _dll.SRAL_GetCurrentEngine()
 
-    def get_active_engines(self) -> int:
-        """
-        Get all active engines that can be used.
+    @staticmethod
+    def get_engine_features(engine: int = SralEngine.none) -> int: 
+        return _dll.SRAL_GetEngineFeatures(engine)
 
-        Returns:
-            A bitmask of SRALEngine enums with active engines.
-        """
-        self._check_initialized()
-        if not _sral_lib: return 0
-        return _sral_lib.SRAL_GetActiveEngines()
+    @staticmethod
+    def speak_ex(engine: int, text: str, interrupt: bool = False) -> bool:
+        return Sral._execute_with_view(text, lambda v: _dll.SafeSpeakExAllocationBridge(engine, v, interrupt))
 
-    def get_tts_engines(self) -> int:
-        """
-        Get the bitmask of engines that are pure text-to-speech synthesizers.
+    @staticmethod
+    def speak_ssml_ex(engine: int, ssml: str, interrupt: bool = False) -> bool:
+        return Sral._execute_with_view(ssml, lambda v: _dll.SafeSpeakSsmlExAllocationBridge(engine, v, interrupt))
 
-        The mask is derived at runtime from each available engine's category,
-        so it reflects the engines available on the current platform and
-        requires the library to be initialized.
+    @staticmethod
+    def braille_ex(engine: int, text: str) -> bool:
+        return Sral._execute_with_view(text, lambda v: _dll.SafeBrailleExAllocationBridge(engine, v))
 
-        Intended use: pass to set_engines_exclude when the application wants
-        to opt out of TTS output (e.g., only speak through assistive tech
-        unless the user has enabled an in-app TTS option).
+    @staticmethod
+    def output_ex(engine: int, text: str, interrupt: bool = False) -> bool:
+        return Sral._execute_with_view(text, lambda v: _dll.SafeOutputExAllocationBridge(engine, v, interrupt))
 
-        Returns:
-            A bitmask of SRALEngine enums representing TTS engines.
-        """
-        self._check_initialized()
-        if not _sral_lib: return 0
-        return _sral_lib.SRAL_GetTTSEngines()
+    @staticmethod
+    def stop_speech_ex(engine: int) -> bool: 
+        return _dll.SRAL_StopSpeechEx(engine)
 
-    def get_assistive_tech_engines(self) -> int:
-        """
-        Get the bitmask of engines that represent assistive technology
-        (screen readers and the accessibility providers that drive them).
+    @staticmethod
+    def pause_speech_ex(engine: int) -> bool: 
+        return _dll.SRAL_PauseSpeechEx(engine)
 
-        The mask is derived at runtime from each available engine's category,
-        so it reflects the engines available on the current platform and
-        requires the library to be initialized.
+    @staticmethod
+    def resume_speech_ex(engine: int) -> bool: 
+        return _dll.SRAL_ResumeSpeechEx(engine)
 
-        Returns:
-            A bitmask of SRALEngine enums representing assistive-tech engines.
-        """
-        self._check_initialized()
-        if not _sral_lib: return 0
-        return _sral_lib.SRAL_GetAssistiveTechEngines()
+    @staticmethod
+    def is_speaking_ex(engine: int) -> bool: 
+        return _dll.SRAL_IsSpeakingEx(engine)
 
-    def get_engine_category(self, engine: SRALEngine) -> SRALEngineCategory:
-        """
-        Get the category of the specified engine.
+    @staticmethod
+    def delay(time_ms: int): 
+        _dll.SRAL_Delay(time_ms)
 
-        The category is reported by the engine itself. The engine is resolved
-        against the engines available on the current platform, so an engine
-        that is not available here returns SRALEngineCategory.UNKNOWN.
+    @staticmethod
+    def delay_output(time_ms: int, text: str, interrupt: bool = False) -> bool:
+        return Sral._execute_with_view(text, lambda v: _dll.SafeDelayOutputAllocationBridge(time_ms, v, interrupt))
 
-        Args:
-            engine: The identifier of the engine to query.
+    @staticmethod
+    def delay_output_ex(engine: int, time_ms: int, text: str, interrupt: bool = False) -> bool:
+        return Sral._execute_with_view(text, lambda v: _dll.SafeDelayOutputExAllocationBridge(engine, time_ms, v, interrupt))
 
-        Returns:
-            The engine's SRALEngineCategory.
-        """
-        self._check_initialized()
-        if not _sral_lib: return SRALEngineCategory.UNKNOWN
-        return SRALEngineCategory(_sral_lib.SRAL_GetEngineCategory(engine.value))
+    @staticmethod
+    def register_keyboard_hooks() -> bool: 
+        return _dll.SRAL_RegisterKeyboardHooks()
 
-    def set_engines_exclude(self, engines_exclude: int) -> bool:
-        """
-        Exclude certain engines from auto-update.
-        Args:
-            engines_exclude: A bitmask of SRALEngine enums specifying engines to exclude.
+    @staticmethod
+    def unregister_keyboard_hooks(): 
+        _dll.SRAL_UnregisterKeyboardHooks()
 
-        Returns:
-            True if excludes was successfully set, False otherwise.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_SetEnginesExclude(engines_exclude)
+    @staticmethod
+    def get_available_engines() -> int: 
+        return _dll.SRAL_GetAvailableEngines()
 
-    def get_engines_exclude(self) -> int:
-        """
-        Get engines excluded from auto-update.
+    @staticmethod
+    def get_active_engines() -> int: 
+        return _dll.SRAL_GetActiveEngines()
 
-        Returns:
-            A bitmask of SRALEngine enums with excluded engines.
-        """
-        self._check_initialized()
-        if not _sral_lib: return False
-        return _sral_lib.SRAL_GetEnginesExclude()
+    @staticmethod
+    def get_tts_engines() -> int: 
+        return _dll.SRAL_GetTTSEngines()
 
-    def get_engine_name(self, engine: SRALEngine) -> str:
-        """
-        Get the name of the specified engine.
+    @staticmethod
+    def get_assistive_tech_engines() -> int: 
+        return _dll.SRAL_GetAssistiveTechEngines()
 
-        Args:
-            engine: The identifier of the engine to query.
+    @staticmethod
+    def set_engines_exclude(mask: int) -> bool: 
+        return _dll.SRAL_SetEnginesExclude(mask)
 
-        Returns:
-            A string with the name of the engine.
-        """
-        self._check_initialized()
-        if not _sral_lib: return 0
-        return _sral_lib.SRAL_GetEngineName(engine.value).decode('utf-8')
+    @staticmethod
+    def get_engines_exclude() -> int | None:
+        res = _dll.SRAL_GetEnginesExclude()
+        return None if res == -1 else res
 
+    @staticmethod
+    def get_engine_category(engine: int) -> int:
+        return _dll.SRAL_GetEngineCategory(engine)

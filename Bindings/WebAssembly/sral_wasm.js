@@ -51,8 +51,8 @@ const SRALParam = {
   USE_CHARACTER_DESCRIPTIONS: 8,
   NVDA_IS_CONTROL_EX: 9,
   SRAL_PARAM_ENGINE_IS_PAUSED: 10,
-  ANDROID_JNI_ENV: 10,
-  ANDROID_ACTIVITY: 11,
+  ANDROID_JNI_ENV: 11,
+  ANDROID_ACTIVITY: 12,
 };
 
 const SRALVoiceInfo = {
@@ -64,17 +64,24 @@ const SRALVoiceInfo = {
 };
 
 function loadSRAL() {
-  return new Promise((resolve) => {
-    Module().then((instance) => {
-      resolve({
-        api: instance,
-        SRALEngines,
-        SRALEngineCategory,
-        SRALSupportedFeatures,
-        SRALParam,
-        SRALVoiceInfo,
+  return new Promise((resolve, reject) => {
+    Module()
+      .then((instance) => {
+        resolve({
+          api: instance,
+          HEAPU8: instance.HEAPU8,
+          HEAP16: instance.HEAP16,
+          HEAP32: instance.HEAP32,
+          SRALEngines,
+          SRALEngineCategory,
+          SRALSupportedFeatures,
+          SRALParam,
+          SRALVoiceInfo,
+        });
+      })
+      .catch((err) => {
+        reject(new Error("Emscripten WebAssembly runtime module initialization failed: " + err.message));
       });
-    });
   });
 }
 

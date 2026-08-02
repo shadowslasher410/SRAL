@@ -2,6 +2,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <stdint.h>
 
 #include "../../Include/SRAL.h"
 
@@ -67,20 +68,12 @@ static emscripten::val SpeakToMemoryJS(const std::string& text) {
 		return emscripten::val::null();
 
 	emscripten::val result = emscripten::val::object();
-
-#ifdef __EMSCRIPTEN__
-	emscripten::val view = emscripten::val(emscripten::typed_memory_view(size, static_cast<uint8_t*>(ptr)));
-	emscripten::val copied_buffer = emscripten::val::global("Uint8Array").new_(view).call<emscripten::val>("slice");
-	result.set("buffer", copied_buffer);
-#else
-	result.set("buffer", emscripten::val::null());
-#endif
-
+	result.set("dataPointer", reinterpret_cast<uintptr_t>(ptr));
+	result.set("dataLength", static_cast<uint32_t>(size));
 	result.set("channels", chan);
 	result.set("sampleRate", rate);
 	result.set("bitsPerSample", bits);
 
-	SRAL_free(ptr);
 	return result;
 }
 
@@ -93,19 +86,12 @@ static emscripten::val SpeakToMemoryExJS(int engine, const std::string& text) {
 
 	emscripten::val result = emscripten::val::object();
 
-#ifdef __EMSCRIPTEN__
-	emscripten::val view = emscripten::val(emscripten::typed_memory_view(size, static_cast<uint8_t*>(ptr)));
-	emscripten::val copied_buffer = emscripten::val::global("Uint8Array").new_(view).call<emscripten::val>("slice");
-	result.set("buffer", copied_buffer);
-#else
-	result.set("buffer", emscripten::val::null());
-#endif
-
+	result.set("dataPointer", reinterpret_cast<uintptr_t>(ptr));
+	result.set("dataLength", static_cast<uint32_t>(size));
 	result.set("channels", chan);
 	result.set("sampleRate", rate);
 	result.set("bitsPerSample", bits);
 
-	SRAL_free(ptr);
 	return result;
 }
 
@@ -120,14 +106,19 @@ EMSCRIPTEN_BINDINGS(sral_wasm_module) {
 	emscripten::function("isInitialized", &SRAL_IsInitialized);
 
 #ifdef __EMSCRIPTEN__
-	emscripten::function(
-		"speak", emscripten::optional_override([](const std::string& t, bool i) { return SRAL_Speak(t.c_str(), i); }));
-	emscripten::function("speakSsml",
-		emscripten::optional_override([](const std::string& s, bool i) { return SRAL_SpeakSsml(s.c_str(), i); }));
-	emscripten::function(
-		"braille", emscripten::optional_override([](const std::string& t) { return SRAL_Braille(t.c_str()); }));
-	emscripten::function("output",
-		emscripten::optional_override([](const std::string& t, bool i) { return SRAL_Output(t.c_str(), i); }));
+	// Zero-allocation proxy lambda routines wrapping unmanaged string payloads
+	emscripten::function("speak", emscripten::optional_override([](const std::string& t, bool i) { 
+		return SRAL_Speak(t.c_str(), i); 
+	}));
+	emscripten::function("speakSsml", emscripten::optional_override([](const std::string& s, bool i) { 
+		return SRAL_SpeakSsml(s.c_str(), i); 
+	}));
+	emscripten::function("braille", emscripten::optional_override([](const std::string& t) { 
+		return SRAL_Braille(t.c_str()); 
+	}));
+	emscripten::function("output", emscripten::optional_override([](const std::string& t, bool i) { 
+		return SRAL_Output(t.c_str(), i); 
+	}));
 #endif
 
 	emscripten::function("stopSpeech", &SRAL_StopSpeech);
@@ -155,53 +146,54 @@ EMSCRIPTEN_BINDINGS(sral_wasm_module) {
 	emscripten::function("getActiveEngines", &SRAL_GetActiveEngines);
 	emscripten::function("getEnginesExclude", &SRAL_GetEnginesExclude);
 	emscripten::function("setEnginesExclude", &SRAL_SetEnginesExclude);
-
-#ifdef __EMSCRIPTEN__
-	emscripten::function("getEngineCategory",
-		emscripten::optional_override([](int engine) { return static_cast<int>(SRAL_GetEngineCategory(engine)); }));
-#endif
-
 	emscripten::function("getTTSEngines", &SRAL_GetTTSEngines);
 	emscripten::function("getAssistiveTechEngines", &SRAL_GetAssistiveTechEngines);
+	emscripten::function("stopSpeechEx", &SRAL_StopSpeechEx);
+	emscripten::function("pauseSpeechEx", &SRAL_PauseSpeechEx);
+	emscripten::function("resumeSpeechEx", &SRAL_ResumeSpeechEx);
+	emscripten::function("isSpeakingEx", &SRAL_IsSpeakingEx);
 
 #ifdef __EMSCRIPTEN__
+	emscripten::function("getEngineCategory", emscripten::optional_override([](int engine) { 
+		return static_cast<int>(SRAL_GetEngineCategory(engine)); 
+	}));
+	
 	emscripten::function("getEngineName", emscripten::optional_override([](int e) {
 		const char* name = SRAL_GetEngineName(e);
 		return std::string(name ? name : "Unknown Engine");
 	}));
+	
 	emscripten::function("speakEx", emscripten::optional_override([](int e, const std::string& t, bool i) {
 		return SRAL_SpeakEx(e, t.c_str(), i);
 	}));
-#endif
-
-	emscripten::function("isSpeakingEx", &SRAL_IsSpeakingEx);
-
-#ifdef __EMSCRIPTEN__
+	
 	emscripten::function("speakSsmlEx", emscripten::optional_override([](int e, const std::string& s, bool i) {
 		return SRAL_SpeakSsmlEx(e, s.c_str(), i);
 	}));
-	emscripten::function("brailleEx",
-		emscripten::optional_override([](int e, const std::string& t) { return SRAL_BrailleEx(e, t.c_str()); }));
-	emscripten::function("outputEx", emscripten::optional_override([](const int e, const std::string& t, bool i) {
+	
+	emscripten::function("brailleEx", emscripten::optional_override([](int e, const std::string& t) { 
+		return SRAL_BrailleEx(e, t.c_str()); 
+	}));
+	
+	emscripten::function("outputEx", emscripten::optional_override([](int e, const std::string& t, bool i) {
 		return SRAL_OutputEx(e, t.c_str(), i);
 	}));
-#endif
 
-	emscripten::function("stopSpeechEx", &SRAL_StopSpeechEx);
-	emscripten::function("pauseSpeechEx", &SRAL_PauseSpeechEx);
-	emscripten::function("resumeSpeechEx", &SRAL_ResumeSpeechEx);
+	emscripten::function("delayOutput", emscripten::optional_override([](const std::string& t, int d, bool i, bool s, bool b, bool ss) {
+		return SRAL_DelayOutput(t.c_str(), d, i, s, b, ss);
+	}));
+	
+	emscripten::function("delayOutputEx", emscripten::optional_override([](int e, const std::string& t, int d, bool i, bool s, bool b, bool ss) {
+		return SRAL_DelayOutputEx(e, t.c_str(), d, i, s, b, ss);
+	}));
+	
+	emscripten::function("free", emscripten::optional_override([](uintptr_t memory) {
+		SRAL_free(reinterpret_cast<void*>(memory));
+	}));
+#endif
 
 	emscripten::function("registerKeyboardHooks", &SRAL_RegisterKeyboardHooks);
 	emscripten::function("unregisterKeyboardHooks", &SRAL_UnregisterKeyboardHooks);
-
-#ifdef __EMSCRIPTEN__
-	emscripten::function("delayOutput", emscripten::optional_override([](int d, const std::string& t, bool i) {
-		return SRAL_DelayOutput(d, t.c_str(), i);
-	}));
-	emscripten::function("delayOutputEx", emscripten::optional_override([](int e, int d, const std::string& t, bool i) {
-		return SRAL_DelayOutputEx(e, d, t.c_str(), i);
-	}));
-#endif
 
 	emscripten::function("getVoices", &GetVoicesJS);
 	emscripten::function("speakToMemory", &SpeakToMemoryJS);

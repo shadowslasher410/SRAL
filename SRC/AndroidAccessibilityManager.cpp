@@ -22,9 +22,14 @@
 #endif
 
 namespace Sral {
+
 enum class TaskType : uint8_t { Speak, Stop };
 
-struct alignas(CACHE_LINE_SIZE) AsyncSpeechTask {
+/**
+ * @struct AsyncSpeechTask
+ * @brief Cache-line isolated tracking structure matching destructive interference footprints.
+ */
+struct alignas(destructive_alignment) AsyncSpeechTask {
 	std::array<char, 512> text;
 	std::atomic<size_t> sequence;
 	TaskType type;
@@ -34,15 +39,17 @@ struct alignas(CACHE_LINE_SIZE) AsyncSpeechTask {
 struct AndroidAccessibilityManager::Impl {
 	static constexpr size_t RING_BUFFER_SIZE = 128;
 	static constexpr size_t RING_MASK = RING_BUFFER_SIZE - 1;
-	alignas(CACHE_LINE_SIZE) std::atomic<size_t> head{0};
-	alignas(CACHE_LINE_SIZE) std::array<AsyncSpeechTask, RING_BUFFER_SIZE> ringQueue;
-	alignas(CACHE_LINE_SIZE) std::atomic<size_t> tail{0};
+
+	alignas(destructive_alignment) std::atomic<size_t> head{0};
+	alignas(destructive_alignment) std::array<AsyncSpeechTask, RING_BUFFER_SIZE> ringQueue;
+	alignas(destructive_alignment) std::atomic<size_t> tail{0};
+	
 	std::mutex bellMutex;
 	std::condition_variable bellCond;
 	bool ringBell{false};
 	std::atomic<bool> stopRequested{false};
 
-	alignas(CACHE_LINE_SIZE) std::mutex initMutex;
+	alignas(destructive_alignment) std::mutex initMutex;
 	std::atomic<bool> initialized{false};
 	std::thread workerThread;
 
@@ -70,7 +77,6 @@ static bool CheckAndClearException(JNIEnv* env, const char* contextMessage) noex
 	return false;
 }
 #endif
-
 AndroidAccessibilityManager::AndroidAccessibilityManager() : m_impl(std::make_unique<Impl>()) {
 	for (size_t i = 0; i < Impl::RING_BUFFER_SIZE; ++i) {
 		m_impl->ringQueue[i].sequence.store(i, std::memory_order_relaxed);
@@ -78,13 +84,14 @@ AndroidAccessibilityManager::AndroidAccessibilityManager() : m_impl(std::make_un
 }
 
 AndroidAccessibilityManager::~AndroidAccessibilityManager() {
-	Uninitialize();
+	(void)Uninitialize();
 }
 
 bool AndroidAccessibilityManager::Initialize() {
 	std::lock_guard<std::mutex> lock(m_impl->initMutex);
-	if (m_impl->initialized.load(std::memory_order_acquire))
+	if (m_impl->initialized.load(std::memory_order_acquire)) {
 		return true;
+	}
 
 #ifdef __ANDROID__
 	m_impl->jvm = Sral::GetAndroidJavaVM();
@@ -95,13 +102,11 @@ bool AndroidAccessibilityManager::Initialize() {
 
 	ScopedAttachmentGuard jni(m_impl->jvm);
 	JNIEnv* env = jni.GetEnv();
-	if (!env) [[unlikely]]
-		return false;
+	if (!env) [[unlikely]] return false;
 
 	ScopedLocalRef activityRef = GetAndroidActivity();
 	jobject activity = activityRef.get();
-	if (!activity) [[unlikely]]
-		return false;
+	if (!activity) [[unlikely]] return false;
 
 	m_impl->UninitializeInternal(env);
 
@@ -128,8 +133,7 @@ bool AndroidAccessibilityManager::Initialize() {
 		return false;
 	}
 
-	jobject localObj =
-		env->NewObject(m_impl->announcerClass, m_impl->constructor, activity, static_cast<jobject>(nullptr));
+	jobject localObj = env->NewObject(m_impl->announcerClass, m_impl->constructor, activity, static_cast<jobject>(nullptr));
 	if (!localObj || env->ExceptionCheck()) [[unlikely]] {
 		env->ExceptionClear();
 		m_impl->UninitializeInternal(env);
@@ -150,8 +154,9 @@ bool AndroidAccessibilityManager::Uninitialize() {
 	std::thread threadToJoin;
 	{
 		std::lock_guard<std::mutex> lock(m_impl->initMutex);
-		if (!m_impl->initialized.load(std::memory_order_acquire))
+		if (!m_impl->initialized.load(std::memory_order_acquire)) {
 			return true;
+		}
 
 		m_impl->stopRequested.store(true, std::memory_order_release);
 		{
@@ -186,8 +191,7 @@ void AndroidAccessibilityManager::Impl::UninitializeInternal(JNIEnv* env) noexce
 	if (announcerObj) {
 		if (midShutdown) {
 			env->CallVoidMethod(announcerObj, midShutdown);
-			if (env->ExceptionCheck())
-				env->ExceptionClear();
+			if (env->ExceptionCheck()) env->ExceptionClear();
 		}
 		env->DeleteGlobalRef(announcerObj);
 		announcerObj = nullptr;
@@ -205,17 +209,16 @@ void AndroidAccessibilityManager::Impl::UninitializeInternal(JNIEnv* env) noexce
 	midStop = nullptr;
 	midShutdown = nullptr;
 }
-
 bool AndroidAccessibilityManager::Speak(const char* speech_text, bool interrupt) {
 	std::string_view text_view(speech_text ? speech_text : "");
 	if (!m_impl->initialized.load(std::memory_order_acquire)) {
 		std::lock_guard<std::mutex> lock(m_impl->initMutex);
-		if (!m_impl->initialized.load(std::memory_order_acquire) && !Initialize())
+		if (!m_impl->initialized.load(std::memory_order_acquire) && !Initialize()) {
 			return false;
+		}
 	}
 
-	if (m_impl->stopRequested.load(std::memory_order_acquire))
-		return false;
+	if (m_impl->stopRequested.load(std::memory_order_acquire)) return false;
 
 	AsyncSpeechTask* task = nullptr;
 	size_t ticket = m_impl->head.load(std::memory_order_relaxed);
@@ -253,8 +256,7 @@ bool AndroidAccessibilityManager::Speak(const char* speech_text, bool interrupt)
 }
 
 bool AndroidAccessibilityManager::StopSpeech() {
-	if (!m_impl->initialized.load(std::memory_order_acquire))
-		return false;
+	if (!m_impl->initialized.load(std::memory_order_acquire)) return false;
 
 	AsyncSpeechTask* task = nullptr;
 	size_t ticket = m_impl->head.load(std::memory_order_relaxed);
@@ -269,8 +271,7 @@ bool AndroidAccessibilityManager::StopSpeech() {
 			}
 		}
 		else {
-			if (difference < 0)
-				return false;
+			if (difference < 0) return false;
 			ticket = m_impl->head.load(std::memory_order_relaxed);
 		}
 	}
@@ -280,7 +281,6 @@ bool AndroidAccessibilityManager::StopSpeech() {
 	task->interrupt = true;
 
 	task->sequence.store(ticket + 1, std::memory_order_release);
-
 	{
 		std::lock_guard<std::mutex> bellLock(m_impl->bellMutex);
 		m_impl->ringBell = true;
@@ -288,7 +288,6 @@ bool AndroidAccessibilityManager::StopSpeech() {
 	m_impl->bellCond.notify_one();
 	return true;
 }
-
 void AndroidAccessibilityManager::Impl::BackgroundWorkerLoop() noexcept {
 #ifdef __ANDROID__
 	JavaVM* localJvm = nullptr;
@@ -299,19 +298,16 @@ void AndroidAccessibilityManager::Impl::BackgroundWorkerLoop() noexcept {
 	{
 		std::lock_guard<std::mutex> lock(initMutex);
 		localJvm = jvm;
-		if (announcerObj)
-			announcerObjGlobal = announcerObj;
+		if (announcerObj) announcerObjGlobal = announcerObj;
 		midAnnounceLocal = midAnnounce;
 		midStopLocal = midStop;
 	}
 
-	if (!localJvm || !announcerObjGlobal)
-		return;
+	if (!localJvm || !announcerObjGlobal) return;
 
 	ScopedAttachmentGuard jni(localJvm);
 	JNIEnv* env = jni.GetEnv();
-	if (!env)
-		return;
+	if (!env) return;
 #endif
 
 	while (!stopRequested.load(std::memory_order_acquire)) {
@@ -331,13 +327,11 @@ void AndroidAccessibilityManager::Impl::BackgroundWorkerLoop() noexcept {
 				bellCond.wait(bellLock);
 			}
 
-			if (stopRequested.load(std::memory_order_acquire)) [[unlikely]]
-				return;
+			if (stopRequested.load(std::memory_order_acquire)) [[unlikely]] return;
 			continue;
 		}
 
-		if (!initialized.load(std::memory_order_relaxed)) [[unlikely]]
-			return;
+		if (!initialized.load(std::memory_order_relaxed)) [[unlikely]] return;
 
 		const char* const localTextPtr = task.text.data();
 		const TaskType localType = task.type;
@@ -368,9 +362,7 @@ void AndroidAccessibilityManager::Impl::BackgroundWorkerLoop() noexcept {
 			}
 		}
 #else
-		(void)localTextPtr;
-		(void)localType;
-		(void)localInterrupt;
+		(void)localTextPtr; (void)localType; (void)localInterrupt;
 #endif
 
 		tail.store(currentTail + 1, std::memory_order_release);
@@ -379,21 +371,17 @@ void AndroidAccessibilityManager::Impl::BackgroundWorkerLoop() noexcept {
 }
 
 bool AndroidAccessibilityManager::GetActive() {
-	if (!m_impl->initialized.load(std::memory_order_acquire))
-		return false;
+	if (!m_impl->initialized.load(std::memory_order_acquire)) return false;
 
 #ifdef __ANDROID__
-	if (!m_impl->jvm || !m_impl->announcerObj || !m_impl->midIsActive)
-		return false;
+	if (!m_impl->jvm || !m_impl->announcerObj || !m_impl->midIsActive) return false;
 
 	ScopedAttachmentGuard jni(m_impl->jvm);
 	JNIEnv* env = jni.GetEnv();
-	if (!env)
-		return false;
+	if (!env) return false;
 
 	jboolean result = env->CallBooleanMethod(m_impl->announcerObj, m_impl->midIsActive);
-	if (CheckAndClearException(env, "CallBooleanMethod: isActive"))
-		return false;
+	if (CheckAndClearException(env, "CallBooleanMethod: isActive")) return false;
 
 	return result == JNI_TRUE;
 #else

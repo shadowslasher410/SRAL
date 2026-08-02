@@ -1,7 +1,6 @@
-#pragma once
-
 #ifndef WASAPI_H_
 #define WASAPI_H_
+#pragma once
 
 #if defined(_WIN32)
 #if defined(SRAL_STATIC)
@@ -27,11 +26,14 @@
 #include <condition_variable>
 #include <memory>
 #include <mutex>
+#include <new>
+#include <stop_token>
 #include <string>
 #include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
+#include <version>
 
 _COM_SMARTPTR_TYPEDEF(IMMDevice, __uuidof(IMMDevice));
 _COM_SMARTPTR_TYPEDEF(IMMDeviceCollection, __uuidof(IMMDeviceCollection));
@@ -43,12 +45,20 @@ _COM_SMARTPTR_TYPEDEF(IAudioStreamVolume, __uuidof(IAudioStreamVolume));
 _COM_SMARTPTR_TYPEDEF(ISimpleAudioVolume, __uuidof(ISimpleAudioVolume));
 _COM_SMARTPTR_TYPEDEF(IPropertyStore, __uuidof(IPropertyStore));
 
+#if defined(__cpp_lib_hardware_interference_size) && __cpp_lib_hardware_interference_size >= 201907L
+using std::hardware_destructive_interference_size;
+#else
+#if defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64) || defined(TARGET_CPU_ARM64)
+static constexpr size_t hardware_destructive_interference_size = 128;
+#else
+static constexpr size_t hardware_destructive_interference_size = 64;
+#endif
+#endif
+
 class AutoHandle final {
 public:
 	constexpr AutoHandle() noexcept : handle(nullptr) {}
-
 	explicit AutoHandle(HANDLE h) noexcept : handle((h == INVALID_HANDLE_VALUE || h == nullptr) ? nullptr : h) {}
-
 	~AutoHandle() noexcept { reset(); }
 
 	AutoHandle(const AutoHandle&) = delete;
@@ -76,9 +86,7 @@ public:
 	}
 
 	[[nodiscard]] operator HANDLE() const noexcept { return handle; }
-
 	[[nodiscard]] HANDLE get() const noexcept { return handle; }
-
 	[[nodiscard]] bool isValid() const noexcept { return handle != nullptr; }
 
 	void reset() noexcept {
@@ -110,9 +118,8 @@ public:
 	}
 
 	STDMETHODIMP QueryInterface(REFIID riid, void** ppvObject) final {
-		if (!ppvObject) [[unlikely]] {
+		if (!ppvObject) [[unlikely]]
 			return E_POINTER;
-		}
 
 		if (riid == __uuidof(IUnknown) || riid == __uuidof(IMMNotificationClient)) {
 			AddRef();
@@ -124,36 +131,22 @@ public:
 		return E_NOINTERFACE;
 	}
 
-	STDMETHODIMP OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR defaultDeviceId) final {
-		(void)defaultDeviceId;
+	STDMETHODIMP OnDefaultDeviceChanged(EDataFlow flow, ERole role, LPCWSTR) final {
 		if (flow == eRender && role == eConsole) {
 			defaultDeviceChangeCount.fetch_add(1, std::memory_order_release);
 		}
 		return S_OK;
 	}
 
-	STDMETHODIMP OnDeviceAdded(LPCWSTR deviceId) final {
-		(void)deviceId;
-		return S_OK;
-	}
+	STDMETHODIMP OnDeviceAdded(LPCWSTR) final { return S_OK; }
+	STDMETHODIMP OnDeviceRemoved(LPCWSTR) final { return S_OK; }
 
-	STDMETHODIMP OnDeviceRemoved(LPCWSTR deviceId) final {
-		(void)deviceId;
-		return S_OK;
-	}
-
-	STDMETHODIMP OnDeviceStateChanged(LPCWSTR deviceId, DWORD newState) final {
-		(void)deviceId;
-		(void)newState;
+	STDMETHODIMP OnDeviceStateChanged(LPCWSTR, DWORD) final {
 		deviceStateChangeCount.fetch_add(1, std::memory_order_release);
 		return S_OK;
 	}
 
-	STDMETHODIMP OnPropertyValueChanged(LPCWSTR deviceId, PROPERTYKEY key) final {
-		(void)deviceId;
-		(void)key;
-		return S_OK;
-	}
+	STDMETHODIMP OnPropertyValueChanged(LPCWSTR, PROPERTYKEY) final { return S_OK; }
 
 	[[nodiscard]] unsigned int getDefaultDeviceChangeCount() const noexcept {
 		return defaultDeviceChangeCount.load(std::memory_order_acquire);
@@ -165,7 +158,6 @@ public:
 
 private:
 	~NotificationClient() = default;
-
 	NotificationClient(const NotificationClient&) = delete;
 	NotificationClient& operator=(const NotificationClient&) = delete;
 
@@ -182,31 +174,38 @@ public:
 
 	WasapiPlayer(
 		std::wstring_view targetDeviceName, const WAVEFORMATEX& audioFormat, ChunkCompletedCallback endChunkCallback);
-	~WasapiPlayer();
+	~WasapiPlayer() noexcept;
+
 	WasapiPlayer(const WasapiPlayer&) = delete;
 	WasapiPlayer& operator=(const WasapiPlayer&) = delete;
 	WasapiPlayer(WasapiPlayer&&) = delete;
 	WasapiPlayer& operator=(WasapiPlayer&&) = delete;
 
-	[[nodiscard]] HRESULT open(bool force = false);
-	[[nodiscard]] HRESULT feed(const unsigned char* data, unsigned int size, unsigned int* id);
-	[[nodiscard]] HRESULT stop();
-	[[nodiscard]] HRESULT sync();
-	[[nodiscard]] HRESULT idle();
-	[[nodiscard]] HRESULT pause();
-	[[nodiscard]] HRESULT resume();
-	[[nodiscard]] HRESULT setVolume(float volume); // For basic UI mixer utility if exposed upstream
-	[[nodiscard]] HRESULT setChannelVolume(unsigned int channel, float level);
+	[[nodiscard]] HRESULT open(bool force = false) noexcept;
+	[[nodiscard]] HRESULT feed(const unsigned char* data, unsigned int size, unsigned int* id) noexcept;
+	[[nodiscard]] HRESULT stop() noexcept;
+	[[nodiscard]] HRESULT sync() noexcept;
+	[[nodiscard]] HRESULT idle() noexcept;
+	[[nodiscard]] HRESULT pause() noexcept;
+	[[nodiscard]] HRESULT resume() noexcept;
+	[[nodiscard]] HRESULT setVolume(float volume) noexcept;
+	[[nodiscard]] HRESULT setChannelVolume(unsigned int channel, float level) noexcept;
 
 	WAVEFORMATEX format;
 
 private:
-	void processAudioLoop();
-	HRESULT writeFramesToWasapi(const unsigned char* data, UINT32 totalFrames, unsigned int chunkId);
+	enum class PlayState : uint8_t {
+		stopped,
+		playing,
+		paused,
+		stopping,
+	};
 
-	void maybeFireCallback();
-	void maybeFireCallbackInternal();
-	void completeStop();
+	void processAudioLoop(std::stop_token stopToken) noexcept;
+	HRESULT writeFramesToWasapi(const unsigned char* data, UINT32 totalFrames, unsigned int chunkId) noexcept;
+	void maybeFireCallback() noexcept;
+	void maybeFireCallbackInternal() noexcept;
+	void completeStop() noexcept;
 
 	[[nodiscard]] inline UINT64 framesToMs(UINT64 frames) const noexcept {
 		if (format.nSamplesPerSec == 0) [[unlikely]]
@@ -214,48 +213,44 @@ private:
 		return (frames * 1000) / format.nSamplesPerSec;
 	}
 
-	[[nodiscard]] UINT64 getPlayPos();
-	[[nodiscard]] UINT64 getPlayPosInternal();
-	void waitUntilNeeded(UINT64 maxWait = INFINITE);
-	[[nodiscard]] HRESULT getPreferredDevice(IMMDevicePtr& preferredDevice);
-	[[nodiscard]] bool didPreferredDeviceBecomeAvailable();
-	[[nodiscard]] size_t getAvailableWriteSpace() const;
-	[[nodiscard]] size_t getAvailableReadSpace() const;
-
-	void writeToRingBuffer(size_t& tail, const unsigned char* src, size_t len);
-	void readFromRingBuffer(size_t& head, unsigned char* dest, size_t len);
-
-	enum class PlayState {
-		stopped,
-		playing,
-		paused,
-		stopping,
-	};
-
+	[[nodiscard]] UINT64 getPlayPos() noexcept;
+	[[nodiscard]] UINT64 getPlayPosInternal() noexcept;
+	void waitUntilNeeded(UINT64 maxWait = INFINITE) noexcept;
+	[[nodiscard]] HRESULT getPreferredDevice(IMMDevicePtr& preferredDevice) noexcept;
+	[[nodiscard]] bool didPreferredDeviceBecomeAvailable() noexcept;
+	[[nodiscard]] size_t getAvailableWriteSpace() const noexcept;
+	[[nodiscard]] size_t getAvailableReadSpace() const noexcept;
+	void writeToRingBuffer(size_t& tail, const unsigned char* src, size_t len) noexcept;
+	void readFromRingBuffer(size_t& head, unsigned char* dest, size_t len) noexcept;
 	size_t ringBufferCapacity = 0;
-	std::unique_ptr<unsigned char[]> ringBuffer;
-	std::atomic<size_t> rbHead{0};
-	std::atomic<size_t> rbTail{0};
-	std::thread workerThread;
-	std::mutex queueMutex;
+	alignas(hardware_destructive_interference_size) std::unique_ptr<unsigned char[]> ringBuffer;
+	alignas(hardware_destructive_interference_size) std::atomic<size_t> rbHead{0};
+	alignas(hardware_destructive_interference_size) std::atomic<size_t> rbTail{0};
+	alignas(hardware_destructive_interference_size) std::atomic<bool> isRunning{false};
+	alignas(hardware_destructive_interference_size) std::atomic<PlayState> playState{PlayState::stopped};
+	alignas(hardware_destructive_interference_size) std::jthread workerThread;
+	alignas(hardware_destructive_interference_size) mutable std::mutex queueMutex;
 	std::condition_variable queueCV;
-	std::atomic<bool> isRunning{false};
+
 	IAudioClientPtr client{nullptr};
 	IAudioRenderClientPtr render{nullptr};
 	IAudioClockPtr clock{nullptr};
-	UINT32 bufferFrames = 0;
+
 	std::wstring deviceName;
 	ChunkCompletedCallback callback = nullptr;
-	PlayState playState = PlayState::stopped;
 	std::vector<std::pair<unsigned int, UINT64>> feedEnds;
+
 	UINT64 clockFreq = 0;
 	UINT64 baseDevicePos = 0;
 	UINT64 sentFrames = 0;
+	UINT32 bufferFrames = 0;
+
 	unsigned int nextFeedId = 0;
 	unsigned int defaultDeviceChangeCount = 0;
 	unsigned int deviceStateChangeCount = 0;
+
 	bool isUsingPreferredDevice = false;
 	AutoHandle audioEvent;
 };
 
-#endif
+#endif // WASAPI_H_

@@ -13,7 +13,7 @@ namespace Sral {
  * @param output Reference to target wide string destination container.
  * @return True if conversion succeeded, false if an encoding error or constraint violation occurred.
  */
-[[nodiscard]] bool UnicodeConvert(std::string_view input, std::wstring& output);
+[[nodiscard]] bool UnicodeConvert(std::string_view input, std::wstring& output) noexcept;
 
 /**
  * @brief Converts a UTF-16 wide string view into a UTF-8 string.
@@ -21,14 +21,14 @@ namespace Sral {
  * @param output The destination UTF-8 string container.
  * @return True if conversion succeeded, false if an encoding error or constraint violation occurred.
  */
-[[nodiscard]] bool UnicodeConvert(std::wstring_view input, std::string& output);
+[[nodiscard]] bool UnicodeConvert(std::wstring_view input, std::string& output) noexcept;
 
 /**
  * @brief Escapes reserved XML/HTML characters on an active string.
  * @details Optimizes allocations using safe single-pass pre-calculated expansion metrics.
  * @param data Target string reference to escape.
  */
-void XmlEncode(std::string& data);
+void XmlEncode(std::string& data) noexcept;
 
 } // namespace Sral
 

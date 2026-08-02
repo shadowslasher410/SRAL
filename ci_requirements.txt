@@ -1,0 +1,28 @@
+# =============================================================================
+# SRAL CI Python Dependencies Lockfile
+# NOTE: Hashes MUST be updated and re-verified on each new package release!
+# =============================================================================
+
+# pip binaries
+pip==26.2 \
+  # Python Source Distribution (.tar.gz)
+  --hash=sha256:2d8542afcc84cdd8e846c2b36b2861fad1da376dd98f8e7113e9108a3c331690 \
+  # Universal Python Wheel (.whl)
+  --hash=sha256:931c303696af6fa3417112103b1cad26890e5a07eccb5b99783700e33f2b8aad
+
+# Ninja Backend Generator
+ninja==1.13.0 \
+  # Linux x86_64 Wheel
+  --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978 \
+  # Windows x86_64 Wheel
+  --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa \
+  # macOS x86_64/Universal Wheel
+  --hash=sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e \
+  # Windows ARM64 Wheel
+  --hash=sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1 \
+  # Linux ARM64 Wheel
+  --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff \
+  # macOS ARM64 Wheel
+  --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
+  # Python Source Distribution (.tar.gz)
+  --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee

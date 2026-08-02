@@ -1,5 +1,6 @@
 import 'dart:io';
-import 'sral.dart';
+import 'sral_types.dart';
+import 'sral.dart';       
 
 void testSection(String name) {
   print("\n\n========================================");
@@ -30,36 +31,35 @@ void promptUser(String message) {
 
 void printSupportedFeatures(int features) {
   print("Supported Features ($features):");
-  if (features == SralFeatureFlags.none) {
+  if (features == SralEngine.none) {
     print("  (None)");
     return;
   }
-  if ((features & SralFeatureFlags.supportsSpeech) != 0) print("  - SUPPORTS_SPEECH");
-  if ((features & SralFeatureFlags.supportsBraille) != 0) print("  - SUPPORTS_BRAILLE");
-  if ((features & SralFeatureFlags.supportsSpeechRate) != 0) print("  - SUPPORTS_SPEECH_RATE");
-  if ((features & SralFeatureFlags.supportsSpeechVolume) != 0) print("  - SUPPORTS_SPEECH_VOLUME");
-  if ((features & SralFeatureFlags.supportsSelectVoice) != 0) print("  - SUPPORTS_SELECT_VOICE");
-  if ((features & SralFeatureFlags.supportsPauseSpeech) != 0) print("  - SUPPORTS_PAUSE_SPEECH");
-  if ((features & SralFeatureFlags.supportsSSML) != 0) print("  - SUPPORTS_SSML");
-  if ((features & SralFeatureFlags.supportsSpeakToMemory) != 0) print("  - SUPPORTS_SPEAK_TO_MEMORY");
-  if ((features & SralFeatureFlags.supportsSpelling) != 0) print("  - SUPPORTS_SPELLING");
+  if ((features & SralFeature.speech) != 0) print("  - SUPPORTS_SPEECH");
+  if ((features & SralFeature.braille) != 0) print("  - SUPPORTS_BRAILLE");
+  if ((features & SralFeature.speechRate) != 0) print("  - SUPPORTS_SPEECH_RATE");
+  if ((features & SralFeature.speechVolume) != 0) print("  - SUPPORTS_SPEECH_VOLUME");
+  if ((features & SralFeature.selectVoice) != 0) print("  - SUPPORTS_SELECT_VOICE");
+  if ((features & SralFeature.pauseSpeech) != 0) print("  - SUPPORTS_PAUSE_SPEECH");
+  if ((features & SralFeature.ssml) != 0) print("  - SUPPORTS_SSML");
+  if ((features & SralFeature.speakToMemory) != 0) print("  - SUPPORTS_SPEAK_TO_MEMORY");
+  if ((features & SralFeature.spelling) != 0) print("  - SUPPORTS_SPELLING");
   print("");
 }
 
 void printEngineNames(int engineBitmask, String title) {
   print("$title:");
-  if (engineBitmask == SralEngineFlags.none) {
+  if (engineBitmask == SralEngine.none) {
     print("  (None)\n");
     return;
   }
   
-  final sral = SRAL();
   bool found = false;
-  
-  for (int i = 1; i <= 14; i++) {
+  for (int i = 1; i <= 15; i++) {
     int flag = 1 << i;
     if ((engineBitmask & flag) != 0) {
-      String name = sral.getEngineName(flag);
+      String name = Sral.getEngineName(flag);
+      if (name.isEmpty) name = "Unnamed Core Driver Target";
       print("  - $name (0x${flag.toRadixString(16).toUpperCase()})");
       found = true;
     }
@@ -69,44 +69,43 @@ void printEngineNames(int engineBitmask, String title) {
 }
 
 void main() {
-  final sral = SRAL();
   print("SRAL Dart/Flutter Tester\n-------------------------");
 
   testSection("sral.isInitialized (Before Initialization)");
-  check(!sral.isInitialized(), "isInitialized correctly returns false before init.", "isInitialized returned true before init!");
+  check(!Sral.isInitialized(), "isInitialized correctly returns false before init.", "isInitialized returned true before init!");
 
   testSection("sral.initialize");
-  int enginesToExclude = SralEngineFlags.uia;
-  print("Attempting to initialize SRAL, excluding engines flag: $enginesToExclude (${sral.getEngineName(enginesToExclude)})");
+  int enginesToExclude = SralEngine.uia; 
+  print("Attempting to initialize SRAL, excluding engines flag: $enginesToExclude (${Sral.getEngineName(enginesToExclude)})");
 
-  if (sral.initialize(enginesToExclude)) {
+  if (Sral.initialize(enginesExclude: enginesToExclude)) {
     print("[SUCCESS] SRAL_Initialize successful.");
   } else {
     print("[FAILURE] SRAL_Initialize failed. Exiting.");
     return;
   }
-  check(sral.isInitialized(), "isInitialized correctly returns true after init.", "isInitialized returned false after init!");
+  check(Sral.isInitialized(), "isInitialized correctly returns true after init.", "isInitialized returned false after init!");
 
   testSection("Engine Telemetry Information");
-  int availableEngines = sral.getAvailableEngines();
+  int availableEngines = Sral.getAvailableEngines();
   printEngineNames(availableEngines, "Available Engines on this Platform");
 
-  int activeEngines = sral.getActiveEngines();
+  int activeEngines = Sral.getActiveEngines();
   printEngineNames(activeEngines, "Currently Active/Usable Engines");
 
-  int currentEngineId = sral.getCurrentEngine();
-  print("Current Default Engine: ${sral.getEngineName(currentEngineId)} ($currentEngineId)");
+  int currentEngineId = Sral.getCurrentEngine();
+  print("Current Default Engine: ${Sral.getEngineName(currentEngineId)} ($currentEngineId)");
 
-  int specificEngineForExTests = SralEngineFlags.none;
-  for (int i = 1; i <= 14; i++) {
+  int specificEngineForExTests = SralEngine.none;
+  for (int i = 1; i <= 15; i++) {
     int flag = 1 << i;
     if (((activeEngines & flag) != 0) && flag != currentEngineId) {
       specificEngineForExTests = flag;
       break;
     }
   }
-  if (specificEngineForExTests == SralEngineFlags.none && activeEngines != SralEngineFlags.none) {
-    for (int i = 1; i <= 14; i++) {
+  if (specificEngineForExTests == SralEngine.none && activeEngines != SralEngine.none) {
+    for (int i = 1; i <= 15; i++) {
       int flag = 1 << i;
       if ((activeEngines & flag) != 0) {
         specificEngineForExTests = flag;
@@ -115,14 +114,14 @@ void main() {
     }
   }
 
-  if (specificEngineForExTests != SralEngineFlags.none) {
-    print("\nWill use engine '${sral.getEngineName(specificEngineForExTests)}' ($specificEngineForExTests) for specific engine (Ex) tests.");
+  if (specificEngineForExTests != SralEngine.none) {
+    print("\nWill use engine '${Sral.getEngineName(specificEngineForExTests)}' ($specificEngineForExTests) for specific engine (Ex) tests.");
   } else {
     print("\nNo distinct specific engine active for explicit Ex tests.");
   }
 
   testSection("Keyboard Hooks Activation Layer");
-  if (sral.registerKeyboardHooks()) {
+  if (Sral.registerKeyboardHooks()) {
     print("[SUCCESS] global keyboard hooks registered.");
     promptUser("Keyboard hooks (Ctrl=Interrupt, Shift=Pause) active. Test them during speech checks.");
   } else {
@@ -130,108 +129,158 @@ void main() {
   }
 
   testSection("sral.getEngineFeatures");
-  print("Features for Current Default Engine (${sral.getEngineName(currentEngineId)}):");
-  int currentEngineFeatures = sral.getEngineFeatures(SralEngineFlags.none);
+  print("Features for Current Default Engine (${Sral.getEngineName(currentEngineId)}):");
+  int currentEngineFeatures = Sral.getEngineFeatures(SralEngine.none);
   printSupportedFeatures(currentEngineFeatures);
 
-  if ((currentEngineFeatures & SralFeatureFlags.supportsSpeech) != 0) {
-    testSection("sral.speak (Default Engine)");
-    checkSRAL(sral.speak("Testing SRAL Speak from Dart, not interrupting previous speech.", false), "sral.speak (no interrupt)");
-    sral.delay(2000);
-    checkSRAL(sral.speak("Testing SRAL Speak from Dart, interrupting previous speech now.", true), "sral.speak (interrupt)");
-    sral.delay(2000);
+  if (specificEngineForExTests != SralEngine.none) {
+    print("Features for Specific Engine selected for Ex tests (${Sral.getEngineName(specificEngineForExTests)}):");
+    int specificEngineFeatures = Sral.getEngineFeatures(specificEngineForExTests);
+    printSupportedFeatures(specificEngineFeatures);
+  }
 
-    if (specificEngineForExTests != SralEngineFlags.none) {
+  if ((currentEngineFeatures & SralFeature.speech) != 0) {
+    testSection("sral.speak (Default Engine)");
+    checkSRAL(Sral.speak("Testing SRAL Speak from Dart, not interrupting previous speech.", interrupt: false), "sral.speak (no interrupt)");
+    Sral.delay(2000);
+    checkSRAL(Sral.speak("Testing SRAL Speak from Dart, interrupting previous speech now.", interrupt: true), "sral.speak (interrupt)");
+    Sral.delay(2000);
+
+    if (specificEngineForExTests != SralEngine.none) {
       testSection("sral.speakEx (Specific Engine)");
-      int featuresEx = sral.getEngineFeatures(specificEngineForExTests);
-      if ((featuresEx & SralFeatureFlags.supportsSpeech) != 0) {
-        checkSRAL(sral.speakEx(specificEngineForExTests, "Testing explicit sub-driver routing configurations using SpeakEx.", false), "sral.speakEx (no interrupt)");
-        sral.delay(2000);
+      int featuresEx = Sral.getEngineFeatures(specificEngineForExTests);
+      if ((featuresEx & SralFeature.speech) != 0) {
+        checkSRAL(Sral.speakEx(specificEngineForExTests, "Testing explicit sub-driver routing configurations using SpeakEx.", interrupt: false), "sral.speakEx (no interrupt)");
+        Sral.delay(2000);
+        checkSRAL(Sral.speakEx(specificEngineForExTests, "Testing explicit sub-driver routing configurations using SpeakEx, interrupting.", interrupt: true), "sral.speakEx (interrupt)");
+        Sral.delay(2000);
       }
     }
 
     testSection("Speech Flow Control (Pause / Resume / Stop)");
     String longSpeech = "This is a moderately long sentence configuration designed to validate the runtime pausing, resuming, and stopping workflows natively.";
     print("Speaking sequence: \"$longSpeech\"");
-    sral.speak(longSpeech, true);
-    sral.delay(1000);
-    print("IsSpeaking checking loop status flag: ${sral.isSpeaking()}");
+    Sral.speak(longSpeech, interrupt: true);
+    Sral.delay(1000);
+    print("IsSpeaking checking loop status flag: ${Sral.isSpeaking()}");
 
-    if ((currentEngineFeatures & SralFeatureFlags.supportsPauseSpeech) != 0) {
-      checkSRAL(sral.pauseSpeech(), "sral.pauseSpeech");
+    if ((currentEngineFeatures & SralFeature.pauseSpeech) != 0) {
+      checkSRAL(Sral.pauseSpeech(), "sral.pauseSpeech");
       promptUser("Speech engine paused. Verify silence.");
-      checkSRAL(sral.resumeSpeech(), "sral.resumeSpeech");
-      sral.delay(1500);
+      checkSRAL(Sral.resumeSpeech(), "sral.resumeSpeech");
+      Sral.delay(1500);
+    } else {
+      print("Pause/Resume not supported by current default engine. Will attempt stop directly.");
+      promptUser("Speech should be ongoing. Press Enter to STOP.");
     }
-    checkSRAL(sral.stopSpeech(), "sral.stopSpeech");
-    print("IsSpeaking status post stop instruction: ${sral.isSpeaking()}");
-  }
+    checkSRAL(Sral.stopSpeech(), "sral.stopSpeech");
+    print("IsSpeaking status post stop instruction: ${Sral.isSpeaking()}");
+    Sral.delay(500);
 
-  testSection("Dynamic Voice Queries & Allocation");
-  int voiceCount = sral.getIntParameter(currentEngineId, SralEngineParams.voiceCount);
-  if (voiceCount > 0) {
-    print("Voices found count metric: $voiceCount");
-    List<SralVoiceInfo> voices = sral.getVoices(currentEngineId);
-    for (var v in voices) {
-      print("  - Voice [${v.index}]: Name='${v.name}' Language='${v.language}' Gender='${v.gender}' (Vendor: ${v.vendor})");
-    }
+    if (specificEngineForExTests != SralEngine.none) {
+      testSection("Speech Control Ex (Specific Engine)");
+      int featuresEx = Sral.getEngineFeatures(specificEngineForExTests);
+      if ((featuresEx & SralFeature.speech) != 0) {
+        String engineName = Sral.getEngineName(specificEngineForExTests);
+        print("Speaking long sentence with engine $engineName: \"$longSpeech\"");
+        Sral.speakEx(specificEngineForExTests, longSpeech, interrupt: true);
+        promptUser("Speech started (Ex). Press Enter to attempt PAUSE (Ex) (if supported).");
+        print("IsSpeaking status: ${Sral.isSpeakingEx(specificEngineForExTests)}");
 
-    if (voiceCount > 1 && (currentEngineFeatures & SralFeatureFlags.supportsSelectVoice) != 0) {
-      print("Switching channel environment context to alternative system voice index 1...");
-      if (sral.setIntParameter(currentEngineId, SralEngineParams.voiceIndex, 1)) {
-        sral.speak("This text evaluates speech using an alternative systemic voice profile configuration.", true);
-        sral.delay(2500);
-        sral.setIntParameter(currentEngineId, SralEngineParams.voiceIndex, 0);
+        if ((featuresEx & SralFeature.pauseSpeech) != 0) {
+          checkSRAL(Sral.pauseSpeechEx(specificEngineForExTests), "sral.pauseSpeechEx");
+          promptUser("Speech Paused (Ex). Press Enter to attempt RESUME (Ex).");
+          checkSRAL(Sral.resumeSpeechEx(specificEngineForExTests), "sral.resumeSpeechEx");
+          promptUser("Speech Resumed (Ex). Press Enter to STOP (Ex).");
+        } else {
+          print("Pause/Resume not supported by specific engine $engineName. Will attempt stop directly.");
+          promptUser("Speech should be ongoing (Ex). Press Enter to STOP (Ex).");
+        }
+
+        checkSRAL(Sral.stopSpeechEx(specificEngineForExTests), "sral.stopSpeechEx");
+        print("Speech should be stopped (Ex).\n");
+        Sral.delay(500);
       }
     }
   }
 
-  testSection("SSML Parsing Verification");
-  if ((currentEngineFeatures & SralFeatureFlags.supportsSSML) != 0) {
-    String ssmlText = "<speak>Testing <break time=\"400ms\"/> structural SSML markup tags.</speak>";
-    checkSRAL(sral.speakSsml(ssmlText, true), "sral.speakSsml");
-    sral.delay(3000);
-  }
-
-  testSection("Raw Audio Memory Generation Framework (speakToMemory)");
-  if ((currentEngineFeatures & SralFeatureFlags.supportsSpeakToMemory) != 0) {
-    print("Synthesizing raw string layouts into local application typed array structures...");
-    final pcm = sral.speakToMemory("Audio serialization buffer check.");
-    if (pcm != null) {
-      print("[SUCCESS] Managed data block generated successfully.");
-      print("  Buffer Array Dimensions: ${pcm.buffer.length} bytes extracted.");
-      print("  Format Specs: Channels=${pcm.channels} | Rate=${pcm.sampleRate}Hz | Depth=${pcm.bitsPerSample}-bit depth layer.");
-    } else {
-      print("[FAILURE] speakToMemory execution sequence faulted.");
+  testSection("Dynamic Voice Queries & Allocation");
+  List<SralVoiceInfo> voices = Sral.getEngineVoiceList(currentEngineId);
+  int voiceCount = voices.length;
+  
+  if (voiceCount > 0) {
+    print("Voices found count metric: $voiceCount");
+    for (var v in voices) {
+      print("  - Voice [${v.index}]: Name='${v.name}' Language='${v.language}' Gender='${v.gender}' (Vendor: ${v.vendor})");
     }
   }
 
-  testSection("Tactile Braille Refresh & Combined Output Targets");
-  if ((currentEngineFeatures & SralFeatureFlags.supportsBraille) != 0) {
-    checkSRAL(sral.braille("DART BINDINGS"), "sral.braille pin layout updates");
+  testSection("SSML Parsing Verification");
+  if ((currentEngineFeatures & SralFeature.ssml) != 0) {
+    String ssmlText = "<speak>Testing <break time=\"400ms\"/> structural SSML markup tags.</speak>";
+    checkSRAL(Sral.speakSsml(ssmlText, interrupt: true), "sral.speakSsml");
+    Sral.delay(3000);
+
+    if (specificEngineForExTests != SralEngine.none) {
+      testSection("SSML Parsing Verification Ex (Specific Engine)");
+      int featuresEx = Sral.getEngineFeatures(specificEngineForExTests);
+      if ((featuresEx & SralFeature.ssml) != 0) {
+        checkSRAL(Sral.speakSsmlEx(specificEngineForExTests, ssmlText, interrupt: true), "sral.speakSsmlEx");
+        Sral.delay(3000);
+      } else {
+        print("Specific engine ${Sral.getEngineName(specificEngineForExTests)} does not support SSML for SpeakSsmlEx.");
+      }
+    }
+  } else {
+    print("Current default engine does not support SSML. Skipping SSML tests.");
+}
+    testSection("Raw Audio Memory Generation Framework (speakToMemory)");
+  if ((currentEngineFeatures & SralFeature.speakToMemory) != 0) {
+    print("Synthesizing raw string layouts into local application typed array structures...");
+    
+    final SralPcmBuffer pcm = Sral.speakToMemory("Audio serialization buffer check.");
+    try {
+      if (!pcm.isEmpty) {
+        print("[SUCCESS] Managed data block generated successfully.");
+        print("  Buffer Array Dimensions: ${pcm.bytes.length} bytes extracted.");
+        print("  Format Specs: Channels=${pcm.channels} | Rate=${pcm.sampleRate}Hz | Depth=${pcm.bitsPerSample}-bit depth layer.");
+      } else {
+        print("[FAILURE] speakToMemory execution sequence faulted.");
+      }
+    } finally {
+      pcm.dispose();
+    }
   }
-  checkSRAL(sral.output("Unified distribution test tracking endpoint paths.", true), "sral.output combined pipeline paths");
-  sral.delay(2000);
-    testSection("Asynchronous Threaded Queue Loops (delayOutput Methods)");
-  if ((currentFeatures & SralFeatureFlags.speech) != 0) {
+
+
+  testSection("Tactile Braille Refresh & Combined Output Targets");
+  if ((currentEngineFeatures & SralFeature.braille) != 0) {
+    checkSRAL(Sral.braille("DART BINDINGS"), "sral.braille pin layout updates");
+  }
+  checkSRAL(Sral.output("Unified distribution test tracking endpoint paths.", interrupt: true), "sral.output combined pipeline paths");
+  Sral.delay(2000);
+  
+  testSection("Asynchronous Threaded Queue Loops (delayOutput Methods)");
+  if ((currentEngineFeatures & SralFeature.speech) != 0) {
     print("Dispatching speech items onto asynchronous background delay processing thread pipelines (Default Engine)...");
-    checkSRAL(sral.delayOutput("Staged delay message number one.", 0, true, true, false, false), "delayOutput 1 (Flushing Queue Context Instantly)");
-    checkSRAL(sral.delayOutput("Staged delay message number two.", 1500, false, true, false, false), "delayOutput 2 (Staged Timing Enqueueing step)");
+    
+    checkSRAL(Sral.delayOutput(0, "Staged delay message number one.", interrupt: true), "delayOutput 1 (Flushing Queue Context Instantly)");
+    checkSRAL(Sral.delayOutput(1500, "Staged delay message number two.", interrupt: false), "delayOutput 2 (Staged Timing Enqueueing step)");
     
     print("Halting Dart application thread loop execution context to give background processing loop worker threads room to deplete...");
-    sral.delay(3500);
+    Sral.delay(3500);
 
-    if (specificEngineForExTests != SralEngineFlags.none) {
-      int featEx = sral.getEngineFeatures(specificEngineForExTests);
-      if ((featEx & SralFeatureFlags.speech) != 0) {
-        String nameEx = sral.getEngineName(specificEngineForExTests);
+    if (specificEngineForExTests != SralEngine.none) {
+      int featEx = SralNative.sralGetEngineFeatures(specificEngineForExTests);
+      if ((featEx & SralFeature.speech) != 0) {
+        String nameEx = Sral.getEngineName(specificEngineForExTests);
         print("Staging text configurations onto async background queue workers targeting specific engine: $nameEx...");
         
-        checkSRAL(sral.delayOutputEx(specificEngineForExTests, "Explicitly targeted background queue message step one.", 0, true, true, false, false), "delayOutputEx 1 (Flushing Explicit Target Instance)");
-        checkSRAL(sral.delayOutputEx(specificEngineForExTests, "Explicitly targeted background queue message step two.", 1500, false, true, false, false), "delayOutputEx 2 (Staged Explicit Target Instance Timing Enqueueing)");
+        checkSRAL(Sral.delayOutputEx(specificEngineForExTests, 0, "Explicitly targeted background queue message step one.", interrupt: true), "delayOutputEx 1 (Flushing Explicit Target Instance)");
+        checkSRAL(Sral.delayOutputEx(specificEngineForExTests, 1500, "Explicitly targeted background queue message step two.", interrupt: false), "delayOutputEx 2 (Staged Explicit Target Instance Timing Enqueueing)");
         
         print("Halting Dart thread frame to allow the explicit driver loop context ($nameEx) to deplete thread stacks...");
-        sral.delay(3500);
+        Sral.delay(3500);
       }
     }
   } else {
@@ -239,35 +288,38 @@ void main() {
   }
 
   testSection("Dynamic Engine Exclusion List Adjustment Modifications");
-  print("Current global exclusion tracking filter profile bitmask: 0x${originalEnginesToExclude.toRadixString(16).toUpperCase()}");
+  final int? originalEnginesToExclude = Sral.getEnginesExclude();
+  final actualExcludeMask = originalEnginesToExclude ?? SralEngine.none;
+  print("Current global exclusion tracking filter profile bitmask: 0x${actualExcludeMask.toRadixString(16).toUpperCase()}");
   
-  int experimentalExclusionMask = SralEngineFlags.sapi | SralEngineFlags.narrator;
+  int experimentalExclusionMask = SralEngine.sapi | SralEngine.narrator;
   print("Updating system filter bitmask parameters to: 0x${experimentalExclusionMask.toRadixString(16).toUpperCase()}");
   
-  if (sral.setEnginesExclude(experimentalExclusionMask)) {
-    int freshlyFetchedExclusionMask = sral.getEnginesExclude();
+  if (Sral.setEnginesExclude(experimentalExclusionMask)) {
+    final freshlyFetchedExclusionMask = Sral.getEnginesExclude() ?? SralEngine.none;
     print("New dynamic filter bitmask profile value confirmed by engine get channel feedback: 0x${freshlyFetchedExclusionMask.toRadixString(16).toUpperCase()}");
+    
     check(freshlyFetchedExclusionMask == experimentalExclusionMask, "Dynamic profile exclusion changes verified successfully.", "Dynamic filter parameters failed value alignment validations!");
     
-    sral.setEnginesExclude(originalEnginesToExclude);
+    Sral.setEnginesExclude(actualExcludeMask);
   } else {
     print("Native framework rejected dynamic exclusion tracking parameter adjustments.");
   }
 
   testSection("Global Access Keyboard Hook Cleanup Deconstruction");
-  sral.unregisterKeyboardHooks();
+  Sral.unregisterKeyboardHooks();
   print("unregisterKeyboardHooks executed. Monitoring listener threads severed.");
   promptUser("Keyboard hooks severed. Verify system transparency by typing Ctrl/Shift inputs with upcoming speech outputs.");
-  sral.speak("Verifying systemic transparency after unregistering background keyboard listener thread contexts.", true);
-  sral.delay(3000);
+  Sral.speak("Verifying systemic transparency after unregistering background keyboard listener thread contexts.", interrupt: true);
+  Sral.delay(3000);
 
   testSection("Core Library Uninitialization Framework Teardown (SRAL_Uninitialize)");
-  sral.uninitialize();
+  Sral.uninitialize();
   print("uninitialize function handle called. Releasing references.");
-  check(!sral.isInitialized(), "isInitialized accurately returns false following uninitialization.", "Teardown error tracking validation boundary failure!");
+  check(!Sral.isInitialized(), "isInitialized accurately returns false following uninitialization.", "Teardown error tracking validation boundary failure!");
 
   print("\nAttempting to call speech synthesis routines post-uninitialization framework context teardown (Should safely evaluate as no-op return false):");
-  if (sral.speak("This sentence should be caught by uninitialized guard blocks and drop silently.", false)) {
+  if (Sral.speak("This sentence should be caught by uninitialized guard blocks and drop silently.", interrupt: false)) {
     print("[WARNING] speak wrapper returned true indicating potential framework state resource retention leaks!");
   } else {
     print("[INFO] speak wrapper evaluated accurately and returned false inside uninitialized boundary bounds.");
@@ -279,9 +331,8 @@ void main() {
 void errorHandlingDemo() {
   print("\n=== Error Handling Demo ===");
   try {
-    final sralErr = SRAL();
     print("Attempting call invocation without running initialization pipelines...");
-    bool fallbackCallResult = sralErr.speak("This action block is bound to fail cleanly.", true);
+    bool fallbackCallResult = Sral.speak("This action block is bound to fail cleanly.", interrupt: true);
     print("Result feedback: $fallbackCallResult (should evaluate to false)");
   } catch (err) {
     print("Exception caught inside boundary handler structures: $err");

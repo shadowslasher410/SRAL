@@ -21,122 +21,204 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
-
 #include "utf-8.h"
 
+#include <immintrin.h>
+#include <stdalign.h>
+#include <stdint.h>
 #include <string.h>
 
-static const uint8_t table_unicode[] = {0, 0, 0x1F, 0x0F, 0x07};
-static const uint8_t table_utf8[] = {0, 0, 0xC0, 0xE0, 0xF0};
+#if defined(__GNUC__) || defined(__clang__)
+#define BS_HOT __attribute__((hot))
+#define BS_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#define BS_LIKELY(x) __builtin_expect(!!(x), 1)
+#else
+#define BS_HOT
+#define BS_UNLIKELY(x) (x)
+#define BS_LIKELY(x) (x)
+#endif
 
-_Static_assert(sizeof(table_unicode) == 5, "Unicode table size error");
-_Static_assert(sizeof(table_utf8) == 5, "UTF-8 table size error");
+enum { BS_MAX_BOUND = 0xFFFFFFFFU };
 
-void utf8_init(utf8_iter* iter, const char* ptr) {
-	if (iter) {
-		iter->ptr = ptr;
-		iter->codepoint = 0;
-		iter->size = 0;
-		iter->position = 0;
-		iter->next = 0;
-		iter->count = 0;
-		iter->length = (ptr == NULL) ? 0 : (uint32_t)strlen(ptr);
-	}
-}
+alignas(16) const uint8_t BS_UTF8_Core_LUT[16] = {1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 2, 2, 3, 4};
 
-void utf8_initEx(utf8_iter* iter, const char* ptr, uint32_t length) {
-	if (iter) {
-		iter->ptr = ptr;
-		iter->codepoint = 0;
-		iter->size = 0;
-		iter->position = 0;
-		iter->next = 0;
-		iter->count = 0;
-		iter->length = length;
-	}
-}
+static inline uint32_t inline_utf8_converter_internal(const char* const BS_RESTRICT character, const uint8_t size) {
+	const uint8_t* const BS_RESTRICT u_char = (const uint8_t*)character;
+	if (size == 1)
+		return (uint32_t)u_char[0];
 
-uint8_t utf8_next(utf8_iter* iter) {
-	if (iter == NULL || iter->ptr == NULL)
+	static const uint8_t masks[5] = {0x00, 0x7F, 0x1F, 0x0F, 0x07};
+	uint32_t codepoint = (uint32_t)(masks[size & 3] & u_char[0]);
+
+	switch (size) {
+	case 4:
+		if (BS_UNLIKELY((u_char[3] & 0xC0) != 0x80))
+			return 0;
+		codepoint = (codepoint << 6) | (u_char[3] & 0x3F);
+		/* FALLTHROUGH */
+	case 3:
+		if (BS_UNLIKELY((u_char[2] & 0xC0) != 0x80))
+			return 0;
+		codepoint = (codepoint << 6) | (u_char[2] & 0x3F);
+		/* FALLTHROUGH */
+	case 2:
+		if (BS_UNLIKELY((u_char[1] & 0xC0) != 0x80))
+			return 0;
+		codepoint = (codepoint << 6) | (u_char[1] & 0x3F);
+		break;
+	default:
 		return 0;
+	}
 
-	if (iter->next < iter->length) {
-		iter->position = iter->next;
-		const char* pointer = iter->ptr + iter->next;
-		iter->size = utf8_charsize(pointer);
+	if (BS_UNLIKELY((size == 2 && codepoint < 0x80) || (size == 3 && codepoint < 0x800) ||
+			(size == 4 && codepoint < 0x10000))) {
+		return 0;
+	}
 
-		if (iter->size == 0 || iter->next + iter->size > iter->length)
+	return codepoint;
+}
+
+void utf8_init(utf8_iter* BS_RESTRICT const iter, const char* BS_RESTRICT const ptr) {
+	*iter = (utf8_iter){.ptr = ptr,
+		.codepoint = 0,
+		.position = 0,
+		.next = 0,
+		.count = 0,
+		.length = (ptr == NULL) ? 0 : BS_MAX_BOUND,
+		.size = 0,
+		.reserved_a = 0,
+		.reserved_b = 0,
+		.reserved_c = 0};
+}
+
+void utf8_initEx(utf8_iter* BS_RESTRICT const iter, const char* BS_RESTRICT const ptr, const uint32_t length) {
+	*iter = (utf8_iter){.ptr = ptr,
+		.codepoint = 0,
+		.position = 0,
+		.next = 0,
+		.count = 0,
+		.length = length,
+		.size = 0,
+		.reserved_a = 0,
+		.reserved_b = 0,
+		.reserved_c = 0};
+}
+
+uint8_t utf8_next(utf8_iter* BS_RESTRICT const iter) {
+	const uint32_t c_next = iter->next;
+	const uint32_t c_len = iter->length;
+
+	if (BS_LIKELY(c_next < c_len)) {
+		const uint8_t* const BS_RESTRICT current_char = (const uint8_t*)iter->ptr + c_next;
+		if (current_char[0] == '\0') {
+			iter->length = c_next;
+			iter->position = c_next;
+			return 0;
+		}
+
+		const uint8_t char_size = BS_UTF8_Core_LUT[current_char[0] >> 4];
+		if (BS_UNLIKELY(char_size == 0))
 			return 0;
 
-		iter->next = iter->next + iter->size;
-		iter->codepoint = utf8_converter(pointer, iter->size);
+		if (BS_UNLIKELY(c_len == BS_MAX_BOUND)) {
+			for (uint8_t i = 1; i < char_size; ++i) {
+				if (BS_UNLIKELY(current_char[i] == '\0')) {
+					iter->length = c_next + i;
+					iter->position = c_next + i;
+					iter->next = c_next + i;
+					return 0;
+				}
+			}
+		}
+		else if (BS_UNLIKELY((c_next + char_size) > c_len)) {
+			return 0;
+		}
 
-		if (iter->codepoint == 0)
+		const uint32_t cp = inline_utf8_converter_internal((const char*)current_char, char_size);
+		if (BS_UNLIKELY(cp == 0 || (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF))
 			return 0;
 
+		iter->position = c_next;
+		iter->size = char_size;
+		iter->next = c_next + char_size;
+		iter->codepoint = cp;
 		iter->count++;
 		return 1;
 	}
-	else {
-		iter->position = iter->next;
-		return 0;
-	}
+	iter->position = c_next;
+	return 0;
 }
 
-uint8_t utf8_previous(utf8_iter* iter) {
-	if (iter == NULL || iter->ptr == NULL)
-		return 0;
+uint8_t utf8_previous(utf8_iter* BS_RESTRICT const iter) {
+	uint32_t c_len = iter->length;
+	if (BS_UNLIKELY(c_len == BS_MAX_BOUND)) {
+		c_len = (uint32_t)strlen(iter->ptr);
+		iter->length = c_len;
+	}
+	uint32_t c_pos = iter->position;
+	uint32_t c_count = iter->count;
+	const uint8_t* const BS_RESTRICT u_ptr = (const uint8_t*)iter->ptr;
 
-	if (iter->length != 0 && iter->position == 0 && iter->next == 0) {
-		iter->position = iter->length;
-		iter->count = utf8_strnlen(iter->ptr, iter->length);
+	if (BS_UNLIKELY(c_len != 0 && c_pos == 0 && iter->next == 0)) {
+		c_pos = c_len;
+		c_count = 0;
 	}
 
-	if (iter->position > 0) {
-		iter->next = iter->position;
-		iter->position--;
-
-		if ((iter->ptr[iter->position] & 0x80) != 0) {
-			iter->size = 1;
-			while (iter->position > 0 && (iter->ptr[iter->position] & 0xC0) == 0x80 && iter->size < 4) {
-				iter->position--;
-				iter->size++;
+	if (BS_LIKELY(c_pos > 0)) {
+		const uint32_t original_pos = c_pos;
+		c_pos--;
+		uint8_t byte_size = 1;
+		if ((u_ptr[c_pos] & 0x80) != 0) {
+			while (c_pos > 0 && (u_ptr[c_pos] & 0xC0) == 0x80 && byte_size < 4) {
+				c_pos--;
+				byte_size++;
 			}
-			if ((iter->ptr[iter->position] & 0xC0) == 0x80)
+			if (BS_UNLIKELY((u_ptr[c_pos] & 0xC0) == 0x80))
 				return 0;
 		}
-		else {
-			iter->size = 1;
-		}
 
-		const char* pointer = iter->ptr + iter->position;
-		iter->codepoint = utf8_converter(pointer, iter->size);
-
-		if (iter->codepoint == 0)
+		const uint8_t expected_size = BS_UTF8_Core_LUT[u_ptr[c_pos] >> 4];
+		if (BS_UNLIKELY(byte_size != expected_size))
 			return 0;
 
-		iter->count--;
+		const uint32_t cp = inline_utf8_converter_internal((const char*)(u_ptr + c_pos), byte_size);
+		if (BS_UNLIKELY(cp == 0 || (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF))
+			return 0;
+
+		iter->next = original_pos;
+		iter->position = c_pos;
+		iter->size = byte_size;
+		iter->codepoint = cp;
+		iter->count = (c_count > 0) ? (c_count - 1) : 0;
 		return 1;
 	}
-	else {
-		iter->next = 0;
-		return 0;
+	iter->next = 0;
+	return 0;
+}
+
+BS_HOT uint32_t utf8_strlen(const char* BS_RESTRICT const string) {
+	size_t position = 0;
+	uint32_t length = 0;
+
+	while (1) {
+		__m256i chunk = _mm256_loadu_si256((const __m256i*)(string + position));
+		__m256i null_check = _mm256_cmpeq_epi8(chunk, _mm256_setzero_si256());
+		uint32_t null_mask = (uint32_t)_mm256_movemask_epi8(null_check);
+		if (BS_UNLIKELY(null_mask != 0))
+			break;
+
+		__m256i c_mask = _mm256_set1_epi8((char)0xC0);
+		__m256i expected = _mm256_set1_epi8((char)0x80);
+		__m256i is_continuation = _mm256_cmpeq_epi8(_mm256_and_si256(chunk, c_mask), expected);
+		uint32_t continuation_mask = (uint32_t)_mm256_movemask_epi8(is_continuation);
+
+		length += (32 - __popcnt(continuation_mask));
+		position += 32;
 	}
-}
 
-const char* utf8_getchar(const utf8_iter* iter) {
-	if (iter == NULL || iter->ptr == NULL || iter->size == 0)
-		return "";
-	return iter->ptr + iter->position;
-}
-
-uint32_t utf8_strlen(const char* string) {
-	if (string == NULL)
-		return 0;
-	uint32_t length = 0, position = 0;
-	while (string[position]) {
-		uint8_t size = utf8_charsize(string + position);
-		if (size == 0)
+	while (string[position] != '\0') {
+		uint8_t size = BS_UTF8_Core_LUT[(uint8_t)string[position] >> 4];
+		if (BS_UNLIKELY(size == 0))
 			break;
 		position += size;
 		length++;
@@ -144,13 +226,29 @@ uint32_t utf8_strlen(const char* string) {
 	return length;
 }
 
-uint32_t utf8_strnlen(const char* string, uint32_t end) {
-	if (string == NULL)
-		return 0;
-	uint32_t length = 0, position = 0;
-	while (string[position] && position < end) {
-		uint8_t size = utf8_charsize(string + position);
-		if (size == 0 || position + size > end)
+BS_HOT uint32_t utf8_strnlen(const char* BS_RESTRICT const string, const uint32_t max_bytes) {
+	size_t position = 0;
+	uint32_t length = 0;
+
+	while (position + 32 <= max_bytes) {
+		__m256i chunk = _mm256_loadu_si256((const __m256i*)(string + position));
+		__m256i null_check = _mm256_cmpeq_epi8(chunk, _mm256_setzero_si256());
+		uint32_t null_mask = (uint32_t)_mm256_movemask_epi8(null_check);
+		if (BS_UNLIKELY(null_mask != 0))
+			break;
+
+		__m256i c_mask = _mm256_set1_epi8((char)0xC0);
+		__m256i expected = _mm256_set1_epi8((char)0x80);
+		__m256i is_continuation = _mm256_cmpeq_epi8(_mm256_and_si256(chunk, c_mask), expected);
+		uint32_t continuation_mask = (uint32_t)_mm256_movemask_epi8(is_continuation);
+
+		length += (32 - __popcnt(continuation_mask));
+		position += 32;
+	}
+
+	while (position < max_bytes && string[position] != '\0') {
+		uint8_t size = BS_UTF8_Core_LUT[(uint8_t)string[position] >> 4];
+		if (BS_UNLIKELY(size == 0 || (position + size) > max_bytes))
 			break;
 		position += size;
 		length++;
@@ -158,93 +256,43 @@ uint32_t utf8_strnlen(const char* string, uint32_t end) {
 	return length;
 }
 
-uint32_t utf8_to_unicode(const char* character) {
-	if (character == NULL || character[0] == 0)
+uint32_t utf8_to_unicode(const char* BS_RESTRICT const character) {
+	if (BS_UNLIKELY(!character || character[0] == '\0'))
 		return 0;
-	uint8_t size = utf8_charsize(character);
-	if (size == 0)
-		return 0;
-	return utf8_converter(character, size);
+	uint8_t size = BS_UTF8_Core_LUT[(uint8_t)character[0] >> 4];
+	return (BS_UNLIKELY(size == 0)) ? 0 : inline_utf8_converter_internal(character, size);
 }
 
 #ifdef __cplusplus
-uint8_t unicode_to_utf8(uint32_t codepoint, char* out_buffer)
+uint8_t unicode_to_utf8(uint32_t codepoint, char* BS_RESTRICT out_buffer)
 #else
 uint8_t unicode_to_utf8(uint32_t codepoint, char out_buffer[static 5])
 #endif
 {
-	uint8_t size = unicode_charsize(codepoint);
-	if (size == 0 || size > 4 || out_buffer == NULL)
+	const uint8_t char_size = inline_unicode_charsize(codepoint);
+	if (BS_UNLIKELY(char_size == 0))
 		return 0;
 
-	uint32_t dynamicPattern = unicode_converter(codepoint, size);
-	for (uint8_t i = 0; i < size; i++) {
-		out_buffer[i] = (char)((dynamicPattern >> (8 * (size - 1 - i))) & 0xFF);
-	}
-	out_buffer[size] = '\0';
-	return size;
+	uint32_t pattern = inline_unicode_converter(codepoint, char_size);
+#if defined(__GNUC__) || defined(__clang__)
+	pattern = __builtin_bswap32(pattern);
+#elif defined(_MSC_VER)
+	pattern = _byteswap_ulong(pattern);
+#endif
+	pattern >>= (32 - (char_size << 3));
+	memcpy(out_buffer, &pattern, sizeof(uint32_t));
+	out_buffer[char_size] = '\0';
+	return char_size;
 }
 
-uint8_t utf8_charsize(const char* character) {
-	if (character == NULL || character[0] == 0)
-		return 0;
-	if ((character[0] & 0x80) == 0)
-		return 1;
-	if ((character[0] & 0xE0) == 0xC0)
-		return 2;
-	if ((character[0] & 0xF0) == 0xE0)
-		return 3;
-	if ((character[0] & 0xF8) == 0xF0)
-		return 4;
-	return 0;
-}
-
-uint32_t utf8_converter(const char* character, uint8_t size) {
-	if (size == 0 || size > 4 || character == NULL || character[0] == 0)
-		return 0;
-	if (size == 1)
-		return (uint32_t)((uint8_t)character[0]);
-
-	uint32_t codepoint = (uint32_t)(table_unicode[size] & character[0]);
-	for (uint8_t i = 1; i < size; i++) {
-		if ((character[i] & 0xC0) != 0x80)
-			return 0;
-		codepoint = (codepoint << 6) | (uint32_t)(character[i] & 0x3F);
-	}
-	if ((codepoint >= 0xD800 && codepoint <= 0xDFFF) || codepoint > 0x10FFFF)
-		return 0;
-	return codepoint;
+uint32_t utf8_converter(const char* BS_RESTRICT const character, uint8_t size) {
+	return inline_utf8_converter_internal(character, size);
 }
 
 uint8_t unicode_charsize(uint32_t codepoint) {
-	if (codepoint == 0)
-		return 0;
-	if (codepoint < 0x80)
-		return 1;
-	if (codepoint < 0x800)
-		return 2;
-	if (codepoint < 0x10000)
-		return 3;
-	if (codepoint <= 0x10FFFF)
-		return 4;
-	return 0;
+	return inline_unicode_charsize(codepoint);
 }
 
 uint32_t unicode_converter(uint32_t codepoint, uint8_t size) {
-	if (size == 0 || size > 4)
-		return 0;
-	if (size == 1)
-		return codepoint & 0xFF;
-
-	uint32_t packedValue = 0;
-	uint32_t workingVal = codepoint;
-
-	for (uint8_t i = (uint8_t)(size - 1); i > 0; i--) {
-		uint32_t byteVal = 0x80 | (workingVal & 0x3F);
-		packedValue |= (byteVal << (8 * (size - 1 - i)));
-		workingVal >>= 6;
-	}
-	uint32_t leadByte = (uint32_t)(table_utf8[size] | workingVal);
-	packedValue |= (leadByte << (8 * (size - 1)));
-	return packedValue;
+	return inline_unicode_converter(codepoint, size);
 }

@@ -23,8 +23,16 @@
 
 #include <uiautomation.h>
 #include <uiautomationcore.h>
+
+#include <new>
+#include <version>
 #define WINDOWS_UIA_CORE_SUPPORTED 1
 #else
+#include <cstddef>
+#include <cstdint>
+#include <new>
+#include <version>
+
 using HWND = void*;
 using ULONG = unsigned long;
 using REFIID = void*;
@@ -55,64 +63,67 @@ struct VARIANT {
 #define V_I4(X) ((X)->lVal)
 #define V_BSTR(X) ((X)->bstrVal)
 
-inline void VariantInit(VARIANT* p) noexcept {
-	if (p)
+inline void VariantInit(VARIANT* const p) noexcept {
+	if (p) [[likely]]
 		p->vt = VT_EMPTY;
 }
-inline const wchar_t* SysAllocString(const wchar_t* str) noexcept {
+inline const wchar_t* SysAllocString(const wchar_t* const str) noexcept {
 	return str;
 }
 
 #define IFACEMETHODIMP HRESULT
 #define IFACEMETHODIMP_(type) type
-#define override
 #endif
 
-#ifdef __cplusplus
-namespace Sral {
+// Pure C++20 standard feature-testing macro verification for cache alignments
+#if defined(__cpp_lib_hardware_interference_size) && !defined(__APPLE__)
+using std::hardware_destructive_interference_size;
+#else
+#if defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64) || defined(TARGET_CPU_ARM64)
+static constexpr size_t hardware_destructive_interference_size = 128;
+#else
+static constexpr size_t hardware_destructive_interference_size = 64;
 #endif
+#endif
+
+namespace Sral {
 
 #if defined(WINDOWS_UIA_CORE_SUPPORTED)
-class Provider final : public IRawElementProviderSimple, public IInvokeProvider {
+class alignas(hardware_destructive_interference_size) Provider final : public IRawElementProviderSimple,
+																	   public IInvokeProvider {
 public:
-	explicit Provider(HWND hwnd) noexcept;
+	explicit Provider(HWND const hwnd) noexcept;
 
-	IFACEMETHODIMP_(ULONG) AddRef() override;
-	IFACEMETHODIMP_(ULONG) Release() override;
-	IFACEMETHODIMP QueryInterface(REFIID riid, void** ppvObject) override;
-	IFACEMETHODIMP get_ProviderOptions(ProviderOptions* pRetVal) override;
-	IFACEMETHODIMP GetPatternProvider(PATTERNID patternId, IUnknown** pRetVal) override;
-	IFACEMETHODIMP GetPropertyValue(PROPERTYID propertyId, VARIANT* pRetVal) override;
-	IFACEMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** pRetVal) override;
-	IFACEMETHODIMP Invoke() override;
+	IFACEMETHODIMP_(ULONG) AddRef() noexcept override;
+	IFACEMETHODIMP_(ULONG) Release() noexcept override;
+	IFACEMETHODIMP QueryInterface(REFIID riid, void** const ppvObject) noexcept override;
+	IFACEMETHODIMP get_ProviderOptions(ProviderOptions* const pRetVal) noexcept override;
+	IFACEMETHODIMP GetPatternProvider(PATTERNID const patternId, IUnknown** const pRetVal) noexcept override;
+	IFACEMETHODIMP GetPropertyValue(PROPERTYID const propertyId, VARIANT* const pRetVal) noexcept override;
+	IFACEMETHODIMP get_HostRawElementProvider(IRawElementProviderSimple** const pRetVal) noexcept override;
+	IFACEMETHODIMP Invoke() noexcept override;
 
 private:
-	~Provider() = default;
+	~Provider() noexcept = default;
 
 	Provider(const Provider&) = delete;
 	Provider& operator=(const Provider&) = delete;
 	Provider(Provider&&) = delete;
 	Provider& operator=(Provider&&) = delete;
-
-	LONG m_refCount{1};
+	alignas(hardware_destructive_interference_size) LONG m_refCount{1};
 	HWND m_controlHWnd{nullptr};
 };
 #else
-class Provider final {
+class alignas(hardware_destructive_interference_size) Provider final {
 public:
-	explicit Provider(HWND hwnd) noexcept { (void)hwnd; }
-	~Provider() = default;
+	explicit Provider(HWND const hwnd) noexcept { (void)hwnd; }
+	~Provider() noexcept = default;
 
-	[[nodiscard]] unsigned long AddRef() noexcept { return 1; }
-	[[nodiscard]] unsigned long Release() noexcept { return 0; }
+	[[nodiscard]] constexpr unsigned long AddRef() noexcept { return 1; }
+	[[nodiscard]] constexpr unsigned long Release() noexcept { return 0; }
 };
 #endif
-#ifdef __cplusplus
-}
-#endif
 
-#if !defined(_WIN32) && !defined(_WIN64)
-#undef override
-#endif
+} // namespace Sral
 
-#endif
+#endif // UIAPROVIDER_H_

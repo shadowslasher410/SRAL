@@ -8,13 +8,54 @@ on:
       - "[0-9]+.[0-9]+.[0-9]+-Stable"
       - "[0-9]+.[0-9]+.[0-9]+-RC"
       - "[0-9]+.[0-9]+.[0-9]+-Beta"
+    paths:
+      - "SRC/**"
+      - "Include/**"
+      - "Dep/**"
+      - "Bindings/**"
+      - "Examples/**"
+      - "**/CMakeLists.txt"
+      - "**/meson.build"
+      - "meson.options"
+      - "ci-requirements.txt"
+      - ".github/workflows/build.yml"
+
   pull_request:
     branches:
       - main
     types:
       - opened
       - synchronize
+    paths:
+      - "SRC/**"
+      - "Include/**"
+      - "Dep/**"
+      - "Bindings/**"
+      - "Examples/**"
+      - "**/CMakeLists.txt"
+      - "**/meson.build"
+      - "meson.options"
+      - "ci-requirements.txt"
+      - ".github/workflows/build.yml"
+
   workflow_dispatch:
+    inputs:
+      build_system:
+        description: "Select the orchestration build engine ('cmake' or 'meson')"
+        required: true
+        type: choice
+        default: "cmake"
+        options:
+          - "cmake"
+          - "meson"
+      build_variant:
+        description: "Target build optimization matrix ('Release' or 'Debug')"
+        required: false
+        type: choice
+        default: "Release"
+        options:
+          - "Release"
+          - "Debug"
 
   workflow_call:
     inputs:
@@ -23,21 +64,26 @@ on:
         required: false
         type: string
         default: ""
-      build_variant:
-        description: "Target build optimization matrix ('release' or 'debug')"
+      build_system:
+        description: "Select the orchestration build engine ('cmake' or 'meson')"
         required: false
         type: string
-        default: ""
+        default: "cmake"
+      build_variant:
+        description: "Target build optimization matrix ('Release' or 'Debug')"
+        required: false
+        type: string
+        default: "Release"
 
 permissions: {}
 
 concurrency:
-  group: build-${{ github.ref }}-${{ inputs.release_version || github.sha }}
+  group: build-${{ github.ref }}-${{ inputs.release_version || github.sha }}-${{ inputs.build_system || 'cmake' }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') && github.event_name != 'workflow_call' }}
 
 jobs:
   desktop:
-    name: Desktop (${{ matrix.os }} - ${{ inputs.build_variant || 'dynamic' }})
+    name: Desktop (${{ matrix.os }} - ${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant || 'dynamic' }})
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -53,7 +99,7 @@ jobs:
           - os: macos-26
             name: macos-universal
     steps:
-      - name: Parse and Resolve Runtime Build Optimization Variant
+      - name: Parse and Resolve Runtime Build Variant
         id: resolve-variant
         shell: bash
         run: |
@@ -64,42 +110,27 @@ jobs:
           fi
 
           REF_NAME="${{ github.ref_name }}"
-          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${{ github.ref_name }}" == "main" ]]; then
-            echo "variant=release" >> "$GITHUB_OUTPUT"
+          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${REF_NAME}" == "main" ]]; then
+            echo "variant=Release" >> "$GITHUB_OUTPUT"
           else
-            echo "variant=debug" >> "$GITHUB_OUTPUT"
+            echo "variant=Debug" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
           cache: "pip"
+          cache-dependency-path: "ci-requirements.txt"
 
-      - name: Install Dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat << 'EOF' > requirements.txt
-          pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
-          meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
-          ninja==1.13.0 \
-            --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978 \
-            --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa \
-            --hash=sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e \
-            --hash=sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1 \
-            --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff \
-            --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
-            --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
-          EOF
-          python -m pip install --require-hashes -r requirements.txt
-          rm requirements.txt
+      - name: Install Python Package Dependencies (Includes Hash-Locked Ninja & Meson)
+        run: python -m pip install --require-hashes -r ci-requirements.txt
 
       - name: Setup Visual Studio Developer Environment
         if: matrix.os == 'windows-2025'
@@ -107,12 +138,14 @@ jobs:
         with:
           architecture: x64
 
-      - name: Cache Linux System APT Development Packages
+      - name: Cache Linux System APT Development Packages and Lists
         if: matrix.os == 'ubuntu-24.04'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: /var/cache/apt/archives
-          key: ${{ runner.os }}-apt-dev-packages-${{ hashFiles('**/meson.build') }}
+          path: |
+            ${{ github.workspace }}/.apt-cache/archives
+            ${{ github.workspace }}/.apt-cache/lists
+          key: ${{ runner.os }}-apt-dev-packages-${{ hashFiles('ci-requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-apt-dev-packages-
 
@@ -122,31 +155,74 @@ jobs:
         run: |
           set -euo pipefail
           export DEBIAN_FRONTEND=noninteractive
-          sudo -E apt-get update -y
-          sudo -E apt-get install -y --no-install-recommends \
+
+          mkdir -p ${{ github.workspace }}/.apt-cache/archives/partial
+          mkdir -p ${{ github.workspace }}/.apt-cache/lists/partial
+          chmod -R 777 ${{ github.workspace }}/.apt-cache
+
+          APT_OPTS=" \
+            -o Dir::Cache::Archives=${{ github.workspace }}/.apt-cache/archives \
+            -o Dir::State::Lists=${{ github.workspace }}/.apt-cache/lists"
+
+          sudo apt-get $APT_OPTS update -y
+          sudo apt-get $APT_OPTS install -y --no-install-recommends \
             libspeechd-dev libdbus-1-dev libatspi2.0-dev brltty libbrlapi-dev
+          
+          sudo apt-get $APT_OPTS autoclean -y
+          sudo chown -R runner:runner ${{ github.workspace }}/.apt-cache
 
-      - name: Configure Project Sandbox (Meson)
-        env:
-          WORKSPACE_PREFIX: "${{ github.workspace }}/dist"
-          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
-        run: meson setup builddir --buildtype="${{ steps.resolve-variant.outputs.variant }}" --prefix="${{ github.workspace }}/dist" -Ddefault_library=both -Dwerror=true -Db_lto=true -Db_pie=true -Db_staticpic=true -DBUILD_TESTS=true -DBUILD_BINDINGS=true -DSRAL_INSTALL_BINDING_SOURCES=true
+      - name: Configure Project Sandbox (CMake Engine)
+        if:  ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
+        run: |
+          VARIANT_TITLE=$(echo "${{ steps.resolve-variant.outputs.variant }}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+          cmake -G "Ninja" -B builddir_cmake \
+            -DCMAKE_BUILD_TYPE="${VARIANT_TITLE}" \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/dist" \
+            -DBUILD_TESTS=enabled \
+            -DBUILD_BINDINGS=enabled \
+            -DSRAL_INSTALL_BINDING_SOURCES=enabled
 
-      - name: Compile and Link Targets
-        run: meson compile -C builddir
+      - name: Compile and Link Targets (CMake Engine)
+        if:  ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
+        run: cmake --build builddir_cmake -j $(nproc 2>/dev/null || echo 4)
 
-      - name: Install into staging tree
-        run: meson install -C builddir
+      - name: Install into Staging Tree (CMake Engine Multi-Threaded -j Deploy)
+        if:  ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
+        run: cmake --install builddir_cmake --component Runtime --component Development -j $(nproc 2>/dev/null || echo 4)
 
-      - name: Archive artifact
+      - name: Configure Project Sandbox (Meson Engine)
+        if: ${{ inputs.build_system == 'meson' }}
+        run: |
+          VARIANT_LOWER=$(echo "${{ steps.resolve-variant.outputs.variant }}" | tr '[:upper:]' '[:lower:]')
+          meson setup builddir_meson \
+            --buildtype="$VARIANT_LOWER" \
+            --prefix="${{ github.workspace }}/dist" \
+            -Ddefault_library=both \
+            -Dwerror=true \
+            -Db_lto=true \
+            -Db_pie=true \
+            -Db_staticpic=true \
+            -DBUILD_TESTS=true \
+            -DBUILD_BINDINGS=true \
+            -DSRAL_INSTALL_BINDING_SOURCES=true
+
+      - name: Compile and Link Targets (Meson Engine)
+        if: ${{ inputs.build_system == 'meson' }}
+        run: meson compile -C builddir_meson
+
+      - name: Install into Staging Tree (Meson Engine)
+        if: ${{ inputs.build_system == 'meson' }}
+        run: meson install -C builddir_meson
+
+      - name: Archive Consolidated Artifact Bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-${{ matrix.name }}-${{ steps.resolve-variant.outputs.variant }}
+          name: bundle-${{ matrix.name }}-${{ inputs.build_system || 'cmake' }}-${{ steps.resolve-variant.outputs.variant }}
           path: "${{ github.workspace }}/dist"
           if-no-files-found: error
 
   android:
-    name: Android (${{ matrix.abi }} - ${{ inputs.build_variant || 'dynamic' }})
+    name: Android (${{ matrix.abi }} - ${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant || 'dynamic' }})
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -157,8 +233,10 @@ jobs:
         include:
           - abi: arm64-v8a
             arch: aarch64
+            cpu_family: aarch64
           - abi: x86_64
             arch: x86_64
+            cpu_family: x86_64
     defaults:
       run:
         shell: bash
@@ -173,47 +251,51 @@ jobs:
           fi
 
           REF_NAME="${{ github.ref_name }}"
-          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${{ github.ref_name }}" == "main" ]]; then
-            echo "variant=release" >> "$GITHUB_OUTPUT"
+          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${REF_NAME}" == "main" ]]; then
+            echo "variant=Release" >> "$GITHUB_OUTPUT"
           else
-            echo "variant=debug" >> "$GITHUB_OUTPUT"
+            echo "variant=Debug" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
           cache: "pip"
+          cache-dependency-path: "ci-requirements.txt"
 
-      - name: Install Dependencies
-        run: |
-          set -euo pipefail
-          cat << 'EOF' > requirements.txt
-          pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
-          meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
-          ninja==1.13.0 \
-            --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978 \
-            --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa \
-            --hash=sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e \
-            --hash=sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1 \
-            --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff \
-            --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
-            --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
-          EOF
-          python -m pip install --require-hashes -r requirements.txt
-          rm requirements.txt
+      - name: Install Dependencies (Hash-Verified)
+        run: python -m pip install --require-hashes -r ci-requirements.txt
+
+      - name: Cache JetBrains JDK Binary
+        id: cache-jdk
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /opt/hostedtoolcache/Java_jetbrains_jdk
+          key: ${{ runner.os }}-jdk-21-jetbrains
 
       - name: Set up JetBrains Runtime JDK 21
-        uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v4.5.0
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with:
           distribution: "jetbrains"
           java-version: "21"
+
+      - name: Cache Android SDK Components
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            /usr/local/lib/android/sdk/platforms
+            /usr/local/lib/android/sdk/platform-tools
+            /usr/local/lib/android/sdk/build-tools
+          key: ${{ runner.os }}-android-sdk-v1
+          restore-keys: |
+            ${{ runner.os }}-android-sdk-
 
       - name: Set up Base Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
@@ -235,20 +317,17 @@ jobs:
           ndk-version: r27c
           link-to-sdk: true
 
-      - name: Create Android Cross File Dynamically
-        env:
-          SECRET_NDK: ${{ secrets.ANDROID_NDK_HOME }}
-          ARCH: ${{ matrix.arch }}
-          ABI: ${{ matrix.abi }}
+      - name: Auto-Resolve NDK Path Variables
+        id: locate-ndk
         run: |
           set -euo pipefail
-          TARGET_NDK="${SECRET_NDK:-${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-}}}"
+          TARGET_NDK="${ANDROID_NDK_ROOT:-${ANDROID_NDK_HOME:-}}"
 
           if [ -z "$TARGET_NDK" ]; then
             if [ -d "/opt/hostedtoolcache/ndk/r27c/x64" ]; then
               TARGET_NDK="/opt/hostedtoolcache/ndk/r27c/x64"
-            elif [ -d "/usr/local/lib/android/sdk/ndk-bundle" ]; then
-              TARGET_NDK="/usr/local/lib/android/sdk/ndk-bundle"
+            elif [ -d "/usr/local/lib/android/sdk/ndk/27.2.12479018" ]; then
+              TARGET_NDK="/usr/local/lib/android/sdk/ndk/27.2.12479018"
             else
               FOUND_NDK=$(find /usr/local/lib/android/sdk/ndk -maxdepth 1 -mindepth 1 -type d 2>/dev/null | head -n 1 || true)
               TARGET_NDK="${FOUND_NDK:-}"
@@ -259,83 +338,112 @@ jobs:
             echo "::error::Failed to locate Android NDK."
             exit 1
           fi
+          echo "ndk_path=$TARGET_NDK" >> "$GITHUB_OUTPUT"
+      - name: Configure Android Project (CMake Engine)
+        if: ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
+        run: |
 
+          VARIANT_TITLE=$(echo "${{ steps.resolve-variant.outputs.variant }}" | awk '{print toupper(substr($0,1,1)) \
+            tolower(substr($0,2))}')
+            
+          cmake -G "Ninja" -B builddir_cmake \
+            -DCMAKE_SYSTEM_NAME=Android \
+            -DCMAKE_ANDROID_NDK="${{ steps.locate-ndk.outputs.ndk_path }}" \
+            -DCMAKE_ANDROID_ARCH_ABI="${{ matrix.abi }}" \
+            -DCMAKE_SYSTEM_VERSION=21 \
+            -DCMAKE_BUILD_TYPE="${VARIANT_TITLE}" \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/dist-android" \
+            -DBUILD_TESTS=disabled \
+            -DBUILD_BINDINGS=enabled
+
+      - name: Create Android Cross File Dynamically (Meson Engine)
+        if: ${{ inputs.build_system == 'meson' }}
+        env:
+          TARGET_NDK: ${{ steps.locate-ndk.outputs.ndk_path }}
+          ARCH: ${{ matrix.arch }}
+          ABI: ${{ matrix.abi }}
+          CPU_FAM: ${{ matrix.cpu_family }}
+        run: |
+          set -euo pipefail
+          
           case "$ARCH" in
             aarch64) TRIPLE="aarch64-linux-android" ;;
-            arm)     TRIPLE="armv7a-linux-androideabi" ;;
             x86_64)  TRIPLE="x86_64-linux-android" ;;
-            x86)     TRIPLE="i686-linux-android" ;;
             *)       echo "::error::Unsupported architecture: $ARCH"; exit 1 ;;
           esac
 
-          API_FLOOR="21"
-          HOST_PLATFORM="linux-x86_64"
-          TOOLCHAIN_BIN="$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/bin"
-          SYSROOT_PATH="$TARGET_NDK/toolchains/llvm/prebuilt/$HOST_PLATFORM/sysroot"
-
+          API_LEVEL="21"
+          TOOLCHAIN_BIN="$TARGET_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          
           cat << EOF > android_cross.txt
+          [constants]
+          toolchain = '$TOOLCHAIN_BIN'
+          triple = '$TRIPLE$API_LEVEL'
+
           [binaries]
-          c     = '$TOOLCHAIN_BIN/${TRIPLE}${API_FLOOR}-clang'
-          cpp   = '$TOOLCHAIN_BIN/${TRIPLE}${API_FLOOR}-clang++'
-          ar    = '$TOOLCHAIN_BIN/llvm-ar'
-          strip = '$TOOLCHAIN_BIN/llvm-strip'
+          c         = toolchain + '/' + triple + '-clang'
+          cpp       = toolchain + '/' + triple + '-clang++'
+          ar        = toolchain + '/llvm-ar'
+          strip     = toolchain + '/llvm-strip'
+          pkgconfig = 'false'
 
           [properties]
-          sys_root = '$SYSROOT_PATH'
-
-          [built-in options]
-          c_args   = ['--sysroot=$SYSROOT_PATH', '-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-          cpp_args = ['--sysroot=$SYSROOT_PATH', '-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
+          needs_exe_wrapper = true
 
           [host_machine]
           system = 'android'
-          cpu_family = '$ARCH'
-          cpu = '$ABI'
+          cpu_family = '$CPU_FAM'
+          cpu = '$ARCH'
           endian = 'little'
           EOF
 
-      - name: Configure Android Target Sandbox Options
-        env:
-          WORKSPACE_PREFIX: "${{ github.workspace }}/dist"
-          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
+          echo "::group::Generated Cross File View"
+          cat android_cross.txt
+          echo "::endgroup::"
+
+      - name: Configure Cross Sandbox (Meson Engine)
+        if: ${{ inputs.build_system == 'meson' }}
         run: |
-          set -euo pipefail
-          meson setup builddir \
+          VARIANT_LOWER=$(echo "${{ steps.resolve-variant.outputs.variant }}" | tr '[:upper:]' '[:lower:]')
+          
+          meson setup builddir_meson \
             --cross-file android_cross.txt \
-            --buildtype="$RESOLVED_VARIANT" \
-            --prefix="$WORKSPACE_PREFIX" \
+            --buildtype="${VARIANT_LOWER}" \
+            --prefix="${{ github.workspace }}/dist-android" \
             -Ddefault_library=both \
             -Dwerror=true \
             -Db_lto=true \
-            -Db_pie=true \
             -Db_staticpic=true \
-            -DBUILD_TESTS=false \
-            -DBUILD_BINDINGS=false
+            -DBUILD_TESTS=true \
+            -DBUILD_BINDINGS=true \
+            -DSRAL_INSTALL_BINDING_SOURCES=true
 
-      - name: Compile Mobile Android Architecture Shared Libraries
+      - name: Compile Cross Targets
         run: |
-          set -euo pipefail
-          meson compile -C builddir
+          if [ "${{ inputs.build_system }}" = "meson" ]; then
+            meson compile -C builddir_meson
+          else
+            cmake --build builddir_cmake -j $(nproc)
+          fi
 
-      - name: Install Android Assets into Staging Tree
+      - name: Install into Staging Tree
         run: |
-          set -euo pipefail
-          meson install -C builddir
+          if [ "${{ inputs.build_system }}" = "meson" ]; then
+            meson install -C builddir_meson
+          else
+            cmake --install builddir_cmake --component Runtime --component PlatformAssets -j $(nproc)
+          fi
 
-      - name: Archive Android artifact
+      - name: Archive Android Artifact Bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-android-${{ matrix.abi }}-${{ steps.resolve-variant.outputs.variant }}
-          path: "${{ github.workspace }}/dist"
+          name: bundle-android-${{ matrix.abi }}-${{ inputs.build_system || 'cmake' }}-${{ steps.resolve-variant.outputs.variant }}
+          path: "${{ github.workspace }}/dist-android"
           if-no-files-found: error
 
   ios:
-    name: iOS Framework (macos-26 - ${{ inputs.build_variant || 'dynamic' }})
+    name: iOS Framework (macos-26 - ${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant || 'dynamic' }})
     runs-on: macos-26
-    strategy:
-      fail-fast: false
-      matrix:
-        placeholder: [0]
     permissions:
       contents: read
     steps:
@@ -349,223 +457,128 @@ jobs:
           fi
 
           REF_NAME="${{ github.ref_name }}"
-          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${{ github.ref_name }}" == "main" ]]; then
-            echo "variant=release" >> "$GITHUB_OUTPUT"
+          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${REF_NAME}" == "main" ]]; then
+            echo "variant=Release" >> "$GITHUB_OUTPUT"
           else
-            echo "variant=debug" >> "$GITHUB_OUTPUT"
+            echo "variant=Debug" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 1
 
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
           cache: "pip"
+          cache-dependency-path: "ci-requirements.txt"
 
-      - name: Install Dependencies
+      - name: Install Dependencies (Hash-Verified)
+        run: python -m pip install --require-hashes -r ci-requirements.txt
+        
+      - name: Cache C/C++ Compilation Objects
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-ios-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'ci-requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-ios-
+
+      - name: Install Compiler Cache Binary
+        run: |
+          brew install ccache
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+          ccache --max-size=500M
+
+      - name: Configure and Compile iOS Architectures (CMake Engine)
+        if: ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
         run: |
           set -euo pipefail
-          cat << 'EOF' > requirements.txt
-          pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
-          meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
-          ninja==1.13.0 \
-            --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978 \
-            --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa \
-            --hash=sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e \
-            --hash=sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1 \
-            --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff \
-            --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
-            --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
-          EOF
-          python -m pip install --require-hashes -r requirements.txt
-          rm requirements.txt
+          NCPU=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu || echo 4)
+          
+          cmake -G "Ninja" -B build_device_cmake \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_BUILD_TYPE="${{ steps.resolve-variant.outputs.variant }}" \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/staging/device" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build_device_cmake -j $NCPU
+          cmake --install build_device_cmake
 
-      - name: Create iOS Hardware Device Cross File
+          cmake -G "Ninja" -B build_sim_cmake \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+            -DCMAKE_BUILD_TYPE="${{ steps.resolve-variant.outputs.variant }}" \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/staging/simulator" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build_sim_cmake -j $NCPU
+          cmake --install build_sim_cmake
+
+      - name: Configure and Compile iOS Architectures (Meson Engine)
+        if: ${{ inputs.build_system == 'meson' }}
         run: |
           set -euo pipefail
-          SDK_PATH=$(xcrun --sdk iphoneos --show-sdk-path)
-          if [ -z "${SDK_PATH}" ] || [ ! -d "${SDK_PATH}" ]; then
-            echo "::error::iPhoneOS SDK environment context resolution failed."
-            exit 1
-          fi
+          VARIANT_LOWER=$(echo "${{ steps.resolve-variant.outputs.variant }}" | tr '[:upper:]' '[:lower:]')
+          
+          meson setup build_device_meson --cross-file ios_device_cross.txt --buildtype="$VARIANT_LOWER" --ccache --prefix="${{ github.workspace }}/staging/device"
+          meson compile -C build_device_meson
+          meson install -C build_device_meson
 
-          cat << EOF > ios_device_cross.txt
-          [binaries]
-          c = ['clang', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=26.0']
-          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=26.0']
-          objc = ['clang', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=26.0']
-          objcpp = ['clang++', '-isysroot', '$SDK_PATH', '-arch', 'arm64', '-miphoneos-version-min=26.0']
-          ar = 'ar'
-          strip = 'strip'
+          meson setup build_sim_arm64_meson --cross-file ios_sim_arm64_cross.txt --buildtype="$VARIANT_LOWER" --ccache --prefix="${{ github.workspace }}/staging/sim_arm64"
+          meson compile -C build_sim_arm64_meson
+          meson install -C build_sim_arm64_meson
 
-          [built-in options]
-          c_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-          cpp_args    = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-          objc_args   = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-          objcpp_args = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-
-          [host_machine]
-          system = 'ios'
-          cpu_family = 'aarch64'
-          cpu = 'arm64'
-          endian = 'little'
-          EOF
-
-      - name: Create iOS Simulator ARM64 Cross File
-        run: |
-          set -euo pipefail
-          SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
-          if [ -z "${SDK_PATH}" ] || [ ! -d "${SDK_PATH}" ]; then
-            echo "::error::iPhoneSimulator SDK environment context resolution failed."
-            exit 1
-          fi
-
-          cat << EOF > ios_sim_arm64_cross.txt
-          [binaries]
-          c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios26.0-simulator']
-          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios26.0-simulator']
-          objc = ['clang', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios26.0-simulator']
-          objcpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'arm64-apple-ios26.0-simulator']
-          ar = 'ar'
-          strip = 'strip'
-
-          [built-in options]
-          c_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-          cpp_args    = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-          objc_args   = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-          objcpp_args = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-
-          [host_machine]
-          system = 'ios'
-          cpu_family = 'aarch64'
-          cpu = 'arm64'
-          endian = 'little'
-          EOF
-
-      - name: Create iOS Simulator X86_64 Cross File
-        run: |
-          set -euo pipefail
-          SDK_PATH=$(xcrun --sdk iphonesimulator --show-sdk-path)
-          if [ -z "${SDK_PATH}" ] || [ ! -d "${SDK_PATH}" ]; then
-            echo "::error::iPhoneSimulator X86_64 target SDK context resolution failed."
-            exit 1
-          fi
-
-          cat << EOF > ios_sim_x86_64_cross.txt
-          [binaries]
-          c = ['clang', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios26.0-simulator']
-          cpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios26.0-simulator']
-          objc = ['clang', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios26.0-simulator']
-          objcpp = ['clang++', '-isysroot', '$SDK_PATH', '-target', 'x86_64-apple-ios26.0-simulator']
-          ar = 'ar'
-          strip = 'strip'
-
-          [built-in options]
-          c_args      = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-          cpp_args    = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-          objc_args   = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-          objcpp_args = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror']
-
-          [host_machine]
-          system = 'ios'
-          cpu_family = 'x86_64'
-          cpu = 'x86_64'
-          endian = 'little'
-          EOF
-
-      - name: Configure and Compile iOS Device Target
-        env:
-          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
-        run: |
-          set -euo pipefail
-          meson setup build-device --cross-file ios_device_cross.txt \
-            --buildtype="$RESOLVED_VARIANT" \
-            -Ddefault_library=static \
-            -Dwerror=true \
-            -Db_lto=true \
-            -Db_pie=true \
-            -Db_staticpic=true \
-            -DSRAL_WITH_VOICEOVER=true \
-            -DSRAL_WITH_AVSPEECH=true \
-            -DSRAL_WITH_NSSPEECH=false
-          meson compile -C build-device
-
-      - name: Configure and Compile iOS Simulator Targets
-        env:
-          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
-        run: |
-          set -euo pipefail
-          meson setup build-sim-arm64 --cross-file ios_sim_arm64_cross.txt \
-            --buildtype="$RESOLVED_VARIANT" \
-            -Ddefault_library=static \
-            -Dwerror=true \
-            -Db_pie=true \
-            -Db_staticpic=true \
-            -DSRAL_WITH_VOICEOVER=true \
-            -DSRAL_WITH_AVSPEECH=true \
-            -DSRAL_WITH_NSSPEECH=false
-          meson compile -C build-sim-arm64
-
-          meson setup build-sim-x86_64 --cross-file ios_sim_x86_64_cross.txt \
-            --buildtype="$RESOLVED_VARIANT" \
-            -Ddefault_library=static \
-            -Dwerror=true \
-            -Db_pie=true \
-            -Db_staticpic=true \
-            -DSRAL_WITH_VOICEOVER=true \
-            -DSRAL_WITH_AVSPEECH=true \
-            -DSRAL_WITH_NSSPEECH=false
-          meson compile -C build-sim-x86_64
+          meson setup build_sim_x86_64_meson --cross-file ios_sim_x86_64_cross.txt --buildtype="$VARIANT_LOWER" --ccache --prefix="${{ github.workspace }}/staging/sim_x86_64"
+          meson compile -C build_sim_x86_64_meson
+          meson install -C build_sim_x86_64_meson
 
       - name: Assemble Apple XCFramework Architecture Staging Bundle
         run: |
           set -euo pipefail
+          STAGING_DIR="${{ github.workspace }}/dist"
+          rm -rf "${STAGING_DIR}" "${{ github.workspace }}/final_staging"
+          
+          mkdir -p "${STAGING_DIR}/device/headers" "${STAGING_DIR}/simulator/headers" "${{ github.workspace }}/final_staging"
 
-          DEVICE_LIB=$(find build-device -name 'libSRAL.dylib' | head -n1)
-          SIM_ARM64_LIB=$(find build-sim-arm64 -name 'libSRAL.dylib' | head -n1)
-          SIM_X86_64_LIB=$(find build-sim-x86_64 -name 'libSRAL.dylib' | head -n1)
-
-          if [ -z "${DEVICE_LIB}" ] || [ -z "${SIM_ARM64_LIB}" ] || [ -z "${SIM_X86_64_LIB}" ]; then
-            echo "::error::Structural Compilation Failure: Required dynamic libraries are missing." >&2
-            exit 1
+          if [ "${{ inputs.build_system }}" = "meson" ]; then
+            cp -rf ${{ github.workspace }}/staging/device/include/. "${STAGING_DIR}/device/headers/"
+            cp -rf ${{ github.workspace }}/staging/sim_arm64/include/. "${STAGING_DIR}/simulator/headers/"
+            
+            cp -f ${{ github.workspace }}/staging/device/lib/libSRAL.a "${STAGING_DIR}/device/libSRAL.a"
+            lipo -create \
+              "${{ github.workspace }}/staging/sim_arm64/lib/libSRAL.a" \
+              "${{ github.workspace }}/staging/sim_x86_64/lib/libSRAL.a" \
+              -output "${STAGING_DIR}/simulator/libSRAL.a"
+          else
+            cp -rf ${{ github.workspace }}/staging/device/include/. "${STAGING_DIR}/device/headers/"
+            cp -rf ${{ github.workspace }}/staging/simulator/include/. "${STAGING_DIR}/simulator/headers/"
+            
+            cp -f ${{ github.workspace }}/staging/device/lib/libSRAL.a "${STAGING_DIR}/device/libSRAL.a"
+            cp -f ${{ github.workspace }}/staging/simulator/lib/libSRAL.a "${STAGING_DIR}/simulator/libSRAL.a"
           fi
 
-          STAGING_DIR="${{ github.workspace }}/dist"
-          rm -rf "${STAGING_DIR}"
-
-          mkdir -p "${STAGING_DIR}/lib-device/Headers"
-          mkdir -p "${STAGING_DIR}/lib-sim/Headers"
-
-          cp -f Include/SRAL.h "${STAGING_DIR}/lib-device/Headers/"
-          cp -f Include/Sral.hpp "${STAGING_DIR}/lib-device/Headers/"
-          cp -f Include/SRAL.h "${STAGING_DIR}/lib-sim/Headers/"
-          cp -f Include/Sral.hpp "${STAGING_DIR}/lib-sim/Headers/"
-
-          cp -f "${DEVICE_LIB}" "${STAGING_DIR}/lib-device/libSRAL.dylib"
-
-          lipo -create "${SIM_ARM64_LIB}" "${SIM_X86_64_LIB}" -output "${STAGING_DIR}/lib-sim/libSRAL.dylib"
-
           xcodebuild -create-xcframework \
-            -library "${STAGING_DIR}/lib-device/libSRAL.dylib" \
-            -library "${STAGING_DIR}/lib-sim/libSRAL.dylib" \
-            -output "${STAGING_DIR}/SRAL.xcframework"
+            -library "${STAGING_DIR}/device/libSRAL.a" \
+            -headers "${STAGING_DIR}/device/headers" \
+            -library "${STAGING_DIR}/simulator/libSRAL.a" \
+            -headers "${STAGING_DIR}/simulator/headers" \
+            -output "${{ github.workspace }}/final_staging/SRAL.xcframework"
 
-          rm -rf "${STAGING_DIR}/lib-device" "${STAGING_DIR}/lib-sim"
+          ccache --show-stats
 
       - name: Archive iOS XCFramework Artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-ios-xcframework-${{ steps.resolve-variant.outputs.variant }}
-          path: "${{ github.workspace }}/dist"
+          name: bundle-ios-xcframework-${{ inputs.build_system || 'cmake' }}-${{ steps.resolve-variant.outputs.variant }}
+          path: "${{ github.workspace }}/final_staging"
           if-no-files-found: error
 
   webassembly:
-    name: WebAssembly (${{ inputs.build_variant || 'dynamic' }})
+    name: WebAssembly (${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant || 'dynamic' }})
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -588,13 +601,13 @@ jobs:
 
           REF_NAME="${{ github.ref_name }}"
           if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${{ github.ref_name }}" == "main" ]]; then
-            echo "variant=release" >> "$GITHUB_OUTPUT"
+            echo "variant=Release" >> "$GITHUB_OUTPUT"
           else
-            echo "variant=debug" >> "$GITHUB_OUTPUT"
+            echo "variant=Debug" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Checkout code
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 1
@@ -602,45 +615,73 @@ jobs:
       - name: Setup Emscripten Toolchain
         uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
         with:
-          version: 6.0.2
+          version: 4.0.0
           actions-cache-folder: "emsdk-cache"
 
       - name: Verify EMSDK Local Environment Setup
         run: emcc -v
 
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
           cache: "pip"
+          cache-dependency-path: "ci-requirements.txt"
 
-      - name: Install Dependencies
+      - name: Install Dependencies (Hash-Verified)
+        run: python -m pip install --require-hashes -r ci-requirements.txt
+
+      - name: Cache WebAssembly C/C++ Compilation Objects
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-wasm-${{ hashFiles('**/*.c', '**/*.cpp', '**/*.h', '**/*.hpp', 'ci-requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-wasm-
+
+      - name: Install and Initialize Compiler Cache Engine
+        run: |
+          sudo apt-get update && sudo apt-get install -y ccache
+          echo "CCACHE_DIR=$HOME/.ccache" >> "$GITHUB_ENV"
+          ccache --max-size=500M
+
+      - name: Configure and Compile WASM Targets (CMake Engine)
+        if: ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
         run: |
           set -euo pipefail
-          cat << 'EOF' > requirements.txt
-          pip==26.1.2 --hash=sha256:382ff9f685ee3bc25864f820aa50505825f10f5458ffff07e30a6d96e5715cab --hash=sha256:f49cd134c61cf2fd75e0ce2676db03e4054504a5a4986d00f8299ae632dc4605
-          meson==1.11.1 --hash=sha256:9b3a023657e393dbc5335b95c561337d49b7a458f5541e47ec44f2cc566e0d80
-          ninja==1.13.0 \
-            --hash=sha256:4a40ce995ded54d9dc24f8ea37ff3bf62ad192b547f6c7126e7e25045e76f978 \
-            --hash=sha256:fb46acf6b93b8dd0322adc3a4945452a4e774b75b91293bafcc7b7f8e6517dfa \
-            --hash=sha256:fb8ee8719f8af47fed145cced4a85f0755dd55d45b2bddaf7431fa89803c5f3e \
-            --hash=sha256:fa2a8bfc62e31b08f83127d1613d10821775a0eb334197154c4d6067b7068ff1 \
-            --hash=sha256:88998ef6e39893d9ce4c5531d044fa65239a5009f4e24cf74f9d51829e0618ff \
-            --hash=sha256:c221cb7fb9e57fca3cb5bb11f2a3a52f41e57c6ef5ef4c545de29ee6284f67b1 \
-            --hash=sha256:1a847e923bbfa22552e18fa4e1577c44f29a500914cf24cf72b9a1829e1601ee
-          EOF
-          python -m pip install --require-hashes -r requirements.txt
-          rm requirements.txt
+          
+          VARIANT_TITLE=$(echo "${{ steps.resolve-variant.outputs.variant }}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+          
+          emcmake cmake -G "Ninja" -B builddir_cmake \
+            -DCMAKE_BUILD_TYPE="${VARIANT_TITLE}" \
+            -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/dist" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DBUILD_TESTS=disabled \
+            -DBUILD_BINDINGS=enabled \
+            -DSRAL_WITH_CHROMEVOX=enabled
+            
+          cmake --build builddir_cmake -j $(nproc)
+          cmake --install builddir_cmake
 
-      - name: Create WebAssembly Cross File
+      - name: Create WebAssembly Cross File (Meson Engine)
+        if: ${{ inputs.build_system == 'meson' }}
         run: |
           set -euo pipefail
-          cat << 'EOF' > emscripten_cross.txt
+          EM_BIN_DIR="${EMSDK}/upstream/emscripten"
+          if [ -z "${EMSDK:-}" ] || [ ! -d "${EM_BIN_DIR}" ]; then
+            echo "::error::EMSDK root tracking block could not be accurately mapped."
+            exit 1
+          fi
+
+          cat << EOF > emscripten_cross.txt
+          [constants]
+          em_path = '${EM_BIN_DIR}'
+
           [binaries]
-          c = 'emcc'
-          cpp = 'em++'
-          ar = 'emar'
-          strip = 'emstrip'
+          c     = em_path + '/emcc'
+          cpp   = em_path + '/em++'
+          ar    = em_path + '/emar'
+          strip = em_path + '/emstrip'
 
           [built-in options]
           c_args        = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
@@ -655,37 +696,38 @@ jobs:
           endian = 'little'
           EOF
 
-      - name: Configure WebAssembly Cross Compilation Pass
-        env:
-          WORKSPACE_PREFIX: "${{ github.workspace }}/dist"
-          RESOLVED_VARIANT: ${{ steps.resolve-variant.outputs.variant }}
+      - name: Configure WebAssembly Cross Compilation Pass (Meson Engine)
+        if: ${{ inputs.build_system == 'meson' }}
         run: |
           set -euo pipefail
-          meson setup builddir \
+          VARIANT_LOWER=$(echo "${{ steps.resolve-variant.outputs.variant }}" | tr '[:upper:]' '[:lower:]')
+          
+          meson setup builddir_meson \
             --cross-file emscripten_cross.txt \
-            --buildtype="$RESOLVED_VARIANT" \
-            --prefix="$WORKSPACE_PREFIX" \
+            --buildtype="$VARIANT_LOWER" \
+            --prefix="${{ github.workspace }}/dist" \
+            --ccache \
             -Ddefault_library=static \
             -Dwerror=true \
             -Db_lto=true \
-            -Db_pie=true \
+            -Db_pie=false \
             -Db_staticpic=true \
             -DSRAL_WITH_CHROMEVOX=true \
             -DSRAL_INSTALL_BINDING_SOURCES=true
 
-      - name: Compile Static Object Graph
+      - name: Compile and Install WebAssembly Assets (Meson Engine)
+        if: ${{ inputs.build_system == 'meson' }}
         run: |
           set -euo pipefail
-          meson compile -C builddir
+          meson compile -C builddir_meson
+          meson install -C builddir_meson
 
-      - name: Install into staging tree
-        run: |
-          set -euo pipefail
-          meson install -C builddir
+      - name: Report Cache Aggregation Metrics
+        run: ccache --show-stats
 
       - name: Archive WebAssembly artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-wasm-${{ steps.resolve-variant.outputs.variant }}
+          name: bundle-wasm-${{ inputs.build_system || 'cmake' }}-${{ steps.resolve-variant.outputs.variant }}
           path: "${{ github.workspace }}/dist"
           if-no-files-found: error

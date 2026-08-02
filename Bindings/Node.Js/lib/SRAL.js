@@ -32,6 +32,12 @@ if (isMobile) {
 			}
 		}
 	}
+
+	if (!loaded) {
+		addon = {};
+		console.warn("[SRAL WARNING] Native binary addon 'SRAL_bridge.node' was not found or failed to load completely.");
+		if (errors.length > 0) console.warn("Load trace failures:\n", errors.join("\n"));
+	}
 }
 
 const SRALEngines = {
@@ -118,7 +124,10 @@ class SRAL {
 		if (typeof addon.speakSsmlEx === 'function') {
 			return addon.speakSsmlEx(Number(engine), String(ssml), !!interrupt);
 		}
-		return this.speakSsml(String(ssml), !!interrupt);
+		if (typeof this.speakSsml === 'function') {
+			return this.speakSsml(String(ssml), !!interrupt);
+		}
+		return false;
 	}
 
 	brailleEx(engine, text) {
@@ -126,7 +135,10 @@ class SRAL {
 		if (typeof addon.brailleEx === 'function') {
 			return addon.brailleEx(Number(engine), String(text));
 		}
-		return this.braille(String(text));
+		if (typeof this.braille === 'function') {
+			return this.braille(String(text));
+		}
+		return false;
 	}
 
 	outputEx(engine, text, interrupt = false) {
@@ -134,7 +146,10 @@ class SRAL {
 		if (typeof addon.outputEx === 'function') {
 			return addon.outputEx(Number(engine), String(text), !!interrupt);
 		}
-		return this.output(String(text), !!interrupt);
+		if (typeof this.output === 'function') {
+			return this.output(String(text), !!interrupt);
+		}
+		return false;
 	}
 
 	stopSpeechEx(engine) {
@@ -142,7 +157,10 @@ class SRAL {
 		if (typeof addon.stopSpeechEx === 'function') {
 			return addon.stopSpeechEx(Number(engine));
 		}
-		return this.stopSpeech();
+		if (typeof this.stopSpeech === 'function') {
+			return this.stopSpeech();
+		}
+		return false;
 	}
 
 	pauseSpeechEx(engine) {
@@ -150,7 +168,10 @@ class SRAL {
 		if (typeof addon.pauseSpeechEx === 'function') {
 			return addon.pauseSpeechEx(Number(engine));
 		}
-		return this.pauseSpeech();
+		if (typeof this.pauseSpeech === 'function') {
+			return this.pauseSpeech();
+		}
+		return false;
 	}
 
 	resumeSpeechEx(engine) {
@@ -158,7 +179,26 @@ class SRAL {
 		if (typeof addon.resumeSpeechEx === 'function') {
 			return addon.resumeSpeechEx(Number(engine));
 		}
-		return this.resumeSpeech();
+		if (typeof this.resumeSpeech === 'function') {
+			return this.resumeSpeech();
+		}
+		return false;
+	}
+
+	delayOutput(timeMs, text, interrupt = false) {
+		if (isMobile) return false;
+		if (typeof addon.delayOutput === 'function') {
+			return addon.delayOutput(Number(timeMs), String(text), !!interrupt);
+		}
+		return false;
+	}
+
+	delayOutputEx(engine, timeMs, text, interrupt = false) {
+		if (isMobile) return false;
+		if (typeof addon.delayOutputEx === 'function') {
+			return addon.delayOutputEx(Number(engine), Number(timeMs), String(text), !!interrupt);
+		}
+		return false;
 	}
 
 	getTTSEngines() {
@@ -166,6 +206,8 @@ class SRAL {
 		if (typeof addon.getTTSEngines === 'function') {
 			return addon.getTTSEngines();
 		}
+		if (typeof this.getEngineCategory !== 'function') return 0;
+		
 		let ttsMask = 0;
 		for (let key in SRALEngines) {
 			let val = SRALEngines[key];
@@ -183,6 +225,8 @@ class SRAL {
 		if (typeof addon.getAssistiveTechEngines === 'function') {
 			return addon.getAssistiveTechEngines();
 		}
+		if (typeof this.getEngineCategory !== 'function') return 0;
+
 		let atMask = 0;
 		for (let key in SRALEngines) {
 			let val = SRALEngines[key];

@@ -9,7 +9,7 @@ namespace Sral {
 
 void Zdsr::LibraryDeleter::operator()(HMODULE handle) const noexcept {
 #if defined(_WIN32) || defined(_WIN64)
-	if (handle)
+	if (handle) [[likely]]
 		::FreeLibrary(handle);
 #endif
 }
@@ -45,22 +45,23 @@ Zdsr::~Zdsr() noexcept {
 }
 
 bool Zdsr::Initialize() {
-	if (m_running.load(std::memory_order_acquire))
-		return true;
-	std::lock_guard<std::mutex> lock(GetLoaderMutex());
-	if (m_running.load(std::memory_order_relaxed))
+	if (isInitialized.load(std::memory_order_acquire))
 		return true;
 
-	m_running.store(true, std::memory_order_release);
-	m_workerThread = std::thread(&Zdsr::BackgroundWorkerLoop, this);
+	std::lock_guard<std::mutex> lock(GetLoaderMutex());
+	if (isInitialized.load(std::memory_order_relaxed))
+		return true;
+
+	m_workerThread = std::jthread([this](std::stop_token st) { BackgroundWorkerLoop(st); });
 	return true;
 }
 
 bool Zdsr::Uninitialize() {
-	if (!m_running.load(std::memory_order_acquire))
-		return true;
-	m_running.store(false, std::memory_order_release);
-	m_cv.notify_all();
+	m_workerThread.request_stop();
+	{
+		std::lock_guard<std::mutex> lock(m_queueMutex);
+		m_cv.notify_all();
+	}
 
 	if (m_workerThread.joinable()) {
 		m_workerThread.join();
@@ -87,7 +88,7 @@ bool Zdsr::IsSpeaking() {
 }
 
 bool Zdsr::Speak(const char* text, bool interrupt) {
-	if (!text || !m_running.load(std::memory_order_acquire)) [[unlikely]]
+	if (!text || !isInitialized.load(std::memory_order_acquire)) [[unlikely]]
 		return false;
 	std::string_view textStr(text);
 	if (textStr.empty())
@@ -107,7 +108,7 @@ bool Zdsr::Speak(const char* text, bool interrupt) {
 }
 
 bool Zdsr::StopSpeech() {
-	if (!m_running.load(std::memory_order_acquire))
+	if (!isInitialized.load(std::memory_order_acquire))
 		return false;
 	{
 		std::lock_guard<std::mutex> lock(m_queueMutex);
@@ -119,16 +120,18 @@ bool Zdsr::StopSpeech() {
 	return true;
 }
 
-void Zdsr::BackgroundWorkerLoop() noexcept {
+void Zdsr::BackgroundWorkerLoop(std::stop_token stop_token) noexcept {
 #if defined(_WIN32) || defined(_WIN64)
 	{
 		std::lock_guard<std::mutex> instanceLock(instanceMutex);
 		lib.reset(::LoadLibraryW(L"ZDSRAPI.dll"));
 		if (lib) {
-			fInitTTS = SafeProcCast<InitTTS_t>(::GetProcAddress(lib.get(), "InitTTS"));
-			fSpeak = SafeProcCast<Speak_t>(::GetProcAddress(lib.get(), "Speak"));
-			fStopSpeak = SafeProcCast<StopSpeak_t>(::GetProcAddress(lib.get(), "StopSpeak"));
-			fGetSpeakState = SafeProcCast<GetSpeakState_t>(::GetProcAddress(lib.get(), "GetSpeakState"));
+			HMODULE const moduleHandle = reinterpret_cast<HMODULE>(lib.get());
+
+			fInitTTS = SafeProcCast<InitTTS_t>(::GetProcAddress(moduleHandle, "InitTTS"));
+			fSpeak = SafeProcCast<Speak_t>(::GetProcAddress(moduleHandle, "Speak"));
+			fStopSpeak = SafeProcCast<StopSpeak_t>(::GetProcAddress(moduleHandle, "StopSpeak"));
+			fGetSpeakState = SafeProcCast<GetSpeakState_t>(::GetProcAddress(moduleHandle, "GetSpeakState"));
 
 			if (fInitTTS && fSpeak && fStopSpeak && fGetSpeakState) {
 				wchar_t emptyBuffer = {L'\0'};
@@ -139,21 +142,25 @@ void Zdsr::BackgroundWorkerLoop() noexcept {
 		}
 		if (!isInitialized.load(std::memory_order_relaxed)) {
 			CleanUpMembers();
-			m_running.store(false, std::memory_order_release);
 			return;
 		}
 	}
 
-	while (m_running.load(std::memory_order_acquire)) {
+	while (!stop_token.stop_requested()) [[likely]] {
 		ThreadCommand cmd;
 		bool hasCommand = false;
 		{
 			std::unique_lock<std::mutex> lock(m_queueMutex);
-			if (!m_commandQueue.empty()) {
-				cmd = std::move(m_commandQueue.front());
-				m_commandQueue.pop();
-				hasCommand = true;
+
+			m_cv.wait(lock, [this, &stop_token] { return !m_commandQueue.empty() || stop_token.stop_requested(); });
+
+			if (stop_token.stop_requested() && m_commandQueue.empty()) [[unlikely]] {
+				break;
 			}
+
+			cmd = std::move(m_commandQueue.front());
+			m_commandQueue.pop();
+			hasCommand = true;
 		}
 
 		if (hasCommand) {
@@ -172,21 +179,11 @@ void Zdsr::BackgroundWorkerLoop() noexcept {
 			}
 		}
 
-		{
-			std::lock_guard<std::mutex> instanceLock(instanceMutex);
-			if (isInitialized.load(std::memory_order_relaxed) && fGetSpeakState) {
-				m_isSpeakingCache.store(fGetSpeakState() == 3, std::memory_order_release);
-			}
-			else {
-				m_isSpeakingCache.store(false, std::memory_order_release);
-			}
+		if (isInitialized.load(std::memory_order_relaxed) && fGetSpeakState) {
+			m_isSpeakingCache.store(fGetSpeakState() == 3, std::memory_order_release);
 		}
-
-		if (!hasCommand) {
-			std::unique_lock<std::mutex> lock(m_queueMutex);
-			if (m_commandQueue.empty() && m_running.load(std::memory_order_acquire)) {
-				m_cv.wait_for(lock, std::chrono::milliseconds(15));
-			}
+		else {
+			m_isSpeakingCache.store(false, std::memory_order_release);
 		}
 	}
 
@@ -201,11 +198,13 @@ void Zdsr::BackgroundWorkerLoop() noexcept {
 	isInitialized.store(false, std::memory_order_release);
 	m_isSpeakingCache.store(false, std::memory_order_release);
 
-	while (m_running.load(std::memory_order_acquire)) {
+	while (!stop_token.stop_requested()) [[likely]] {
 		std::unique_lock<std::mutex> lock(m_queueMutex);
-		m_cv.wait_for(lock, std::chrono::milliseconds(100));
-		while (!m_commandQueue.empty())
+		m_cv.wait(lock, [this, &stop_token] { return !m_commandQueue.empty() || stop_token.stop_requested(); });
+
+		while (!m_commandQueue.empty()) {
 			m_commandQueue.pop();
+		}
 	}
 #endif
 }

@@ -1,212 +1,244 @@
-if(NOT CMAKE_CURRENT_SOURCE_DIR MATCHES "SRC$")
-    message(FATAL_ERROR "[SRAL SECURITY] SRC/CMakeLists.txt must be processed via add_subdirectory() from the workspace root.")
+cmake_path(GET CMAKE_CURRENT_SOURCE_DIR FILENAME CURRENT_DIR_NAME)
+if(NOT CURRENT_DIR_NAME STREQUAL "SRC")
+    message(FATAL_ERROR "[SRAL ERROR] SRC/CMakeLists.txt must be processed via add_subdirectory() from the workspace root.")
 endif()
 
+set(ROOT_SRC "${CMAKE_SOURCE_DIR}")
 set(DEP_SOURCES "")
 
 if(IS_WINDOWS)
-    list(APPEND DEP_SOURCES
-        "${CMAKE_SOURCE_DIR}/Dep/nvda_control.c"
-        "${CMAKE_SOURCE_DIR}/Dep/fsapi.c"
-        "${CMAKE_SOURCE_DIR}/Dep/blastspeak.c"
+    set(DEP_SOURCES
+        "${ROOT_SRC}/Dep/nvda_control.c"
+        "${ROOT_SRC}/Dep/fsapi.c"
+        "${ROOT_SRC}/Dep/blastspeak.c"
     )
-elseif(NOT IS_APPLE AND NOT IS_ANDROID AND NOT IS_EMSCRIPTEN)
-    list(APPEND DEP_SOURCES "${CMAKE_SOURCE_DIR}/Dep/utf-8.c")
+elseif(NOT IS_MACOS AND NOT IS_IOS AND NOT IS_ANDROID AND NOT IS_WASM)
+    set(DEP_SOURCES "${ROOT_SRC}/Dep/utf-8.c")
+endif()
+
+set(CORE_SOURCES "Engine.cpp" "SRAL.cpp")
+set(LOCAL_FEATURE_DEFINITIONS "")
+
+if(NOT IS_WASM)
+    if(SRAL_WITH_ACCESSKIT STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "ACAnnouncer.cpp")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_ACCESSKIT")
+    endif()
+endif()
+
+if(IS_WINDOWS)
+    list(APPEND CORE_SOURCES "Encoding.cpp")
+
+    if(SRAL_WITH_NVDA STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "NVDA.cpp")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_NVDA")
+    endif()
+
+    if(SRAL_WITH_JAWS STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "Jaws.cpp")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_JAWS")
+    endif()
+
+    if(SRAL_WITH_ZDSR STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "ZDSR.cpp")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_ZDSR")
+    endif()
+
+    if(SRAL_WITH_SAPI STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "SAPI.cpp" "${ROOT_SRC}/Dep/wasapi.cpp")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_SAPI")
+    endif()
+
+    if(SRAL_WITH_UIA STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "UIA.cpp" "${ROOT_SRC}/Dep/UIAProvider.cpp")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_UIA")
+    endif()
+
+elseif(IS_MACOS OR IS_IOS)
+    if(SRAL_WITH_VOICEOVER STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "VoiceOver.mm")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_VOICEOVER")
+    endif()
+
+    if(SRAL_WITH_AVSPEECH STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "AVSpeech.mm")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_AVSPEECH")
+    endif()
+
+    if(NOT IS_IOS AND SRAL_WITH_NSSPEECH STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "NSSpeech.mm")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_NSSPEECH")
+    endif()
+
+elseif(IS_ANDROID)
+    list(APPEND CORE_SOURCES "${ROOT_SRC}/Dep/AndroidContext.cpp")
+
+    if(BUILD_ANDROID_HELPERS AND JAVAC_BIN AND PATH_jdk_install)
+        cmake_path(SET JAR_BIN_PATH "${PATH_jdk_install}")
+        cmake_path(APPEND JAR_BIN_PATH "bin" "jar")
+
+        set(ANDROID_JAR_OUT "${CMAKE_CURRENT_BINARY_DIR}/SRALAndroidHelpers.jar")
+        add_custom_command(
+            OUTPUT "${ANDROID_JAR_OUT}"
+            COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/java_classes"
+            COMMAND "${JAVAC_BIN}" -d "${CMAKE_CURRENT_BINARY_DIR}/java_classes" "${ROOT_SRC}/Dep/AndroidAccessibilityManagerHelper.java" "${ROOT_SRC}/Dep/AndroidTTSHelper.java"
+            COMMAND "${JAR_BIN_PATH}" cf "${ANDROID_JAR_OUT}" -C "${CMAKE_CURRENT_BINARY_DIR}/java_classes" .
+            DEPENDS "${ROOT_SRC}/Dep/AndroidAccessibilityManagerHelper.java" "${ROOT_SRC}/Dep/AndroidTTSHelper.java"
+            COMMENT "Assembling Android Java Helper Target Archives Safely via File-Tracking..."
+            VERBATIM
+        )
+        add_custom_target(SRALAndroidHelpers ALL DEPENDS "${ANDROID_JAR_OUT}")
+        install(FILES "${ANDROID_JAR_OUT}" DESTINATION "share/sral/android" COMPONENT PlatformAssets)
+    endif()
+
+    if(SRAL_WITH_ANDROID_TTS STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "AndroidTextToSpeech.cpp")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_ANDROID_TTS")
+    endif()
+
+    if(SRAL_WITH_ANDROID_ACCESSIBILITY STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "AndroidAccessibilityManager.cpp")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_ANDROID_ACCESSIBILITY")
+    endif()
+
+elseif(IS_WASM)
+    if(SRAL_WITH_CHROMEVOX STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "ChromeVox.cpp")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_CHROMEVOX")
+    endif()
+
+    list(APPEND LOCAL_FEATURE_DEFINITIONS
+        "SRAL_NO_NVDA" "SRAL_NO_JAWS" "SRAL_NO_ZDSR" "SRAL_NO_SAPI" "SRAL_NO_UIA"
+        "SRAL_NO_SPEECHD" "SRAL_NO_ORCA" "SRAL_NO_BRLAPI"
+    )
+else()
+    list(APPEND CORE_SOURCES "Encoding.cpp")
+
+    if(SRAL_WITH_SPEECH_DISPATCHER STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "SpeechDispatcher.cpp")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_SPEECHD")
+    endif()
+
+    if(SRAL_WITH_ORCA STREQUAL "enabled")
+        list(APPEND CORE_SOURCES "Orca.cpp")
+    else()
+        list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_ORCA")
+    endif()
+endif()
+
+if(NOT IS_WASM)
+    list(APPEND LOCAL_FEATURE_DEFINITIONS "SRAL_NO_CHROMEVOX")
 endif()
 
 set(SRAL_DEPS_TARGET "")
 if(DEP_SOURCES)
-    add_library(sral_deps STATIC ${DEP_SOURCES})
-    target_include_directories(sral_deps PRIVATE "${CMAKE_SOURCE_DIR}/Include")
-    set_target_properties(sral_deps PROPERTIES POSITION_INDEPENDENT_CODE ON)
-    set(SRAL_DEPS_TARGET sral_deps)
-endif()
-set(SHARED_WARNINGS "")
-set(CPP_EXCLUSIVE_WARNINGS "")
-
-if(NOT COMPILER_IS_MSVC_LIKE)
-    list(APPEND SHARED_WARNINGS
-        -Wformat=2
-        -Wformat-security
-        -Werror=format-security
-        -Wconversion
-        -Wsign-conversion
-        -Wshadow
-        -Wundef
-        -Wcast-qual
-        -Wswitch-enum
-        -Wnull-dereference
+    add_library(sral_deps STATIC)
+    target_sources(sral_deps
+        PRIVATE
+        ${DEP_SOURCES}
     )
-    list(APPEND CPP_EXCLUSIVE_WARNINGS
-        -Wold-style-cast
-        -Wnon-virtual-dtor
-        -Wctor-dtor-privacy
-        -Woverloaded-virtual
+
+    set_target_properties(sral_deps PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        SKIP_LINTING ON
+        SKIP_UNITY_BUILD_INCLUSION ON
     )
-endif()
+    target_include_directories(sral_deps PRIVATE "${ROOT_SRC}/Include" "${ROOT_SRC}/Dep")
+    target_link_libraries(sral_deps PRIVATE sral_hardening_options)
 
-set(CORE_SOURCES Engine.cpp SRAL.cpp)
-
-if(NOT IS_EMSCRIPTEN) 
-    if(SRAL_WITH_ACCESSKIT)
-        unset(ak_check CACHE)
-
-        if(NOT "${PATH_ACCESSKIT_INSTALL}" STREQUAL "")
-            find_library(ak_check NAMES accesskit PATHS "${PATH_ACCESSKIT_INSTALL}" NO_DEFAULT_PATH)
-        endif()
-
-        if(NOT ak_check)
-            find_library(ak_check NAMES accesskit)
-        endif()
-
-        if(ak_check)
-            set(opt_accesskit TRUE)
-            list(APPEND sral_dependencies ${ak_check})
-            list(APPEND CORE_SOURCES ACAnnouncer.cpp)
-        else()
-            set(opt_accesskit FALSE)
-            add_compile_definitions(SRAL_NO_ACCESSKIT)
-        endif()
-    else()
-        add_compile_definitions(SRAL_NO_ACCESSKIT)
+    if(LOCAL_FEATURE_DEFINITIONS)
+        target_compile_definitions(sral_deps PRIVATE "${LOCAL_FEATURE_DEFINITIONS}")
     endif()
-endif()
-if(IS_WINDOWS)
-    list(APPEND CORE_SOURCES Encoding.cpp)
-    if(SRAL_WITH_NVDA)
-        list(APPEND CORE_SOURCES NVDA.cpp)
-    else()
-        add_compile_definitions(SRAL_NO_NVDA)
-    endif()
-    if(SRAL_WITH_JAWS)
-        list(APPEND CORE_SOURCES Jaws.cpp)
-    else()
-        add_compile_definitions(SRAL_NO_JAWS)
-    endif()
-    if(SRAL_WITH_ZDSR)
-        list(APPEND CORE_SOURCES ZDSR.cpp)
-    else()
-        add_compile_definitions(SRAL_NO_ZDSR)
-    endif()
-    if(SRAL_WITH_SAPI)
-        list(APPEND CORE_SOURCES SAPI.cpp "${CMAKE_SOURCE_DIR}/Dep/wasapi.cpp")
-    else()
-        add_compile_definitions(SRAL_NO_SAPI)
-    endif()
-    if(SRAL_WITH_UIA)
-        list(APPEND CORE_SOURCES UIA.cpp "${CMAKE_SOURCE_DIR}/Dep/UIAProvider.cpp")
-    else()
-        add_compile_definitions(SRAL_NO_UIA)
-    endif()
-elseif(IS_APPLE)
-    if(SRAL_WITH_VOICEOVER)
-        list(APPEND CORE_SOURCES VoiceOver.mm)
-    else()
-        add_compile_definitions(SRAL_NO_VOICEOVER)
-    endif()
-    if(SRAL_WITH_AVSPEECH)
-        list(APPEND CORE_SOURCES AVSpeech.mm)
-    else()
-        add_compile_definitions(SRAL_NO_AVSPEECH)
-    endif()
-    if(NOT IS_IOS AND SRAL_WITH_NSSPEECH)
-        list(APPEND CORE_SOURCES NSSpeech.mm)
-    else()
-        add_compile_definitions(SRAL_NO_NSSPEECH)
-    endif()
-elseif(IS_ANDROID)
-    list(APPEND CORE_SOURCES "${CMAKE_SOURCE_DIR}/Dep/AndroidContext.cpp")
-    if(SRAL_WITH_ANDROID_TTS)
-        list(APPEND CORE_SOURCES AndroidTextToSpeech.cpp)
-    else()
-        add_compile_definitions(SRAL_NO_ANDROID_TTS)
-    endif()
-    if(SRAL_WITH_ANDROID_ACCESSIBILITY)
-        list(APPEND CORE_SOURCES AndroidAccessibilityManager.cpp)
-    else()
-        add_compile_definitions(SRAL_NO_ANDROID_ACCESSIBILITY)
-    endif()
-elseif(IS_EMSCRIPTEN)
-    if(SRAL_WITH_CHROMEVOX)
-        list(APPEND CORE_SOURCES ChromeVox.cpp)
-    else()
-        add_compile_definitions(SRAL_NO_CHROMEVOX)
-    endif()
-    add_compile_definitions(
-        SRAL_NO_ACCESSKIT SRAL_NO_NVDA SRAL_NO_JAWS SRAL_NO_ZDSR SRAL_NO_SAPI  
-        SRAL_NO_UIA SRAL_NO_SPEECH_DISPATCHER SRAL_NO_ORCA SRAL_NO_BRLAPI
-    )
-else()
-    list(APPEND CORE_SOURCES Encoding.cpp)
-    if(SRAL_WITH_SPEECH_DISPATCHER)
-        list(APPEND CORE_SOURCES SpeechDispatcher.cpp)
-    else()
-        add_compile_definitions(SRAL_NO_SPEECH_DISPATCHER)
-    endif()
-    if(SRAL_WITH_ORCA)
-        list(APPEND CORE_SOURCES Orca.cpp)
-    else()
-        add_compile_definitions(SRAL_NO_ORCA)
-    endif()
-endif()
-
-if(NOT IS_EMSCRIPTEN)
-    add_compile_definitions(SRAL_NO_CHROMEVOX)
+    set(SRAL_DEPS_TARGET "sral_deps")
 endif()
 
 if(BUILD_SHARED_LIBS)
-    add_library(SRAL SHARED ${CORE_SOURCES})
-    target_compile_definitions(SRAL PRIVATE SRAL_BUILDING_DLL WASAPI_EXPORTS)
+    add_library(SRAL SHARED)
+    target_sources(SRAL PRIVATE ${CORE_SOURCES})
+
+    add_library(SRAL_Static STATIC)
+    target_sources(SRAL_Static PRIVATE ${CORE_SOURCES})
+    set_target_properties(SRAL_Static PROPERTIES OUTPUT_NAME "SRAL_static")
+    set(FINAL_TARGETS SRAL SRAL_Static)
 else()
-    add_library(SRAL STATIC ${CORE_SOURCES})
-    target_compile_definitions(SRAL PUBLIC SRAL_STATIC)
+    add_library(SRAL STATIC)
+    target_sources(SRAL PRIVATE ${CORE_SOURCES})
+
+    set_target_properties(SRAL PROPERTIES OUTPUT_NAME "SRAL")
+    set(FINAL_TARGETS SRAL)
 endif()
 
-target_include_directories(SRAL 
-    PUBLIC "${CMAKE_SOURCE_DIR}/Include" 
-    PRIVATE "${CMAKE_SOURCE_DIR}/Dep" ${SRAL_SYS_INCLUDE_DIRS}
+set(LOCAL_SHARED_WARNINGS
+    "-Wformat=2" "-Wformat-security" "-Wconversion" "-Wsign-conversion"
+    "-Wshadow" "-Wundef" "-Wcast-qual" "-Wswitch-enum" "-Wnull-dereference"
 )
-target_compile_options(SRAL PRIVATE ${SHARED_WARNINGS} $<$<COMPILE_LANGUAGE:CXX>:${CPP_EXCLUSIVE_WARNINGS}>)
+set(LOCAL_CPP_WARNINGS "-Wctor-dtor-privacy" "-Woverloaded-virtual")
 
-if(SRAL_DEPS_TARGET)
-    target_link_libraries(SRAL PRIVATE ${SRAL_DEPS_TARGET})
-endif()
+foreach(TARGET_OBJ IN LISTS FINAL_TARGETS)
+    set_target_properties(${TARGET_OBJ} PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+        COMPILE_WARNING_AS_ERROR ON
+        C_VISIBILITY_PRESET hidden
+        CXX_VISIBILITY_PRESET hidden
+        VISIBILITY_INLINES_HIDDEN ON
+        OPTIMIZE_DEPENDENCIES ON
+    )
 
-target_link_libraries(SRAL PUBLIC ${SRAL_DEPENDENCIES})
-if(NOT COMPILER_IS_MSVC_LIKE)
-    set(DESIRED_LINK_ARGS "-Wl,-z,relro" "-Wl,-z,now" "-Wl,-z,noexecstack")
-    if(NOT IS_APPLE)
-        list(APPEND DESIRED_LINK_ARGS "-Wl,-z,defs")
+    target_include_directories(${TARGET_OBJ}
+        PUBLIC $<BUILD_INTERFACE:${ROOT_SRC}/Include> $<INSTALL_INTERFACE:include>
+        PRIVATE "${ROOT_SRC}/Include" "${ROOT_SRC}/Dep"
+    )
+
+    target_link_libraries(${TARGET_OBJ} PRIVATE sral_hardening_options)
+
+    if(SRAL_DEPS_TARGET)
+        target_link_libraries(${TARGET_OBJ} PRIVATE ${SRAL_DEPS_TARGET})
+    endif()
+
+    if(LOCAL_FEATURE_DEFINITIONS)
+        target_compile_definitions(${TARGET_OBJ} PRIVATE "${LOCAL_FEATURE_DEFINITIONS}")
+    endif()
+
+    if(BUILD_SHARED_LIBS AND TARGET_OBJ STREQUAL "SRAL")
+        target_compile_definitions(${TARGET_OBJ} PRIVATE "SRAL_BUILDING_DLL" "WASAPI_EXPORTS")
     else()
-        list(APPEND DESIRED_LINK_ARGS "-Wl,-undefined,error")
+        target_compile_definitions(${TARGET_OBJ} PRIVATE "SRAL_STATIC")
     endif()
-    
-    foreach(FLAG ${DESIRED_LINK_ARGS})
-        string(MAKE_C_IDENTIFIER "LINK_FLAG_${FLAG}" FLAG_VAR)
-        include(CheckCXXCompilerFlag)
-        check_cxx_compiler_flag("${FLAG}" ${FLAG_VAR})
-        if(${FLAG_VAR})
-            target_link_options(SRAL PRIVATE "${FLAG}")
+
+    if(NOT IS_MSVC_LIKE)
+        sral_add_safe_target_flags(${TARGET_OBJ}
+            SCOPE PRIVATE
+            C_FLAGS ${LOCAL_SHARED_WARNINGS}
+            CXX_FLAGS ${LOCAL_SHARED_WARNINGS} ${LOCAL_CPP_WARNINGS}
+        )
+
+        set(DESIRED_LINK_ARGS "-Wl,-z,relro" "-Wl,-z,now" "-Wl,-z,noexecstack")
+        if(NOT IS_MACOS AND NOT IS_IOS)
+            list(APPEND DESIRED_LINK_ARGS "-Wl,-z,defs")
+        else()
+            list(APPEND DESIRED_LINK_ARGS "-Wl,-undefined,error")
         endif()
-    endforeach()
-else()
-    target_link_options(SRAL PRIVATE /NXCOMPAT /DYNAMICBASE /HIGHENTROPYVA)
-    if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
-        target_link_options(SRAL PRIVATE /CETCOMPAT)
+
+        sral_add_safe_target_flags(${TARGET_OBJ}
+            SCOPE PRIVATE
+            LINK_FLAGS ${DESIRED_LINK_ARGS}
+        )
     endif()
-endif()
 
-set_target_properties(SRAL PROPERTIES
-    COMPILE_WARNING_AS_ERROR ON
-    POSITION_INDEPENDENT_CODE ON
-    C_VISIBILITY_PRESET hidden
-    CXX_VISIBILITY_PRESET hidden
-    VISIBILITY_INLINES_HIDDEN ON
-)
-
-install(TARGETS SRAL
-    EXPORT SRALTargets
-    RUNTIME DESTINATION bin
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-)
+    if(SRAL_PROJECT_LINK_FLAGS)
+        target_link_options(${TARGET_OBJ} PRIVATE "${SRAL_PROJECT_LINK_FLAGS}")
+    endif()
+endforeach()

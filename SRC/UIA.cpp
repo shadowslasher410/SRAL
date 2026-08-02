@@ -25,7 +25,7 @@ _COM_SMARTPTR_TYPEDEF(IUIAutomationElement, __uuidof(IUIAutomationElement));
 
 namespace Sral {
 
-Uia::~Uia() {
+Uia::~Uia() noexcept {
 	static_cast<void>(Uia::Uninitialize());
 }
 
@@ -42,7 +42,6 @@ bool Uia::Initialize() {
 	m_head.store(0, std::memory_order_relaxed);
 	m_tail.store(0, std::memory_order_relaxed);
 	m_ring_bell.store(false, std::memory_order_relaxed);
-
 	m_workerThread = std::jthread([this](std::stop_token st) noexcept { this->BackgroundWorkerLoop(st); });
 
 	isInitialized.store(true, std::memory_order_release);
@@ -70,7 +69,6 @@ bool Uia::Uninitialize() {
 	if (thread_to_join.joinable()) {
 		thread_to_join.join();
 	}
-
 	return true;
 }
 
@@ -120,10 +118,10 @@ bool Uia::IsSpeaking() {
 
 bool Uia::Speak(const char* text, bool interrupt) {
 	std::string_view text_view(text ? text : "");
-	if (text_view.empty())
+	if (text_view.empty()) [[unlikely]]
 		return false;
 
-	if (!isInitialized.load(std::memory_order_acquire))
+	if (!isInitialized.load(std::memory_order_acquire)) [[unlikely]]
 		return false;
 
 	if (interrupt) {
@@ -132,7 +130,7 @@ bool Uia::Speak(const char* text, bool interrupt) {
 	}
 
 	ThreadCommand* task = nullptr;
-	size_t ticket = m_head.load(std::memory_order_relaxed);
+	size_t ticket = m_head.load(std::memory_order_acquire);
 
 	while (true) {
 		task = &m_ring_queue[ticket & RING_MASK];
@@ -140,17 +138,18 @@ bool Uia::Speak(const char* text, bool interrupt) {
 		intptr_t difference = static_cast<intptr_t>(seq) - static_cast<intptr_t>(ticket);
 
 		if (difference == 0) {
-			if (m_head.compare_exchange_weak(ticket, ticket + 1, std::memory_order_relaxed)) {
+			if (m_head.compare_exchange_weak(
+					ticket, ticket + 1, std::memory_order_acquire, std::memory_order_relaxed)) {
 				break;
 			}
 		}
 		else if (difference < 0) {
 			size_t current_tail = m_tail.load(std::memory_order_relaxed);
 			m_tail.compare_exchange_weak(current_tail, current_tail + 1, std::memory_order_relaxed);
-			ticket = m_head.load(std::memory_order_relaxed);
+			ticket = m_head.load(std::memory_order_acquire);
 		}
 		else {
-			ticket = m_head.load(std::memory_order_relaxed);
+			ticket = m_head.load(std::memory_order_acquire);
 		}
 	}
 
@@ -159,24 +158,21 @@ bool Uia::Speak(const char* text, bool interrupt) {
 	task->payload[max_copy] = '\0';
 	task->type = CommandType::Speak;
 	task->interrupt = interrupt;
-
 	task->sequence.store(ticket + 1, std::memory_order_release);
-
-	if (!m_ring_bell.exchange(true, std::memory_order_release)) {
-		m_ring_bell.notify_one();
-	}
+	m_ring_bell.store(true, std::memory_order_release);
+	m_ring_bell.notify_one();
 	return true;
 }
 
 bool Uia::StopSpeech() {
-	if (!isInitialized.load(std::memory_order_acquire))
+	if (!isInitialized.load(std::memory_order_acquire)) [[unlikely]]
 		return false;
 
 	size_t head_snap = m_head.load(std::memory_order_relaxed);
 	m_tail.store(head_snap, std::memory_order_release);
 
 	ThreadCommand* task = nullptr;
-	size_t ticket = m_head.load(std::memory_order_relaxed);
+	size_t ticket = m_head.load(std::memory_order_acquire);
 
 	while (true) {
 		task = &m_ring_queue[ticket & RING_MASK];
@@ -184,29 +180,26 @@ bool Uia::StopSpeech() {
 		intptr_t difference = static_cast<intptr_t>(seq) - static_cast<intptr_t>(ticket);
 
 		if (difference == 0) {
-			if (m_head.compare_exchange_weak(ticket, ticket + 1, std::memory_order_relaxed)) {
+			if (m_head.compare_exchange_weak(
+					ticket, ticket + 1, std::memory_order_acquire, std::memory_order_relaxed)) {
 				break;
 			}
 		}
 		else if (difference < 0) {
 			size_t current_tail = m_tail.load(std::memory_order_relaxed);
 			m_tail.compare_exchange_weak(current_tail, current_tail + 1, std::memory_order_relaxed);
-			ticket = m_head.load(std::memory_order_relaxed);
+			ticket = m_head.load(std::memory_order_acquire);
 		}
 		else {
-			ticket = m_head.load(std::memory_order_relaxed);
+			ticket = m_head.load(std::memory_order_acquire);
 		}
 	}
-
 	task->payload[0] = '\0';
 	task->type = CommandType::Stop;
 	task->interrupt = true;
-
 	task->sequence.store(ticket + 1, std::memory_order_release);
-
-	if (!m_ring_bell.exchange(true, std::memory_order_release)) {
-		m_ring_bell.notify_one();
-	}
+	m_ring_bell.store(true, std::memory_order_release);
+	m_ring_bell.notify_one();
 	return true;
 }
 
@@ -228,13 +221,12 @@ void Uia::BackgroundWorkerLoop(std::stop_token stop_token) noexcept {
 		if (SUCCEEDED(hr) && pAutoInstance) {
 			pAutomation = pAutoInstance;
 
-			IUIAutomationConditionPtr pCondInstance;
+			IUIAutomationConditionPtr pCondInstance = nullptr;
 			_variant_t varNameLocal(L"");
 			hr = pAutoInstance->CreatePropertyConditionEx(
 				UIA_NamePropertyId, varNameLocal, PropertyConditionFlags_None, &pCondInstance);
-			if (SUCCEEDED(hr) && pCondInstance) {
-				pCondInstance->AddRef();
-				pCondition = pCondInstance.GetInterfacePtr();
+			if (SUCCEEDED(hr) && pCondInstance != nullptr) {
+				pCondition = pCondInstance.Detach();
 			}
 		}
 
@@ -245,7 +237,7 @@ void Uia::BackgroundWorkerLoop(std::stop_token stop_token) noexcept {
 		}
 	}
 
-	while (!stop_token.stop_requested()) {
+	while (!stop_token.stop_requested()) [[likely]] {
 		size_t current_tail = m_tail.load(std::memory_order_relaxed);
 		ThreadCommand& task = m_ring_queue[current_tail & RING_MASK];
 
@@ -263,14 +255,13 @@ void Uia::BackgroundWorkerLoop(std::stop_token stop_token) noexcept {
 				m_ring_bell.store(true, std::memory_order_release);
 			}
 			if (stop_token.stop_requested()) [[unlikely]]
-				return;
+				break;
 			continue;
 		}
 
-		CommandType localType = task.type;
-		bool localInterrupt = task.interrupt;
-
-		std::array<char, 512> localPayload = task.payload;
+		const CommandType localType = task.type;
+		const bool localInterrupt = task.interrupt;
+		const char* const payloadDataPtr = task.payload.data();
 		m_tail.store(current_tail + 1, std::memory_order_relaxed);
 
 		m_isSpeakingCache.store(true, std::memory_order_release);
@@ -278,7 +269,7 @@ void Uia::BackgroundWorkerLoop(std::stop_token stop_token) noexcept {
 		{
 			std::lock_guard<std::mutex> instanceLock(instanceMutex);
 			if (pAutomation) {
-				auto* autoInst = static_cast<IUIAutomation*>(pAutomation);
+				auto* const autoInst = static_cast<IUIAutomation*>(pAutomation);
 
 				if (localType == CommandType::Stop) {
 					if (pProvider) {
@@ -293,11 +284,11 @@ void Uia::BackgroundWorkerLoop(std::stop_token stop_token) noexcept {
 				}
 				else if (localType == CommandType::Speak) {
 					std::wstring broadString;
-					if (UnicodeConvert(localPayload.data(), broadString) && !broadString.empty()) {
-						HWND foreground = ::GetForegroundWindow();
+					if (UnicodeConvert(payloadDataPtr, broadString) && !broadString.empty()) {
+						const HWND foreground = ::GetForegroundWindow();
 						if (foreground) {
 							if (pProvider) {
-								auto* oldProvider = static_cast<Provider*>(pProvider);
+								auto* const oldProvider = static_cast<Provider*>(pProvider);
 								oldProvider->Release();
 								pProvider = nullptr;
 							}
@@ -307,7 +298,7 @@ void Uia::BackgroundWorkerLoop(std::stop_token stop_token) noexcept {
 								pElement = nullptr;
 							}
 
-							Provider* pRawProvider = new (std::nothrow) Provider(foreground);
+							Provider* const pRawProvider = new (std::nothrow) Provider(foreground);
 							if (pRawProvider) {
 								pProvider = pRawProvider;
 								IUIAutomationElement* elem = nullptr;

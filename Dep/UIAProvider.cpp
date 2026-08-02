@@ -25,13 +25,13 @@
 
 namespace Sral {
 
-Provider::Provider(HWND hwnd) noexcept : m_refCount(1), m_controlHWnd(hwnd) {}
+Provider::Provider(HWND const hwnd) noexcept : m_refCount(1), m_controlHWnd(hwnd) {}
 
-IFACEMETHODIMP_(ULONG) Provider::AddRef() {
+IFACEMETHODIMP_(ULONG) Provider::AddRef() noexcept {
 	return static_cast<ULONG>(::InterlockedIncrement(&m_refCount));
 }
 
-IFACEMETHODIMP_(ULONG) Provider::Release() {
+IFACEMETHODIMP_(ULONG) Provider::Release() noexcept {
 	const LONG val = ::InterlockedDecrement(&m_refCount);
 	if (val == 0) {
 		delete this;
@@ -40,15 +40,12 @@ IFACEMETHODIMP_(ULONG) Provider::Release() {
 	return static_cast<ULONG>(val);
 }
 
-IFACEMETHODIMP Provider::QueryInterface(REFIID riid, void** ppInterface) {
-	if (!ppInterface) {
+IFACEMETHODIMP Provider::QueryInterface(REFIID riid, void** const ppInterface) noexcept {
+	if (!ppInterface) [[unlikely]] {
 		return E_POINTER;
 	}
 
-	if (riid == __uuidof(IUnknown)) {
-		*ppInterface = static_cast<IRawElementProviderSimple*>(this);
-	}
-	else if (riid == __uuidof(IRawElementProviderSimple)) {
+	if (riid == __uuidof(IUnknown) || riid == __uuidof(IRawElementProviderSimple)) {
 		*ppInterface = static_cast<IRawElementProviderSimple*>(this);
 	}
 	else if (riid == __uuidof(IInvokeProvider)) {
@@ -63,8 +60,8 @@ IFACEMETHODIMP Provider::QueryInterface(REFIID riid, void** ppInterface) {
 	return S_OK;
 }
 
-IFACEMETHODIMP Provider::get_ProviderOptions(ProviderOptions* pRetVal) {
-	if (!pRetVal) {
+IFACEMETHODIMP Provider::get_ProviderOptions(ProviderOptions* const pRetVal) noexcept {
+	if (!pRetVal) [[unlikely]] {
 		return E_POINTER;
 	}
 
@@ -72,8 +69,8 @@ IFACEMETHODIMP Provider::get_ProviderOptions(ProviderOptions* pRetVal) {
 	return S_OK;
 }
 
-IFACEMETHODIMP Provider::GetPatternProvider(PATTERNID patternId, IUnknown** pRetVal) {
-	if (!pRetVal) {
+IFACEMETHODIMP Provider::GetPatternProvider(PATTERNID const patternId, IUnknown** const pRetVal) noexcept {
+	if (!pRetVal) [[unlikely]] {
 		return E_POINTER;
 	}
 
@@ -87,63 +84,58 @@ IFACEMETHODIMP Provider::GetPatternProvider(PATTERNID patternId, IUnknown** pRet
 	return S_OK;
 }
 
-IFACEMETHODIMP Provider::GetPropertyValue(PROPERTYID propertyId, VARIANT* pRetVal) {
+IFACEMETHODIMP Provider::GetPropertyValue(PROPERTYID const propertyId, VARIANT* const pRetVal) noexcept {
 	if (!pRetVal) [[unlikely]] {
 		return E_POINTER;
 	}
 	::VariantInit(pRetVal);
 
-	if (propertyId == UIA_ControlTypePropertyId) {
+	switch (propertyId) {
+	case UIA_ControlTypePropertyId: {
 		V_VT(pRetVal) = VT_I4;
 		V_I4(pRetVal) = UIA_ButtonControlTypeId;
+		break;
 	}
-	else if (propertyId == UIA_NamePropertyId) {
+	case UIA_NamePropertyId: {
 		V_VT(pRetVal) = VT_BSTR;
 		V_BSTR(pRetVal) = ::SysAllocString(L"ColorButton");
-
 		if (!V_BSTR(pRetVal)) [[unlikely]] {
 			V_VT(pRetVal) = VT_EMPTY;
 			return E_OUTOFMEMORY;
 		}
+		break;
 	}
-	else {
+	default: {
 		V_VT(pRetVal) = VT_EMPTY;
+		break;
+	}
 	}
 
 	return S_OK;
 }
 
-IFACEMETHODIMP Provider::get_HostRawElementProvider(IRawElementProviderSimple** pRetVal) {
-	if (!pRetVal) {
+IFACEMETHODIMP Provider::get_HostRawElementProvider(IRawElementProviderSimple** const pRetVal) noexcept {
+	if (!pRetVal) [[unlikely]] {
 		return E_POINTER;
 	}
 
 	*pRetVal = nullptr;
 
-	if (!m_controlHWnd) {
+	if (!m_controlHWnd) [[unlikely]] {
 		return E_FAIL;
 	}
 
 	return ::UiaHostProviderFromHwnd(m_controlHWnd, pRetVal);
 }
 
-IFACEMETHODIMP Provider::Invoke() {
-	if (m_controlHWnd && ::IsWindow(m_controlHWnd)) {
-		::PostMessageW(m_controlHWnd, WM_LBUTTONDOWN, 0, 0);
+IFACEMETHODIMP Provider::Invoke() noexcept {
+	const HWND targetWnd = m_controlHWnd;
+	if (targetWnd && ::IsWindow(targetWnd)) {
+		::PostMessageW(targetWnd, WM_LBUTTONDOWN, MK_LBUTTON, 0);
+		::PostMessageW(targetWnd, WM_LBUTTONUP, 0, 0);
 	}
 	return S_OK;
 }
 
 } // namespace Sral
-
-#else
-
-namespace Sral {
-
-namespace Internal {
-[[maybe_unused]] inline void KeepProviderTranslationUnitAlive() noexcept {}
-} // namespace Internal
-
-} // namespace Sral
-
 #endif

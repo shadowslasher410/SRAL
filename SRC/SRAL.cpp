@@ -1,143 +1,104 @@
-#define _SILENCE_CXX20_OLD_SHARED_PTR_ATOMIC_SUPPORT_DEPRECATION_WARNING
+#ifndef SRAL_BUILD_DLL
+#define SRAL_BUILD_DLL 1
+#endif
 
-#define SRAL_EXPORT
 #include "SRAL.h"
 
-#include "Engine.h"
+#include <array>
+#include <atomic>
+#include <bit>
+#include <chrono>
+#include <condition_variable>
+#include <cstring>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <queue>
+#include <string>
+#include <thread>
+#include <vector>
 
-#if defined(SRAL_WITH_ACCESSKIT)
-#include "ACAnnouncer.h"
-#endif
+#include "Engine.h"
 
 #if defined(_WIN32)
 #include <windows.h>
 
 #include <tlhelp32.h>
-
-#ifndef SRAL_NO_JAWS
-#include "Jaws.h"
-#endif
-#ifndef SRAL_NO_NVDA
-#include "NVDA.h"
-#endif
-#ifndef SRAL_NO_SAPI
-#include "SAPI.h"
-#endif
-#ifndef SRAL_NO_ZDSR
-#include "ZDSR.h"
-#endif
-#ifndef SRAL_NO_UIA
-#include "UIA.h"
-#endif
-
-#elif defined(__APPLE__)
-#include <TargetConditionals.h>
-
-#include "AVSpeech.h"
-#include "VoiceOver.h"
-
-#ifndef SRAL_NO_NSSPEECH
-#include "NSSpeech.h"
-#endif
-
-#elif defined(__ANDROID__)
-#include <jni.h>
-
-#include "AndroidContext.h"
-
-#ifndef SRAL_NO_ANDROID_ACCESSIBILITY
-#include "AndroidAccessibilityManager.h"
-#endif
-#ifndef SRAL_NO_ANDROID_TTS
-#include "AndroidTextToSpeech.h"
-#endif
-
-#elif defined(__EMSCRIPTEN__) || defined(SRAL_COMPILE_AS_WASM)
-#ifndef SRAL_NO_CHROMEVOX
-#include "ChromeVox.h"
-#endif
-
-#else
-#include <cstdlib>
-
-#ifndef SRAL_NO_ORCA
+#elif defined(__linux__) && !defined(__ANDROID__)
 #include <dbus/dbus.h>
-
-#include "Orca.h"
-#endif
-#ifndef SRAL_NO_SPEECH_DISPATCHER
-#include "SpeechDispatcher.h"
-#endif
-#ifndef SRAL_NO_CHROMEVOX
-#include "ChromeVox.h"
-#endif
 #endif
 
-#include <atomic>
-#include <chrono>
-#include <map>
-#include <memory>
-#include <mutex>
-#include <string>
-#include <thread>
-#include <vector>
+#if defined(__GNUC__) || defined(__clang__)
+#define BS_UNLIKELY(x) __builtin_expect(!!(x), 0)
+#define BS_LIKELY(x) __builtin_expect(!!(x), 1)
+#else
+#define BS_UNLIKELY(x) (x)
+#define BS_LIKELY(x) (x)
+#endif
 
-class Timer final {
-public:
-	Timer() noexcept { restart(); }
-	[[nodiscard]] uint64_t elapsed() const noexcept {
-		const auto now = std::chrono::high_resolution_clock::now();
-		return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count());
-	}
-	void restart() noexcept { start_time = std::chrono::high_resolution_clock::now(); }
+namespace Sral {
+class Nvda;
+class Jaws;
+class Zdsr;
+class Uia;
+class Sapi;
+class VoiceOver;
+class AvSpeech;
+class NSSpeech;
+class AndroidAccessibilityManager;
+class AndroidTextToSpeech;
+class ChromeVox;
+class Orca;
+class ACAnnouncer;
 
-private:
-	std::chrono::time_point<std::chrono::high_resolution_clock> start_time;
-};
-
-static std::shared_ptr<Sral::Engine> g_currentEngine{nullptr};
-static std::map<SRAL_Engines, std::shared_ptr<Sral::Engine>> g_engines;
-
-static std::mutex g_sralEngineMutex;
-static int g_excludes{SRAL_ENGINE_NONE};
-static int g_enginesFailedToInitialize{SRAL_ENGINE_NONE};
-static bool g_initialized{false};
-
-struct QueuedOutput final {
-	std::string text;
-	bool interrupt{false};
-	bool braille{false};
-	bool speak{false};
-	bool ssml{false};
-	int time{0};
-	std::shared_ptr<Sral::Engine> engine{nullptr};
-};
-
-static std::vector<QueuedOutput> g_delayedOutputs;
-static std::mutex g_delayedOutputsMutex;
-static std::atomic<bool> g_delayOperation{false};
-static std::atomic<bool> g_outputThreadRunning{false};
-static std::thread g_outputThread;
-static std::atomic<uint64_t> g_lastDelayTime{0};
-
-static std::thread g_hookThread;
-static std::atomic<bool> g_keyboardHookThread{false};
-static std::atomic<bool> g_shiftPressed{false};
-
-static void output_thread();
-static void trigger_output_thread_safely();
-static void speech_engine_update() noexcept;
-
-extern "C" {
-bool PlatformRegisterKeyboardHooks(void);
+static void output_thread_loop();
+static inline size_t GetEngineLookupIndex(int engineBitmask) noexcept;
+std::shared_ptr<Sral::Engine> get_engine_internal(int engine) noexcept;
 void PlatformUnregisterKeyboardHooks(void);
-}
+bool PlatformRegisterKeyboardHooks(void);
+
+static constexpr size_t MAX_ENGINE_BIT_INDEX = 32;
+
+alignas(128) std::atomic<std::shared_ptr<Sral::Engine>> g_currentEngine{nullptr};
+alignas(128) std::array<std::atomic<std::shared_ptr<Sral::Engine>>, MAX_ENGINE_BIT_INDEX> g_enginesLookup{};
+alignas(128) std::map<int, std::shared_ptr<Sral::Engine>> g_engines;
+
+alignas(128) std::atomic<bool> g_initialized{false};
+alignas(128) std::atomic<int> g_excludes{0};
+alignas(128) std::atomic<int> g_enginesFailedToInitialize{0};
+alignas(128) std::atomic<bool> g_keyboardHookThread{false};
+alignas(128) std::atomic<bool> g_shiftPressed{false};
 
 #if defined(_WIN32)
-static HHOOK g_keyboardHook = nullptr;
+alignas(128) std::atomic<HHOOK> g_keyboardHook{nullptr};
+alignas(128) std::atomic<DWORD> g_hookThreadId{0};
+#endif
 
-static inline bool is_kernel_handle_valid(HANDLE h) noexcept {
-	return (h != INVALID_HANDLE_VALUE && h != nullptr);
+alignas(128) std::thread g_hookThread;
+alignas(128) std::thread g_outputThread;
+alignas(128) std::atomic<bool> g_outputThreadRunning{false};
+alignas(128) std::atomic<bool> g_delayOperation{false};
+alignas(128) std::atomic<uint64_t> g_lastDelayTime{0};
+
+struct QueuedOutput {
+	std::string text;
+	bool interrupt = false;
+	bool braille = false;
+	bool speak = false;
+	bool ssml = false;
+	int time = 0;
+	std::shared_ptr<Sral::Engine> engine;
+};
+
+alignas(128) std::vector<QueuedOutput> g_delayedOutputs;
+alignas(128) std::mutex g_delayedOutputsMutex;
+alignas(128) std::condition_variable g_delayedOutputsCV;
+alignas(128) std::mutex g_sralEngineMutex;
+alignas(128) std::mutex g_lifecycle_mutex;
+
+#if defined(_WIN32)
+static inline bool is_kernel_handle_valid(HANDLE handle) noexcept {
+	return (handle != INVALID_HANDLE_VALUE && handle != nullptr);
 }
 
 static BOOL IsNarratorRunningFast(void) noexcept {
@@ -145,16 +106,15 @@ static BOOL IsNarratorRunningFast(void) noexcept {
 	if (hwndUwp != nullptr) {
 		return TRUE;
 	}
-
 	const HWND hwndClassic = FindWindowW(L"StandardWindow", L"Microsoft Narrator");
 	return (hwndClassic != nullptr);
 }
 
 static BOOL FindProcess(const wchar_t* name) {
-	if (!name)
+	if (!name) [[unlikely]]
 		return FALSE;
 	HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-	if (!is_kernel_handle_valid(hProcessSnap))
+	if (!is_kernel_handle_valid(hProcessSnap)) [[unlikely]]
 		return FALSE;
 
 	PROCESSENTRY32W pe32;
@@ -177,12 +137,22 @@ static BOOL FindProcess(const wchar_t* name) {
 	return FALSE;
 }
 #endif
-static std::shared_ptr<Sral::Engine> get_engine_internal(int engine) noexcept {
-	auto it = g_engines.find(static_cast<SRAL_Engines>(engine));
-	return (it != g_engines.end()) ? it->second : nullptr;
+
+static inline size_t GetEngineLookupIndex(int engineBitmask) noexcept {
+	if (engineBitmask <= 0) [[unlikely]]
+		return 0;
+	return static_cast<size_t>(std::countr_zero(static_cast<unsigned int>(engineBitmask)));
 }
 
-static void output_thread() {
+std::shared_ptr<Sral::Engine> get_engine_internal(int engine) noexcept {
+	const size_t index = GetEngineLookupIndex(engine);
+	if (index < MAX_ENGINE_BIT_INDEX) [[likely]] {
+		return g_enginesLookup[index].load(std::memory_order_acquire);
+	}
+	return nullptr;
+}
+
+static void output_thread_loop() {
 	g_outputThreadRunning.store(true, std::memory_order_release);
 
 #if defined(__ANDROID__)
@@ -198,40 +168,39 @@ static void output_thread() {
 	}
 #endif
 
-	Timer s_timer;
-	s_timer.restart();
+	size_t consumed_index = 0;
 
 	while (g_delayOperation.load(std::memory_order_acquire)) {
 		QueuedOutput current_output;
-		bool has_item = false;
-
 		{
 			std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
-			if (!g_delayOperation.load(std::memory_order_relaxed) || g_delayedOutputs.empty()) {
+			g_delayedOutputsCV.wait(lock, [&consumed_index] {
+				return !g_delayOperation.load(std::memory_order_relaxed) || (g_delayedOutputs.size() > consumed_index);
+			});
+
+			if (!g_delayOperation.load(std::memory_order_relaxed) || (g_delayedOutputs.size() <= consumed_index))
+				[[unlikely]] {
 				break;
 			}
-			current_output = std::move(g_delayedOutputs.front());
-			g_delayedOutputs.erase(g_delayedOutputs.begin());
-			has_item = true;
+
+			current_output = std::move(g_delayedOutputs[consumed_index]);
+			consumed_index++;
+
+			if (consumed_index == g_delayedOutputs.size()) {
+				g_delayedOutputs.clear();
+				consumed_index = 0;
+			}
 		}
 
-		if (!has_item)
-			break;
+		if (current_output.time > 0) {
+			std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
+			const auto target_time = std::chrono::steady_clock::now() + std::chrono::milliseconds(current_output.time);
 
-		s_timer.restart();
-		while (s_timer.elapsed() < static_cast<uint64_t>(current_output.time) &&
-			g_delayOperation.load(std::memory_order_relaxed)) {
-			bool speaking = false;
-			if (current_output.engine) {
-				speaking = current_output.engine->IsSpeaking();
-			}
-			if (speaking) {
-				s_timer.restart();
-			}
-			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+			g_delayedOutputsCV.wait_until(
+				lock, target_time, [] { return !g_delayOperation.load(std::memory_order_relaxed); });
 		}
 
-		if (!g_delayOperation.load(std::memory_order_relaxed)) {
+		if (!g_delayOperation.load(std::memory_order_relaxed)) [[unlikely]] {
 			break;
 		}
 
@@ -248,28 +217,37 @@ static void output_thread() {
 		}
 	}
 
+	{
+		std::lock_guard<std::mutex> lock(g_delayedOutputsMutex);
+		g_delayedOutputs.clear();
+	}
+
 #if defined(__ANDROID__)
 	if (jvm && attached_here) {
 		jvm->DetachCurrentThread();
 	}
 #endif
-
-	g_delayOperation.store(false, std::memory_order_release);
 	g_outputThreadRunning.store(false, std::memory_order_release);
 }
 
-static void trigger_output_thread_safely() {
-	if (g_outputThread.joinable()) {
-		g_outputThread.join();
-	}
+void trigger_output_thread_safely() {
+	std::lock_guard<std::mutex> lock(g_delayedOutputsMutex);
 	g_delayOperation.store(true, std::memory_order_release);
-	g_outputThread = std::thread(output_thread);
+
+	if (!g_outputThreadRunning.load(std::memory_order_acquire)) {
+		if (g_outputThread.joinable()) {
+			g_outputThread.detach();
+		}
+		g_outputThread = std::thread(output_thread_loop);
+	}
+	g_delayedOutputsCV.notify_one();
 }
 
-static void speech_engine_update() noexcept {
-	if (!g_initialized)
+void speech_engine_update() noexcept {
+	if (!g_initialized.load(std::memory_order_acquire)) [[unlikely]]
 		return;
-	std::shared_ptr<Sral::Engine> current = std::atomic_load(&g_currentEngine);
+
+	std::shared_ptr<Sral::Engine> current = g_currentEngine.load(std::memory_order_acquire);
 	const int category = current ? current->GetCategory() : static_cast<int>(SRAL_ENGINE_CATEGORY_UNKNOWN);
 
 	if (!current || !current->GetActive() || category == SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE ||
@@ -301,151 +279,471 @@ static void speech_engine_update() noexcept {
 
 		if (narratorActive) {
 #if defined(_WIN32) && !defined(SRAL_NO_UIA)
-			std::atomic_store(&g_currentEngine, get_engine_internal(SRAL_ENGINE_UIA));
+			std::shared_ptr<Sral::Engine> targetUia = get_engine_internal(SRAL_ENGINE_UIA);
+			if (current.get() != targetUia.get()) {
+				g_currentEngine.store(targetUia, std::memory_order_release);
+			}
 			return;
 #endif
 		}
 		else {
 			std::shared_ptr<Sral::Engine> nextEngine = nullptr;
+			const int currentExcludes = g_excludes.load(std::memory_order_relaxed);
+
+			std::lock_guard<std::mutex> lock(g_sralEngineMutex);
 			for (const auto& [value, ptr] : g_engines) {
-				if (ptr && ptr->GetActive() && !(g_excludes & static_cast<int>(value))) {
+				if (ptr && ptr->GetActive() && !(currentExcludes & static_cast<int>(value))) {
 					nextEngine = ptr;
 					break;
 				}
 			}
-			std::atomic_store(&g_currentEngine, nextEngine);
+
+			if (current.get() != nextEngine.get()) {
+				g_currentEngine.store(nextEngine, std::memory_order_release);
+			}
 		}
 	}
 }
 
-extern "C" {
+#if defined(_WIN32)
+static LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam) {
+	if (nCode >= 0) {
+		const KBDLLHOOKSTRUCT* const pKeyInfo = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
+		if (pKeyInfo) [[likely]] {
+			const bool is_control = (pKeyInfo->vkCode == VK_LCONTROL || pKeyInfo->vkCode == VK_RCONTROL);
+			const bool is_shift = (pKeyInfo->vkCode == VK_LSHIFT || pKeyInfo->vkCode == VK_RSHIFT);
 
-SRAL_API void* SRAL_malloc(size_t size) {
-	if (size == 0) [[unlikely]] {
-		return nullptr;
+			if (wParam == WM_KEYDOWN) {
+				if (is_control) {
+					for (size_t i = 0; i < MAX_ENGINE_BIT_INDEX; ++i) {
+						std::shared_ptr<Sral::Engine> ptr = g_enginesLookup[i].load(std::memory_order_acquire);
+						if (ptr && ptr->GetActive() && (ptr->GetKeyFlags() & Sral::HANDLE_INTERRUPT)) {
+							(void)ptr->StopSpeech();
+						}
+					}
+				}
+				else if (is_shift && !g_shiftPressed.load(std::memory_order_acquire)) {
+					g_shiftPressed.store(true, std::memory_order_release);
+					for (size_t i = 0; i < MAX_ENGINE_BIT_INDEX; ++i) {
+						std::shared_ptr<Sral::Engine> ptr = g_enginesLookup[i].load(std::memory_order_acquire);
+						if (ptr && ptr->GetActive() && (ptr->GetKeyFlags() & Sral::HANDLE_PAUSE_RESUME)) {
+							int is_paused = 0;
+							if (ptr->GetParameter(SRAL_PARAM_ENGINE_IS_PAUSED, &is_paused) && is_paused) {
+								(void)ptr->ResumeSpeech();
+							}
+							else {
+								(void)ptr->PauseSpeech();
+							}
+						}
+					}
+				}
+			}
+			else if (wParam == WM_KEYUP) {
+				if (is_shift) {
+					g_shiftPressed.store(false, std::memory_order_release);
+				}
+			}
+		}
 	}
-	return ::malloc(size);
+	return CallNextHookEx(g_keyboardHook.load(std::memory_order_relaxed), nCode, wParam, lParam);
 }
+#endif
 
-SRAL_API void SRAL_free(void* memory) {
-	if (memory) [[likely]] {
-		::free(memory);
+#if defined(__linux__) && !defined(__ANDROID__)
+static DBusHandlerResult ProcessAtSpiKeyEvent(DBusConnection* conn, DBusMessage* msg, void* user_data) {
+	(void)conn;
+	(void)user_data;
+	if (dbus_message_is_signal(msg, "org.a11y.atspi.DeviceEventController", "DeviceEvent")) {
+		DBusMessageIter iter;
+		if (dbus_message_iter_init(msg, &iter)) {
+			dbus_uint32_t type = 0;
+			if (dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_UINT32) {
+				dbus_message_iter_get_basic(&iter, &type);
+			}
+		}
 	}
+	return DBUS_HANDLER_RESULT_HANDLED;
+}
+#endif
+
+void PlatformUnregisterKeyboardHooks(void) {
+#if defined(_WIN32)
+	const DWORD threadId = g_hookThreadId.exchange(0, std::memory_order_acq_rel);
+	if (threadId != 0) {
+		if (::GetCurrentThreadId() != threadId) {
+			::PostThreadMessageW(threadId, WM_QUIT, 0, 0);
+			if (g_hookThread.joinable()) {
+				g_hookThread.join();
+			}
+		}
+		else {
+			g_hookThread.detach();
+		}
+	}
+#elif defined(__linux__) && !defined(__ANDROID__)
+	if (g_hookThread.joinable()) {
+		g_hookThread.join();
+	}
+#endif
 }
 
-SRAL_API bool SRAL_IsInitialized(void) {
-	return g_initialized && !g_engines.empty();
-}
-
-SRAL_API bool SRAL_Initialize(int engines_exclude) {
-	std::lock_guard<std::mutex> lock(g_sralEngineMutex);
-	if (g_initialized) {
+bool PlatformRegisterKeyboardHooks(void) {
+	bool expected = false;
+	if (!g_keyboardHookThread.compare_exchange_strong(
+			expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
 		return true;
 	}
 
+#if defined(_WIN32)
+	g_hookThread = std::thread([]() {
+		g_hookThreadId.store(::GetCurrentThreadId(), std::memory_order_release);
+		HHOOK hook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProc, GetModuleHandleW(nullptr), 0);
+		g_keyboardHook.store(hook, std::memory_order_release);
+		if (!hook) {
+			g_keyboardHookThread.store(false, std::memory_order_release);
+			return;
+		}
+
+		MSG msg;
+		while (GetMessageW(&msg, nullptr, 0, 0)) {
+			TranslateMessage(&msg);
+			DispatchMessageW(&msg);
+		}
+
+		HHOOK active_hook = g_keyboardHook.exchange(nullptr, std::memory_order_acq_rel);
+		if (active_hook)
+			(void)UnhookWindowsHookEx(active_hook);
+	});
+
+	uint64_t attempts = 0;
+	while (g_keyboardHook.load(std::memory_order_acquire) == nullptr && attempts++ < 1500) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(2));
+	}
+	return (g_keyboardHook.load(std::memory_order_acquire) != nullptr);
+
+#elif defined(__linux__) && !defined(__ANDROID__)
+	g_hookThread = std::thread([]() {
+		DBusError err;
+		dbus_error_init(&err);
+		DBusConnection* conn = dbus_bus_get(DBUS_BUS_SESSION, &err);
+		if (dbus_error_is_set(&err) || !conn) {
+			dbus_error_free(&err);
+			g_keyboardHookThread.store(false, std::memory_order_release);
+			return;
+		}
+		const char* match_rule = "type='signal',interface='org.a11y.atspi.DeviceEventController',member='DeviceEvent'";
+		dbus_bus_add_match(conn, match_rule, &err);
+		dbus_connection_flush(conn);
+		if (!dbus_connection_add_filter(conn, ProcessAtSpiKeyEvent, nullptr, nullptr)) {
+			g_keyboardHookThread.store(false, std::memory_order_release);
+			return;
+		}
+		while (g_keyboardHookThread.load(std::memory_order_acquire)) {
+			(void)dbus_connection_read_write_dispatch(conn, 50);
+		}
+	});
+	return true;
+#else
+	return true;
+#endif
+}
+
+static inline char* allocate_and_null_terminate(
+	std::string_view view, char* stack_buffer, size_t stack_capacity, bool& out_is_heap_allocated) noexcept {
+	const size_t required_size = view.size();
+	if (required_size < stack_capacity) [[likely]] {
+		out_is_heap_allocated = false;
+		std::memcpy(stack_buffer, view.data(), required_size);
+		stack_buffer[required_size] = '\0';
+		return stack_buffer;
+	}
+
+	out_is_heap_allocated = true;
+	char* heap_buffer = static_cast<char*>(::SRAL_malloc(required_size + 1));
+	if (!heap_buffer) [[unlikely]] {
+		return nullptr;
+	}
+
+	std::memcpy(heap_buffer, view.data(), required_size);
+	heap_buffer[required_size] = '\0';
+	return heap_buffer;
+}
+
+template <typename F> static inline bool ExecuteWithSafeAllocation(std::string_view text, F&& func) noexcept {
+	std::array<char, 256> stack_cache;
+	bool is_heap = false;
+	char* c_str = allocate_and_null_terminate(text, stack_cache.data(), stack_cache.size(), is_heap);
+	if (!c_str) [[unlikely]] {
+		return false;
+	}
+
+	const bool result = func(c_str);
+	if (is_heap) [[unlikely]] {
+		::SRAL_free(c_str);
+	}
+	return result;
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#endif
+bool SafeSpeakAllocationBridge(std::string_view text, bool interrupt) noexcept {
+	return ExecuteWithSafeAllocation(text, [interrupt](const char* s) noexcept { return ::SRAL_Speak(s, interrupt); });
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#endif
+bool SafeSpeakSsmlAllocationBridge(std::string_view ssml, bool interrupt) noexcept {
+	return ExecuteWithSafeAllocation(
+		ssml, [interrupt](const char* s) noexcept { return ::SRAL_SpeakSsml(s, interrupt); });
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#endif
+bool SafeBrailleAllocationBridge(std::string_view text) noexcept {
+	return ExecuteWithSafeAllocation(text, [](const char* s) noexcept { return ::SRAL_Braille(s); });
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#endif
+bool SafeOutputAllocationBridge(std::string_view text, bool interrupt) noexcept {
+	return ExecuteWithSafeAllocation(text, [interrupt](const char* s) noexcept { return ::SRAL_Output(s, interrupt); });
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#endif
+bool SafeSpeakExAllocationBridge(SRAL_Engines engine, std::string_view text, bool interrupt) noexcept {
+	return ExecuteWithSafeAllocation(text,
+		[engine, interrupt](const char* s) noexcept { return ::SRAL_SpeakEx(static_cast<int>(engine), s, interrupt); });
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#endif
+bool SafeSpeakSsmlExAllocationBridge(SRAL_Engines engine, std::string_view ssml, bool interrupt) noexcept {
+	return ExecuteWithSafeAllocation(ssml, [engine, interrupt](const char* s) noexcept {
+		return ::SRAL_SpeakSsmlEx(static_cast<int>(engine), s, interrupt);
+	});
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#endif
+bool SafeBrailleExAllocationBridge(SRAL_Engines engine, std::string_view text) noexcept {
+	return ExecuteWithSafeAllocation(
+		text, [engine](const char* s) noexcept { return ::SRAL_BrailleEx(static_cast<int>(engine), s); });
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#endif
+bool SafeOutputExAllocationBridge(SRAL_Engines engine, std::string_view text, bool interrupt) noexcept {
+	return ExecuteWithSafeAllocation(text, [engine, interrupt](const char* s) noexcept {
+		return ::SRAL_OutputEx(static_cast<int>(engine), s, interrupt);
+	});
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#endif
+bool SafeDelayOutputAllocationBridge(int time, std::string_view text, bool interrupt) noexcept {
+	return ExecuteWithSafeAllocation(
+		text, [time, interrupt](const char* s) noexcept { return ::SRAL_DelayOutput(time, s, interrupt); });
+}
+
+#if defined(__GNUC__) || defined(__clang__)
+__attribute__((noinline, cold))
+#endif
+bool SafeDelayOutputExAllocationBridge(SRAL_Engines engine, int time, std::string_view text, bool interrupt) noexcept {
+	return ExecuteWithSafeAllocation(text, [engine, time, interrupt](const char* s) noexcept {
+		return ::SRAL_DelayOutputEx(static_cast<int>(engine), time, s, interrupt);
+	});
+}
+
+PCMBuffer DirectMemoryBridge(const char* text) noexcept {
+	uint64_t buffer_size = 0;
+	int channels = 0;
+	int sample_rate = 0;
+	int bits_per_sample = 0;
+
+	void* raw_buffer = ::SRAL_SpeakToMemory(text, &buffer_size, &channels, &sample_rate, &bits_per_sample);
+	if (!raw_buffer) [[unlikely]] {
+		return PCMBuffer{};
+	}
+
+	PCMBuffer buffer;
+	buffer.data = std::span<uint8_t>(static_cast<uint8_t*>(raw_buffer), static_cast<size_t>(buffer_size));
+	buffer.channels = channels;
+	buffer.sample_rate = sample_rate;
+	buffer.bits_per_sample = bits_per_sample;
+	return buffer;
+}
+
+PCMBuffer DirectMemoryExBridge(SRAL_Engines engine, const char* text) noexcept {
+	uint64_t buffer_size = 0;
+	int channels = 0;
+	int sample_rate = 0;
+	int bits_per_sample = 0;
+
+	void* raw_buffer =
+		::SRAL_SpeakToMemoryEx(static_cast<int>(engine), text, &buffer_size, &channels, &sample_rate, &bits_per_sample);
+	if (!raw_buffer) [[unlikely]] {
+		return PCMBuffer{};
+	}
+
+	PCMBuffer buffer;
+	buffer.data = std::span<uint8_t>(static_cast<uint8_t*>(raw_buffer), static_cast<size_t>(buffer_size));
+	buffer.channels = channels;
+	buffer.sample_rate = sample_rate;
+	buffer.bits_per_sample = bits_per_sample;
+	return buffer;
+}
+
+std::string_view GetEngineNameFastBridge(SRAL_Engines engine) noexcept {
+	const char* name = ::SRAL_GetEngineName(static_cast<int>(engine));
+	return name ? std::string_view(name) : std::string_view("");
+}
+
+} // namespace Sral
+
+extern "C" {
+
+void* SRAL_malloc(size_t size) noexcept {
+	if (size == 0) [[unlikely]]
+		return nullptr;
+	return ::malloc(size);
+}
+
+void SRAL_free(void* memory) noexcept {
+	if (memory) [[likely]]
+		::free(memory);
+}
+
+bool SRAL_IsInitialized(void) noexcept {
+	return Sral::g_initialized.load(std::memory_order_acquire) && !Sral::g_engines.empty();
+}
+
+bool SRAL_Initialize(int engines_exclude) noexcept {
+	std::lock_guard<std::mutex> lock(Sral::g_sralEngineMutex);
+	if (Sral::g_initialized.load(std::memory_order_acquire))
+		return true;
+
 #if defined(SRAL_WITH_ACCESSKIT)
-	g_engines[SRAL_ENGINE_ACCESSKIT] = std::make_shared<Sral::ACAnnouncer>();
+	Sral::g_engines[SRAL_ENGINE_ACCESSKIT] = std::make_shared<Sral::ACAnnouncer>();
 #endif
 
 #if defined(_WIN32)
-	HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-	if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
+	HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE);
+	if (FAILED(hr) && hr != RPC_E_CHANGED_MODE)
 		return false;
-	}
 #ifndef SRAL_NO_NVDA
-	g_engines[SRAL_ENGINE_NVDA] = std::make_shared<Sral::Nvda>();
+	Sral::g_engines[SRAL_ENGINE_NVDA] == std::make_shared<Sral::Nvda>();
 #endif
 #ifndef SRAL_NO_JAWS
-	g_engines[SRAL_ENGINE_JAWS] = std::make_shared<Sral::Jaws>();
+	Sral::g_engines[SRAL_ENGINE_JAWS] == std::make_shared<Sral::Jaws>();
 #endif
 #ifndef SRAL_NO_ZDSR
-	g_engines[SRAL_ENGINE_ZDSR] = std::make_shared<Sral::Zdsr>();
+	Sral::g_engines[SRAL_ENGINE_ZDSR] == std::make_shared<Sral::Zdsr>();
 #endif
 #ifndef SRAL_NO_UIA
-	g_engines[SRAL_ENGINE_UIA] = std::make_shared<Sral::Uia>();
+	Sral::g_engines[SRAL_ENGINE_UIA] == std::make_shared<Sral::Uia>();
 #endif
 #ifndef SRAL_NO_SAPI
-	g_engines[SRAL_ENGINE_SAPI] = std::make_shared<Sral::Sapi>();
+	Sral::g_engines[SRAL_ENGINE_SAPI] == std::make_shared<Sral::Sapi>();
 #endif
 
 #elif defined(__APPLE__)
-	g_engines[SRAL_ENGINE_VOICE_OVER] = std::make_shared<Sral::VoiceOver>();
-	g_engines[SRAL_ENGINE_AV_SPEECH] = std::make_shared<Sral::AvSpeech>();
+	Sral::g_engines[SRAL_ENGINE_VOICE_OVER] = std::make_shared<Sral::VoiceOver>();
+	Sral::g_engines[SRAL_ENGINE_AV_SPEECH] = std::make_shared<Sral::AvSpeech>();
 #ifndef SRAL_NO_NSSPEECH
-	g_engines[SRAL_ENGINE_NS_SPEECH] = std::make_shared<Sral::NSSpeech>();
+	Sral::g_engines[SRAL_ENGINE_NS_SPEECH] = std::make_shared<Sral::NSSpeech>();
 #endif
 
 #elif defined(__ANDROID__)
 #ifndef SRAL_NO_ANDROID_ACCESSIBILITY
-	g_engines[SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER] = std::make_shared<Sral::AndroidAccessibilityManager>();
+	Sral::g_engines[SRAL_ENGINE_ANDROID_ACCESSIBILITY_MANAGER] = std::make_shared<Sral::AndroidAccessibilityManager>();
 #endif
 #ifndef SRAL_NO_ANDROID_TTS
-	g_engines[SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH] = std::make_shared<Sral::AndroidTextToSpeech>();
+	Sral::g_engines[SRAL_ENGINE_ANDROID_TEXT_TO_SPEECH] = std::make_shared<Sral::AndroidTextToSpeech>();
 #endif
 
 #elif defined(__EMSCRIPTEN__)
 #ifndef SRAL_NO_CHROMEVOX
-	g_engines[SRAL_ENGINE_CHROMEVOX] = std::make_shared<Sral::ChromeVox>();
+	Sral::g_engines[SRAL_ENGINE_CHROMEVOX] = std::make_shared<Sral::ChromeVox>();
 #endif
 
 #else
 #ifndef SRAL_NO_SPEECH_DISPATCHER
-	g_engines[SRAL_ENGINE_SPEECH_DISPATCHER] = std::make_shared<Sral::SpeechDispatcher>();
+	Sral::g_engines[SRAL_ENGINE_SPEECH_DISPATCHER] = std::make_shared<Sral::SpeechDispatcher>();
 #endif
 #ifndef SRAL_NO_ORCA
-	g_engines[SRAL_ENGINE_ORCA] = std::make_shared<Sral::Orca>();
+	Sral::g_engines[SRAL_ENGINE_ORCA] = std::make_shared<Sral::Orca>();
 #endif
 #ifndef SRAL_NO_CHROMEVOX
-	g_engines[SRAL_ENGINE_CHROMEVOX] = std::make_shared<Sral::ChromeVox>();
+	Sral::g_engines[SRAL_ENGINE_CHROMEVOX] = std::make_shared<Sral::ChromeVox>();
 #endif
 #endif
 
 	bool success = false;
-	for (const auto& [value, ptr] : g_engines) {
+	for (const auto& [value, ptr] : Sral::g_engines) {
 		if (!ptr) [[unlikely]]
 			continue;
 		if (!ptr->Initialize()) {
-			g_enginesFailedToInitialize |= static_cast<int>(value);
+			Sral::g_enginesFailedToInitialize.fetch_or(static_cast<int>(value));
 		}
 		else {
 			success = true;
+			const size_t lookIndex = Sral::GetEngineLookupIndex(static_cast<int>(value));
+			if (lookIndex < Sral::MAX_ENGINE_BIT_INDEX) {
+				Sral::g_enginesLookup[lookIndex].store(ptr, std::memory_order_release);
+			}
 		}
 	}
+	Sral::g_initialized.store(success, std::memory_order_release);
+	if (!Sral::g_initialized.load(std::memory_order_acquire)) {
+		for (const auto& [value, ptr] : Sral::g_engines) {
+			if (ptr)
+				(void)ptr->Uninitialize();
+		}
+		Sral::g_engines.clear();
 
-	g_initialized = success;
-	if (!g_initialized) {
-		g_engines.clear();
+		for (size_t i = 0; i < Sral::MAX_ENGINE_BIT_INDEX; ++i) {
+			Sral::g_enginesLookup[i].store(nullptr, std::memory_order_relaxed);
+		}
+
 #if defined(_WIN32)
 		CoUninitialize();
 #endif
 		return false;
 	}
-	g_excludes = engines_exclude;
-
-	(void)g_enginesFailedToInitialize;
-
-	return g_initialized;
+	Sral::g_excludes.store(engines_exclude, std::memory_order_release);
+	return true;
 }
 
-SRAL_API void SRAL_Uninitialize(void) {
-	std::lock_guard<std::mutex> lock(g_sralEngineMutex);
-	if (!g_initialized) {
+void SRAL_Uninitialize(void) noexcept {
+	std::lock_guard<std::mutex> lock(Sral::g_sralEngineMutex);
+	if (!Sral::g_initialized.load(std::memory_order_acquire))
 		return;
+
+#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__)) || (defined(__APPLE__) && !TARGET_OS_IPHONE)
+	if (Sral::g_keyboardHookThread.load(std::memory_order_acquire)) {
+		Sral::PlatformUnregisterKeyboardHooks();
+	}
+#endif
+
+	Sral::g_delayOperation.store(false, std::memory_order_release);
+	Sral::g_delayedOutputsCV.notify_all();
+	if (Sral::g_outputThread.joinable()) {
+		Sral::g_outputThread.join();
 	}
 
-	if (g_keyboardHookThread.load(std::memory_order_acquire)) {
-		PlatformUnregisterKeyboardHooks();
-	}
-
-	g_delayOperation.store(false, std::memory_order_release);
-	if (g_outputThread.joinable()) {
-		g_outputThread.join();
-	}
-
-	for (const auto& [value, ptr] : g_engines) {
-		if (ptr) {
+	for (const auto& [value, ptr] : Sral::g_engines) {
+		if (ptr)
 			(void)ptr->Uninitialize();
-		}
 	}
 
 #if defined(_WIN32)
@@ -455,111 +753,188 @@ SRAL_API void SRAL_Uninitialize(void) {
 	Sral::ClearAndroidContext();
 #endif
 
-	std::atomic_store(&g_currentEngine, std::shared_ptr<Sral::Engine>(nullptr));
-	g_engines.clear();
-	g_excludes = SRAL_ENGINE_NONE;
-	g_enginesFailedToInitialize = SRAL_ENGINE_NONE;
-	g_initialized = false;
+	Sral::g_currentEngine.store(nullptr, std::memory_order_release);
+	for (size_t i = 0; i < Sral::MAX_ENGINE_BIT_INDEX; ++i) {
+		Sral::g_enginesLookup[i].store(nullptr, std::memory_order_release);
+	}
+	Sral::g_engines.clear();
+	Sral::g_excludes.store(SRAL_ENGINE_NONE, std::memory_order_release);
+	Sral::g_enginesFailedToInitialize.store(SRAL_ENGINE_NONE, std::memory_order_release);
+	Sral::g_initialized.store(false, std::memory_order_release);
 }
 
-SRAL_API bool SRAL_Speak(const char* text, bool interrupt) {
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-	if (!active) {
+bool SRAL_Speak(const char* text, bool interrupt) noexcept {
+	Sral::speech_engine_update();
+	if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+		return active->Speak(text ? text : "", interrupt);
+	}
+	return false;
+}
+
+bool SRAL_DelayOutput(int time, const char* text, bool interrupt) noexcept {
+	Sral::speech_engine_update();
+	if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+		if (time < 0 || !SRAL_IsInitialized()) [[unlikely]]
+			return false;
+
+		Sral::QueuedOutput qout{.text = std::string(text ? text : ""),
+			.interrupt = interrupt,
+			.braille = false,
+			.speak = true,
+			.ssml = false,
+			.time = time,
+			.engine = active};
+
+		{
+			std::lock_guard<std::mutex> lock(Sral::g_delayedOutputsMutex);
+			Sral::g_delayedOutputs.push_back(std::move(qout));
+		}
+		Sral::trigger_output_thread_safely();
+		return true;
+	}
+	return false;
+}
+
+bool SRAL_DelayOutputEx(int engine, int time, const char* text, bool interrupt) noexcept {
+	if (time < 0 || !SRAL_IsInitialized()) [[unlikely]]
 		return false;
-	}
-	return SRAL_SpeakEx(active->GetNumber(), text, interrupt);
-}
-
-SRAL_API void* SRAL_SpeakToMemory(
-	const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) {
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-	if (!active) {
-		return nullptr;
-	}
-	return active->SpeakToMemory(text, buffer_size, channels, sample_rate, bits_per_sample);
-}
-
-SRAL_API bool SRAL_SpeakSsml(const char* ssml, bool interrupt) {
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-	if (!active) {
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
+	if (!e) [[unlikely]]
 		return false;
+
+	Sral::QueuedOutput qout{.text = std::string(text ? text : ""),
+		.interrupt = interrupt,
+		.braille = false,
+		.speak = true,
+		.ssml = false,
+		.time = time,
+		.engine = e};
+
+	{
+		std::lock_guard<std::mutex> lock(Sral::g_delayedOutputsMutex);
+		Sral::g_delayedOutputs.push_back(std::move(qout));
 	}
-	return SRAL_SpeakSsmlEx(active->GetNumber(), ssml, interrupt);
+	Sral::trigger_output_thread_safely();
+	return true;
 }
 
-SRAL_API bool SRAL_Braille(const char* text) {
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-	if (!active) {
-		return false;
+void* SRAL_SpeakToMemory(
+	const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) noexcept {
+
+	Sral::speech_engine_update();
+	if (buffer_size != nullptr) {
+		*buffer_size = 0;
 	}
-	return SRAL_BrailleEx(active->GetNumber(), text);
-}
-
-SRAL_API bool SRAL_Output(const char* text, bool interrupt) {
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-	if (!active) {
-		return false;
+	if (channels != nullptr) {
+		*channels = 0;
 	}
-	return SRAL_OutputEx(active->GetNumber(), text, interrupt);
-}
-
-SRAL_API bool SRAL_StopSpeech(void) {
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-	if (!active) {
-		return false;
+	if (sample_rate != nullptr) {
+		*sample_rate = 0;
 	}
-	return SRAL_StopSpeechEx(active->GetNumber());
-}
-
-SRAL_API bool SRAL_PauseSpeech(void) {
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-	if (!active) {
-		return false;
+	if (bits_per_sample != nullptr) {
+		*bits_per_sample = 0;
 	}
-	return SRAL_PauseSpeechEx(active->GetNumber());
-}
 
-SRAL_API bool SRAL_ResumeSpeech(void) {
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-	if (!active) {
-		return false;
+	if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+		return active->SpeakToMemory(text ? text : "", buffer_size, channels, sample_rate, bits_per_sample);
 	}
-	return SRAL_ResumeSpeechEx(active->GetNumber());
+	return nullptr;
 }
 
-SRAL_API bool SRAL_IsSpeaking(void) {
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-	if (!active) {
-		return false;
+bool SRAL_SpeakSsml(const char* ssml, bool interrupt) noexcept {
+	Sral::speech_engine_update();
+	if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+		return active->SpeakSsml(ssml ? ssml : "", interrupt);
 	}
-	return active->IsSpeaking();
+	return false;
 }
 
-SRAL_API int SRAL_GetCurrentEngine(void) {
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-	return active ? active->GetNumber() : SRAL_ENGINE_NONE;
+bool SRAL_Braille(const char* text) noexcept {
+	Sral::speech_engine_update();
+	if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+		return active->Braille(text ? text : "");
+	}
+	return false;
 }
 
-SRAL_API int SRAL_GetEngineFeatures(int engine) {
+bool SRAL_Output(const char* text, bool interrupt) noexcept {
+	Sral::speech_engine_update();
+	if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+		const bool speech = active->Speak(text ? text : "", interrupt);
+		const bool braille = active->Braille(text ? text : "");
+		return speech || braille;
+	}
+	return false;
+}
+
+bool SRAL_StopSpeech(void) noexcept {
+	Sral::speech_engine_update();
+	if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+		if (Sral::g_delayOperation.exchange(false, std::memory_order_acq_rel)) {
+			{
+				std::lock_guard<std::mutex> lock(Sral::g_delayedOutputsMutex);
+				Sral::g_delayedOutputs.clear();
+			}
+			Sral::g_delayedOutputsCV.notify_all();
+		}
+		return active->StopSpeech();
+	}
+	return false;
+}
+
+bool SRAL_PauseSpeech(void) noexcept {
+	Sral::speech_engine_update();
+	if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+		if (Sral::g_delayOperation.exchange(false, std::memory_order_acq_rel)) {
+			Sral::g_delayedOutputsCV.notify_all();
+		}
+		return active->PauseSpeech();
+	}
+	return false;
+}
+
+bool SRAL_ResumeSpeech(void) noexcept {
+	Sral::speech_engine_update();
+	if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+		std::lock_guard<std::mutex> lock(Sral::g_delayedOutputsMutex);
+		if (!Sral::g_delayedOutputs.empty()) {
+			Sral::g_delayOperation.store(true, std::memory_order_release);
+			Sral::trigger_output_thread_safely();
+		}
+		return active->ResumeSpeech();
+	}
+	return false;
+}
+
+bool SRAL_IsSpeaking(void) noexcept {
+	Sral::speech_engine_update();
+	if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+		return active->IsSpeaking();
+	}
+	return false;
+}
+
+int SRAL_GetCurrentEngine(void) noexcept {
+	Sral::speech_engine_update();
+	if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+		return active->GetNumber();
+	}
+	return SRAL_ENGINE_NONE;
+}
+
+int SRAL_GetEngineFeatures(int engine) noexcept {
 	if (engine == 0) {
-		std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-		return active ? active->GetFeatures() : -1;
+		Sral::speech_engine_update();
+		if (std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire)) [[likely]] {
+			return active->GetFeatures();
+		}
+		return -1;
 	}
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
 	return e ? e->GetFeatures() : -1;
 }
 
-SRAL_API bool SRAL_SetEngineParameter(int engine, int param, const void* value) {
+bool SRAL_SetEngineParameter(int engine, int param, const void* value) noexcept {
 #if defined(__ANDROID__)
 	if (param == SRAL_PARAM_ANDROID_JNI_ENV) {
 		void* non_const_val = const_cast<void*>(value);
@@ -569,270 +944,205 @@ SRAL_API bool SRAL_SetEngineParameter(int engine, int param, const void* value) 
 		void* non_const_val = const_cast<void*>(value);
 		return Sral::SetAndroidActivity(static_cast<jobject>(non_const_val));
 	}
-#else
-	(void)param;
-	(void)value;
 #endif
-
 	if (engine == 0) {
-		std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
+		std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire);
 		return active ? active->SetParameter(param, value) : false;
 	}
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
 	return e ? e->SetParameter(param, value) : false;
 }
 
-SRAL_API bool SRAL_GetEngineParameter(int engine, int param, void* value) {
+bool SRAL_GetEngineParameter(int engine, int param, void* value) noexcept {
 	if (engine == 0) {
-		std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-		;
+		std::shared_ptr<Sral::Engine> active = Sral::g_currentEngine.load(std::memory_order_acquire);
 		return active ? active->GetParameter(param, value) : false;
 	}
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
 	return e ? e->GetParameter(param, value) : false;
 }
 
-SRAL_API bool SRAL_SpeakEx(int engine, const char* text, bool interrupt) {
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-	if (!e) {
+bool SRAL_SpeakEx(int engine, const char* text, bool interrupt) noexcept {
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
+	if (BS_UNLIKELY(!e))
 		return false;
-	}
 
-	if (!g_delayOperation.load(std::memory_order_acquire)) {
+	if (!Sral::g_delayOperation.load(std::memory_order_acquire)) {
 		return e->Speak(text, interrupt);
 	}
 
-	QueuedOutput qout{.text = std::string(text ? text : ""),
+	Sral::QueuedOutput qout{.text = std::string(text ? text : ""),
 		.interrupt = interrupt,
 		.braille = false,
 		.speak = true,
 		.ssml = false,
-		.time = static_cast<int>(g_lastDelayTime.load(std::memory_order_relaxed)),
+		.time = static_cast<int>(Sral::g_lastDelayTime.load(std::memory_order_relaxed)),
 		.engine = e};
 
 	{
-		std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
-		g_delayedOutputs.push_back(std::move(qout));
+		std::lock_guard<std::mutex> lock(Sral::g_delayedOutputsMutex);
+		Sral::g_delayedOutputs.push_back(std::move(qout));
 	}
-
-	if (!g_outputThreadRunning.load(std::memory_order_acquire)) {
-		trigger_output_thread_safely();
-	}
+	Sral::trigger_output_thread_safely();
 	return true;
 }
 
-SRAL_API void* SRAL_SpeakToMemoryEx(
-	int engine, const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) {
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
+void* SRAL_SpeakToMemoryEx(int engine,
+	const char* text,
+	uint64_t* buffer_size,
+	int* channels,
+	int* sample_rate,
+	int* bits_per_sample) noexcept {
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
 	return e ? e->SpeakToMemory(text, buffer_size, channels, sample_rate, bits_per_sample) : nullptr;
 }
 
-SRAL_API bool SRAL_SpeakSsmlEx(int engine, const char* ssml, bool interrupt) {
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-	if (!e) [[unlikely]] {
+bool SRAL_SpeakSsmlEx(int engine, const char* ssml, bool interrupt) noexcept {
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
+	if (BS_UNLIKELY(!e))
 		return false;
-	}
 
-	if (!g_delayOperation.load(std::memory_order_acquire)) {
+	if (!Sral::g_delayOperation.load(std::memory_order_acquire)) {
 		return e->SpeakSsml(ssml, interrupt);
 	}
 
-	QueuedOutput qout{.text = std::string(ssml ? ssml : ""),
+	Sral::QueuedOutput qout{.text = std::string(ssml ? ssml : ""),
 		.interrupt = interrupt,
 		.braille = false,
 		.speak = true,
 		.ssml = true,
-		.time = static_cast<int>(g_lastDelayTime.load(std::memory_order_relaxed)),
+		.time = static_cast<int>(Sral::g_lastDelayTime.load(std::memory_order_relaxed)),
 		.engine = e};
 
 	{
-		std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
-		g_delayedOutputs.push_back(std::move(qout));
+		std::lock_guard<std::mutex> lock(Sral::g_delayedOutputsMutex);
+		Sral::g_delayedOutputs.push_back(std::move(qout));
 	}
-
-	if (!g_outputThreadRunning.load(std::memory_order_acquire)) {
-		trigger_output_thread_safely();
-	}
+	Sral::trigger_output_thread_safely();
 	return true;
 }
 
-SRAL_API bool SRAL_BrailleEx(int engine, const char* text) {
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-	return e ? e->Braille(text) : false;
+bool SRAL_BrailleEx(int engine, const char* text) noexcept {
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
+	if (BS_UNLIKELY(!e))
+		return false;
+
+	if (!Sral::g_delayOperation.load(std::memory_order_acquire)) {
+		return e->Braille(text);
+	}
+
+	Sral::QueuedOutput qout{.text = std::string(text ? text : ""),
+		.interrupt = false,
+		.braille = true,
+		.speak = false,
+		.ssml = false,
+		.time = static_cast<int>(Sral::g_lastDelayTime.load(std::memory_order_relaxed)),
+		.engine = e};
+
+	{
+		std::lock_guard<std::mutex> lock(Sral::g_delayedOutputsMutex);
+		Sral::g_delayedOutputs.push_back(std::move(qout));
+	}
+	Sral::trigger_output_thread_safely();
+	return true;
 }
 
-SRAL_API bool SRAL_OutputEx(int engine, const char* text, bool interrupt) {
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-	if (!e) [[unlikely]] {
+bool SRAL_OutputEx(int engine, const char* text, bool interrupt) noexcept {
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
+	if (BS_UNLIKELY(!e))
 		return false;
-	}
 	const bool speech = e->Speak(text, interrupt);
 	const bool braille = e->Braille(text);
 	return speech || braille;
 }
 
-SRAL_API bool SRAL_StopSpeechEx(int engine) {
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-	if (!e) [[unlikely]] {
+bool SRAL_StopSpeechEx(int engine) noexcept {
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
+	if (BS_UNLIKELY(!e))
 		return false;
-	}
 
-	if (g_delayOperation.load(std::memory_order_acquire)) {
+	if (Sral::g_delayOperation.exchange(false, std::memory_order_acq_rel)) {
 		{
-			std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
-			g_delayedOutputs.clear();
+			std::lock_guard<std::mutex> lock(Sral::g_delayedOutputsMutex);
+			Sral::g_delayedOutputs.clear();
 		}
-		g_delayOperation.store(false, std::memory_order_release);
-		if (g_outputThread.joinable() && std::this_thread::get_id() != g_outputThread.get_id()) {
-			g_outputThread.join();
-		}
+		Sral::g_delayedOutputsCV.notify_all();
 	}
 	return e->StopSpeech();
 }
 
-SRAL_API bool SRAL_PauseSpeechEx(int engine) {
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-	if (!e) [[unlikely]] {
+bool SRAL_PauseSpeechEx(int engine) noexcept {
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
+	if (BS_UNLIKELY(!e))
 		return false;
-	}
 
-	if (g_delayOperation.load(std::memory_order_acquire)) {
-		g_delayOperation.store(false, std::memory_order_release);
-		if (g_outputThread.joinable() && std::this_thread::get_id() != g_outputThread.get_id()) {
-			g_outputThread.join();
-		}
+	if (Sral::g_delayOperation.exchange(false, std::memory_order_acq_rel)) {
+		Sral::g_delayedOutputsCV.notify_all();
 	}
 	return e->PauseSpeech();
 }
 
-SRAL_API bool SRAL_ResumeSpeechEx(int engine) {
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-	if (!e) [[unlikely]] {
+bool SRAL_ResumeSpeechEx(int engine) noexcept {
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
+	if (BS_UNLIKELY(!e))
 		return false;
-	}
 
 	{
-		std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
-		if (!g_delayedOutputs.empty()) {
-			g_delayOperation.store(true, std::memory_order_release);
-			if (!g_outputThreadRunning.load(std::memory_order_acquire)) {
-				trigger_output_thread_safely();
-			}
+		std::lock_guard<std::mutex> lock(Sral::g_delayedOutputsMutex);
+		if (!Sral::g_delayedOutputs.empty()) {
+			Sral::g_delayOperation.store(true, std::memory_order_release);
+			Sral::trigger_output_thread_safely();
 		}
 	}
 	return e->ResumeSpeech();
 }
 
-SRAL_API bool SRAL_IsSpeakingEx(int engine) {
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
+bool SRAL_IsSpeakingEx(int engine) noexcept {
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
 	return e ? e->IsSpeaking() : false;
 }
 
-SRAL_API void SRAL_Delay(int time) {
-#if not defined(__ANDROID__)
-	if (!SRAL_IsInitialized()) {
+void SRAL_Delay(int time) noexcept {
+	if (!SRAL_IsInitialized() || time < 0) [[unlikely]]
 		return;
-	}
-	g_lastDelayTime.store(static_cast<uint64_t>(time), std::memory_order_relaxed);
-	g_delayOperation.store(true, std::memory_order_release);
-#else
-	(void)time;
-#endif
+	Sral::g_lastDelayTime.store(static_cast<uint64_t>(time), std::memory_order_relaxed);
+	Sral::g_delayOperation.store(true, std::memory_order_release);
 }
 
-SRAL_API bool SRAL_DelayOutput(int time, const char* text, bool interrupt) {
-#if defined(__ANDROID__)
-	speech_engine_update();
-	std::shared_ptr<Sral::Engine> active = std::atomic_load(&g_currentEngine);
-	if (!active) {
-		return false;
-	}
-	return SRAL_DelayOutputEx(active->GetNumber(), time, text, interrupt);
-#else
-	(void)time;
-	(void)text;
-	(void)interrupt;
-	return false;
-#endif
-}
-
-SRAL_API bool SRAL_DelayOutputEx(int engine, int time, const char* text, bool interrupt) {
-#if defined(__ANDROID__)
-	if (time < 0 || !SRAL_IsInitialized()) {
-		return false;
-	}
-
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
-	if (!e) [[unlikely]] {
-		return false;
-	}
-
-	QueuedOutput qout{.text = std::string(text ? text : ""),
-		.interrupt = interrupt,
-		.braille = false,
-		.speak = true,
-		.ssml = false,
-		.time = time,
-		.engine = e};
-
-	{
-		std::unique_lock<std::mutex> lock(g_delayedOutputsMutex);
-		g_delayedOutputs.push_back(std::move(qout));
-	}
-
-	if (!g_outputThreadRunning.load(std::memory_order_acquire)) {
-		trigger_output_thread_safely();
-	}
-	return true;
-#else
-	(void)engine;
-	(void)time;
-	(void)text;
-	(void)interrupt;
-	return false;
-#endif
-}
-
-SRAL_API int SRAL_GetAvailableEngines(void) {
-	if (g_engines.empty()) {
+int SRAL_GetAvailableEngines(void) noexcept {
+	if (!SRAL_IsInitialized()) [[unlikely]]
 		return 0;
-	}
 	int mask = 0;
-	for (const auto& [value, ptr] : g_engines) {
-		if (ptr) {
+	for (const auto& [value, ptr] : Sral::g_engines) {
+		if (ptr) [[likely]]
 			mask |= static_cast<int>(value);
-		}
 	}
 	return mask;
 }
 
-SRAL_API int SRAL_GetActiveEngines(void) {
-	if (g_engines.empty()) {
+int SRAL_GetActiveEngines(void) noexcept {
+	if (!SRAL_IsInitialized()) [[unlikely]]
 		return 0;
-	}
 	int mask = 0;
-	for (const auto& [value, ptr] : g_engines) {
-		if (ptr && ptr->GetActive()) {
+	for (const auto& [value, ptr] : Sral::g_engines) {
+		if (ptr && ptr->GetActive())
 			mask |= static_cast<int>(value);
-		}
 	}
 	return mask;
 }
 
-SRAL_API SRAL_EngineCategory SRAL_GetEngineCategory(int engine) {
-	if (!SRAL_IsInitialized()) {
+SRAL_EngineCategory SRAL_GetEngineCategory(int engine) noexcept {
+	if (!SRAL_IsInitialized()) [[unlikely]]
 		return SRAL_ENGINE_CATEGORY_UNKNOWN;
-	}
-	std::shared_ptr<Sral::Engine> e = get_engine_internal(engine);
+	std::shared_ptr<Sral::Engine> e = Sral::get_engine_internal(engine);
 	return e ? static_cast<SRAL_EngineCategory>(e->GetCategory()) : SRAL_ENGINE_CATEGORY_UNKNOWN;
 }
 
-SRAL_API int SRAL_GetTTSEngines(void) {
-	if (g_engines.empty()) {
+int SRAL_GetTTSEngines(void) noexcept {
+	if (!SRAL_IsInitialized()) [[unlikely]]
 		return 0;
-	}
 	int mask = 0;
-	for (const auto& [value, ptr] : g_engines) {
+	for (const auto& [value, ptr] : Sral::g_engines) {
 		if (ptr && ptr->GetCategory() == SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE) {
 			mask |= static_cast<int>(value);
 		}
@@ -840,13 +1150,12 @@ SRAL_API int SRAL_GetTTSEngines(void) {
 	return mask;
 }
 
-SRAL_API int SRAL_GetAssistiveTechEngines(void) {
-	if (g_engines.empty()) {
+int SRAL_GetAssistiveTechEngines(void) noexcept {
+	if (!SRAL_IsInitialized()) [[unlikely]]
 		return 0;
-	}
 	int mask = 0;
-	for (const auto& [value, ptr] : g_engines) {
-		if (!ptr)
+	for (const auto& [value, ptr] : Sral::g_engines) {
+		if (!ptr) [[unlikely]]
 			continue;
 		const int category = ptr->GetCategory();
 		if (category == SRAL_ENGINE_CATEGORY_SCREEN_READER || category == SRAL_ENGINE_CATEGORY_ACCESSIBILITY_PROVIDER) {
@@ -856,7 +1165,7 @@ SRAL_API int SRAL_GetAssistiveTechEngines(void) {
 	return mask;
 }
 
-SRAL_API const char* SRAL_GetEngineName(int engine) {
+const char* SRAL_GetEngineName(int engine) noexcept {
 	switch (static_cast<SRAL_Engines>(engine)) {
 	case SRAL_ENGINE_NONE:
 		return "None";
@@ -895,248 +1204,16 @@ SRAL_API const char* SRAL_GetEngineName(int engine) {
 	}
 }
 
-SRAL_API bool SRAL_SetEnginesExclude(int engines_exclude) {
-	if (!SRAL_IsInitialized()) {
+bool SRAL_SetEnginesExclude(int engines_exclude) noexcept {
+	if (!SRAL_IsInitialized()) [[unlikely]]
 		return false;
-	}
-	g_excludes = engines_exclude;
-	speech_engine_update();
+	Sral::g_excludes.store(engines_exclude, std::memory_order_relaxed);
+	Sral::speech_engine_update();
 	return true;
 }
 
-SRAL_API int SRAL_GetEnginesExclude(void) {
-	return SRAL_IsInitialized() ? g_excludes : -1;
-}
-
-} // extern "C"
-
-#if defined(_WIN32)
-static LRESULT CALLBACK KeyboardHookProc(int nCode, WPARAM wParam, LPARAM lParam) {
-	if (nCode >= 0) {
-		const KBDLLHOOKSTRUCT* const pKeyInfo = reinterpret_cast<KBDLLHOOKSTRUCT*>(lParam);
-		if (pKeyInfo) [[likely]] {
-			const bool is_control = (pKeyInfo->vkCode == VK_LCONTROL || pKeyInfo->vkCode == VK_RCONTROL);
-			const bool is_shift = (pKeyInfo->vkCode == VK_LSHIFT || pKeyInfo->vkCode == VK_RSHIFT);
-
-			if (wParam == WM_KEYDOWN) {
-				if (is_control) {
-					for (const auto& [value, ptr] : g_engines) {
-						if (ptr && ptr->GetActive() && (ptr->GetKeyFlags() & Sral::HANDLE_INTERRUPT)) {
-							(void)ptr->StopSpeech();
-						}
-					}
-				}
-				else if (is_shift && !g_shiftPressed.load(std::memory_order_acquire)) {
-					g_shiftPressed.store(true, std::memory_order_release);
-					for (const auto& [value, ptr] : g_engines) {
-						if (ptr && ptr->GetActive() && (ptr->GetKeyFlags() & Sral::HANDLE_PAUSE_RESUME)) {
-							int is_paused = 0;
-							if (ptr->GetParameter(SRAL_PARAM_ENGINE_IS_PAUSED, &is_paused) && is_paused) {
-								(void)ptr->ResumeSpeech();
-							}
-							else {
-								(void)ptr->PauseSpeech();
-							}
-						}
-					}
-				}
-			}
-			else if (wParam == WM_KEYUP) {
-				if (is_shift) {
-					g_shiftPressed.store(false, std::memory_order_release);
-				}
-			}
-		}
-	}
-	return CallNextHookEx(g_keyboardHook, nCode, wParam, lParam);
-}
-#endif
-
-#if defined(__linux__) && !defined(__ANDROID__)
-static DBusHandlerResult ProcessAtSpiKeyEvent(DBusConnection* conn, DBusMessage* msg, void* user_data) {
-	(void)conn;
-	(void)user_data;
-
-	if (dbus_message_is_signal(msg, "org.a11y.atspi.DeviceEventController", "DeviceEvent")) {
-		DBusMessageIter iter;
-		if (dbus_message_iter_init(msg, &iter)) {
-			dbus_uint32_t type = 0;
-			dbus_int32_t id = 0, hw_code = 0, modifiers = 0, timestamp = 0;
-			const char* event_string = nullptr;
-
-			if (dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_UINT32) {
-				dbus_message_iter_get_basic(&iter, &type);
-
-				if (dbus_message_iter_next(&iter) && dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_INT32) {
-					dbus_message_iter_get_basic(&iter, &id);
-
-					if (dbus_message_iter_next(&iter) && dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_INT32) {
-						dbus_message_iter_get_basic(&iter, &hw_code);
-
-						if (dbus_message_iter_next(&iter) && dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_INT32) {
-							dbus_message_iter_get_basic(&iter, &modifiers);
-
-							if (dbus_message_iter_next(&iter) &&
-								dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_INT32) {
-								dbus_message_iter_get_basic(&iter, &timestamp);
-
-								if (dbus_message_iter_next(&iter) &&
-									dbus_message_iter_get_arg_type(&iter) == DBUS_TYPE_STRING) {
-									dbus_message_iter_get_basic(&iter, &event_string);
-								}
-							}
-						}
-					}
-				}
-			}
-
-			if (event_string) [[likely]] {
-				const std::string_view key_name(event_string);
-				const bool is_control = (key_name == "Control_L" || key_name == "Control_R");
-				const bool is_shift = (key_name == "Shift_L" || key_name == "Shift_R");
-
-				if (type == 0) { // Key Down
-					if (is_control) {
-						std::lock_guard<std::mutex> lock(g_sralEngineMutex);
-						for (const auto& [value, ptr] : g_engines) {
-							if (ptr && ptr->GetActive() && (ptr->GetKeyFlags() & Sral::HANDLE_INTERRUPT)) {
-								(void)ptr->StopSpeech();
-							}
-						}
-					}
-					else if (is_shift && !g_shiftPressed.load(std::memory_order_acquire)) {
-						g_shiftPressed.store(true, std::memory_order_release);
-						std::lock_guard<std::mutex> lock(g_sralEngineMutex);
-						for (const auto& [value, ptr] : g_engines) {
-							if (ptr && ptr->GetActive() && (ptr->GetKeyFlags() & Sral::HANDLE_PAUSE_RESUME)) {
-								int is_paused = 0;
-								if (ptr->GetParameter(SRAL_PARAM_ENGINE_IS_PAUSED, &is_paused) && is_paused) {
-									(void)ptr->ResumeSpeech();
-								}
-								else {
-									(void)ptr->PauseSpeech();
-								}
-							}
-						}
-					}
-				}
-				else if (type == 1) { // Key Up
-					if (is_shift) {
-						g_shiftPressed.store(false, std::memory_order_release);
-					}
-				}
-			}
-		}
-	}
-	return DBUS_HANDLER_RESULT_HANDLED;
-}
-#endif
-
-extern "C" {
-
-bool PlatformRegisterKeyboardHooks(void) {
-	if (g_keyboardHookThread.load(std::memory_order_acquire)) {
-		return true;
-	}
-	g_keyboardHookThread.store(true, std::memory_order_release);
-
-#if defined(_WIN32)
-	g_hookThread = std::thread([]() {
-		g_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, KeyboardHookProc, GetModuleHandleW(nullptr), 0);
-		if (!g_keyboardHook) {
-			g_keyboardHookThread.store(false, std::memory_order_release);
-			return;
-		}
-
-		MSG msg;
-		while (g_keyboardHookThread.load(std::memory_order_acquire)) {
-			if (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
-				TranslateMessage(&msg);
-				DispatchMessageW(&msg);
-			}
-			else {
-				std::this_thread::sleep_for(std::chrono::milliseconds(2));
-			}
-		}
-		(void)UnhookWindowsHookEx(g_keyboardHook);
-		g_keyboardHook = nullptr;
-	});
-
-	uint64_t attempts = 0;
-	while (g_keyboardHook == nullptr && attempts++ < 1500) {
-		std::this_thread::sleep_for(std::chrono::milliseconds(2));
-	}
-	return (g_keyboardHook != nullptr);
-
-#elif defined(__linux__) && !defined(__ANDROID__)
-	g_hookThread = std::thread([]() {
-		DBusError err;
-		dbus_error_init(&err);
-
-		DBusConnection* conn = dbus_bus_get(DBUS_BUS_SESSION, &err);
-		if (dbus_error_is_set(&err) || !conn) {
-			dbus_error_free(&err);
-			g_keyboardHookThread.store(false, std::memory_order_release);
-			return;
-		}
-
-		dbus_bus_add_match(
-			conn, "type='signal',interface='org.a11y.atspi.DeviceEventController',member='DeviceEvent'", &err);
-		dbus_connection_flush(conn);
-		if (dbus_error_is_set(&err)) {
-			dbus_error_free(&err);
-			dbus_connection_unref(conn);
-			g_keyboardHookThread.store(false, std::memory_order_release);
-			return;
-		}
-
-		if (!dbus_connection_add_filter(conn, ProcessAtSpiKeyEvent, nullptr, nullptr)) {
-			dbus_connection_unref(conn);
-			g_keyboardHookThread.store(false, std::memory_order_release);
-			return;
-		}
-
-		while (g_keyboardHookThread.load(std::memory_order_acquire)) {
-			(void)dbus_connection_read_write_dispatch(conn, 5);
-			std::this_thread::sleep_for(std::chrono::milliseconds(2));
-		}
-
-		dbus_connection_remove_filter(conn, ProcessAtSpiKeyEvent, nullptr);
-		dbus_connection_unref(conn);
-	});
-	return true;
-#else
-	(void)g_shiftPressed;
-	(void)g_keyboardHookThread;
-	(void)g_hookThread;
-	return true;
-#endif
-}
-
-void PlatformUnregisterKeyboardHooks(void) {
-#if defined(_WIN32) || (defined(__linux__) && !defined(__ANDROID__))
-	if (!g_keyboardHookThread.load(std::memory_order_acquire)) {
-		return;
-	}
-	g_keyboardHookThread.store(false, std::memory_order_release);
-	if (g_hookThread.joinable()) {
-		g_hookThread.join();
-	}
-#endif
-}
-
-SRAL_API bool SRAL_RegisterKeyboardHooks(void) {
-	if (!SRAL_IsInitialized()) {
-		return false;
-	}
-	return PlatformRegisterKeyboardHooks();
-}
-
-SRAL_API void SRAL_UnregisterKeyboardHooks(void) {
-	if (!SRAL_IsInitialized()) {
-		return;
-	}
-	PlatformUnregisterKeyboardHooks();
+int SRAL_GetEnginesExclude(void) noexcept {
+	return SRAL_IsInitialized() ? Sral::g_excludes.load(std::memory_order_relaxed) : -1;
 }
 
 } // extern "C"

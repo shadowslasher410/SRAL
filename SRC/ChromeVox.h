@@ -6,63 +6,65 @@
 #include <mutex>
 #include <new>
 #include <string_view>
+#include <version>
 
 #include "SRAL.h"
 #include "Engine.h"
 
-#ifdef __cpp_lib_hardware_interference_size
-using std::hardware_destructive_interference_size;
+#if defined(__cpp_lib_hardware_interference_size) && __cpp_lib_hardware_interference_size >= 201907L
+    using std::hardware_destructive_interference_size;
 #else
-constexpr size_t hardware_destructive_interference_size = 64;
+    #if defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64) || defined(TARGET_CPU_ARM64)
+        static constexpr size_t hardware_destructive_interference_size = 128;
+    #else
+        static constexpr size_t hardware_destructive_interference_size = 64;
+    #endif
 #endif
 
 namespace Sral {
 
 class alignas(hardware_destructive_interference_size) ChromeVox final : public Engine {
 public:
-	ChromeVox();
-	~ChromeVox() override;
+    ChromeVox() noexcept = default;
+    ~ChromeVox() noexcept override = default;
 
-	ChromeVox(const ChromeVox&) = delete;
-	ChromeVox& operator=(const ChromeVox&) = delete;
-	ChromeVox(ChromeVox&&) noexcept = delete;
-	ChromeVox& operator=(ChromeVox&&) noexcept = delete;
+    ChromeVox(const ChromeVox&) = delete;
+    ChromeVox& operator=(const ChromeVox&) = delete;
+    ChromeVox(ChromeVox&&) noexcept = delete;
+    ChromeVox& operator=(ChromeVox&&) noexcept = delete;
 
-	bool Speak(const char* speech_text, bool interrupt) override;
-	bool SpeakSsml(const char* ssml, bool interrupt) override;
-	bool Braille(const char* text) override;
+    [[nodiscard]] bool Speak(const char* speech_text, bool interrupt) noexcept override;
+    [[nodiscard]] bool SpeakSsml(const char* ssml, bool interrupt) noexcept override;
+    bool Braille(const char* text) noexcept override;
 
-	void* SpeakToMemory(
-		const char* text, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) override {
-		(void)text;
-		(void)buffer_size;
-		(void)channels;
-		(void)sample_rate;
-		(void)bits_per_sample;
-		return nullptr;
-	}
+    void* SpeakToMemory(const char*, uint64_t* buffer_size, int* channels, int* sample_rate, int* bits_per_sample) noexcept override {
+        if (buffer_size) *buffer_size = 0;
+        if (channels) *channels = 0;
+        if (sample_rate) *sample_rate = 0;
+        if (bits_per_sample) *bits_per_sample = 0;
+        return nullptr;
+    }
 
-	bool SetParameter(int param, const void* value) override;
-	bool GetParameter(int param, void* value) override;
+    bool SetParameter(int param, const void* value) noexcept override;
+    [[nodiscard]] bool GetParameter(int param, void* value) noexcept override;
 
-	bool StopSpeech() override;
-	bool PauseSpeech() override;
-	bool ResumeSpeech() override;
-	bool IsSpeaking() override;
+    bool StopSpeech() noexcept override;
+    bool PauseSpeech() noexcept override;
+    bool ResumeSpeech() noexcept override;
+    [[nodiscard]] bool IsSpeaking() noexcept override;
 
-	[[nodiscard]] int GetNumber() override { return SRAL_ENGINE_CHROMEVOX; }
-	[[nodiscard]] int GetCategory() override { return SRAL_ENGINE_CATEGORY_SCREEN_READER; }
-	[[nodiscard]] bool GetActive() override;
-	bool Initialize() override;
-	bool Uninitialize() override;
-	[[nodiscard]] int GetFeatures() override;
-	[[nodiscard]] int GetKeyFlags() override { return HANDLE_NONE; }
+    [[nodiscard]] bool GetActive() noexcept override;
+    bool Initialize() noexcept override;
+    bool Uninitialize() noexcept override;
+    [[nodiscard]] int GetFeatures() noexcept override;
+    [[nodiscard]] constexpr int GetNumber() noexcept override { return SRAL_ENGINE_CHROMEVOX; }
+    [[nodiscard]] constexpr int GetCategory() noexcept override { return SRAL_ENGINE_CATEGORY_SCREEN_READER; }
+    [[nodiscard]] constexpr int GetKeyFlags() noexcept override { return HANDLE_NONE; }
 
 private:
-	const char* AddString(const char* text) { return text; }
-	static std::atomic<int> _mode;
-	static std::atomic<bool> is_active;
-	static std::mutex chromevox_mutex;
+    static std::atomic<int> _mode;
+    static std::atomic<bool> is_active;
+    alignas(hardware_destructive_interference_size) static std::mutex chromevox_mutex;
 };
 
 } // namespace Sral

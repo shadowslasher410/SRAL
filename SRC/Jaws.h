@@ -6,74 +6,94 @@
 
 #include <comdef.h>
 
-#include <algorithm>
 #include <array>
 #include <atomic>
-#include <memory>
 #include <mutex>
-#include <semaphore>
+#include <new>
+#include <stop_token>
+#include <string_view>
 #include <thread>
 
-#include "fsapi.h"
-#include "SRAL.h"
 #include "Engine.h"
+#include "SRAL.h"
+#include "fsapi.h"
 
 _COM_SMARTPTR_TYPEDEF(IJawsApi, __uuidof(IJawsApi));
 
 namespace Sral {
+#if defined(__cpp_lib_hardware_interference_size) && __cpp_lib_hardware_interference_size >= 201907L
+    using std::hardware_destructive_interference_size;
+#else
+    #if defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64) || defined(TARGET_CPU_ARM64)
+        static constexpr size_t hardware_destructive_interference_size = 128;
+    #else
+        static constexpr size_t hardware_destructive_interference_size = 64;
+    #endif
+#endif
 
-class Jaws final : public Engine {
+class alignas(hardware_destructive_interference_size) Jaws final : public Engine {
+private:
+	enum class CommandType : uint8_t { None, Speak, Braille, Stop };
+
+	struct alignas(hardware_destructive_interference_size) ThreadCommand {
+		union {
+			std::array<char, 512> char_payload;
+			std::array<wchar_t, 256> wchar_payload;
+		} data{};
+		std::atomic<size_t> sequence{0};
+		size_t payload_length{0};
+		CommandType type{CommandType::Stop};
+		bool interrupt{false};
+
+		ThreadCommand() noexcept = default;
+	};
+
 public:
 	Jaws() noexcept = default;
-	~Jaws() override = default;
+	~Jaws() noexcept override;
 
 	Jaws(const Jaws&) = delete;
 	Jaws& operator=(const Jaws&) = delete;
 	Jaws(Jaws&&) = delete;
 	Jaws& operator=(Jaws&&) = delete;
 
-	[[nodiscard]] bool Speak(const char* text, bool interrupt) override;
-	[[nodiscard]] bool Braille(const char* text) override;
-	[[nodiscard]] bool StopSpeech() override;
-	[[nodiscard]] bool IsSpeaking() override;
+	[[nodiscard]] bool Speak(const char* text, bool interrupt) noexcept override;
+	[[nodiscard]] bool SpeakSsml(const char* ssml, bool interrupt) noexcept override { return Speak(ssml, interrupt); }
+	bool Braille(const char* text) noexcept override;
+	[[nodiscard]] bool StopSpeech() noexcept override;
+	[[nodiscard]] bool IsSpeaking() noexcept override;
+	[[nodiscard]] bool PauseSpeech() noexcept override { return false; }
+	[[nodiscard]] bool ResumeSpeech() noexcept override { return false; }
 
-	[[nodiscard]] int GetNumber() override { return SRAL_ENGINE_JAWS; }
-	[[nodiscard]] int GetCategory() override { return SRAL_ENGINE_CATEGORY_SCREEN_READER; }
-	[[nodiscard]] bool GetActive() override;
-	[[nodiscard]] int GetFeatures() override { return SRAL_SUPPORTS_SPEECH | SRAL_SUPPORTS_BRAILLE; }
-
-	[[nodiscard]] bool Initialize() override;
-	[[nodiscard]] bool Uninitialize() override;
+	[[nodiscard]] constexpr int GetNumber() noexcept override { return SRAL_ENGINE_JAWS; }
+	[[nodiscard]] constexpr int GetCategory() noexcept override { return SRAL_ENGINE_CATEGORY_SCREEN_READER; }
+	[[nodiscard]] constexpr int GetFeatures() noexcept override { return SRAL_SUPPORTS_SPEECH | SRAL_SUPPORTS_BRAILLE; }
+	[[nodiscard]] constexpr int GetKeyFlags() noexcept override { return HANDLE_NONE; }
+	[[nodiscard]] bool GetActive() noexcept override;
+	bool Initialize() noexcept override;
+	bool Uninitialize() noexcept override;
 
 private:
-	enum class CmdType { None, SpeakCmd, BrailleCmd, StopCmd };
+	void BackgroundWorkerLoop(std::stop_token stop_token) noexcept;
 
-	static constexpr size_t TEXT_BUFFER_SIZE = 512;
-	static constexpr size_t RING_BUFFER_CAPACITY = 32;
+	void* pAutomation{nullptr};
+	void* pCondition{nullptr};
+	void* pElement{nullptr};
+	void* pProvider{nullptr};
+	mutable std::mutex instanceMutex;
+	std::atomic<bool> isInitialized{false};
 
-	struct Command {
-		CmdType type = CmdType::None;
-		std::array<wchar_t, TEXT_BUFFER_SIZE> textBuffer{};
-		bool interrupt = false;
-	};
+	static constexpr size_t RING_BUFFER_SIZE = 128;
+	static constexpr size_t RING_MASK = RING_BUFFER_SIZE - 1;
 
-	struct SharedState {
-		std::mutex queueMutex;
-		std::array<Command, RING_BUFFER_CAPACITY> ringBuffer{};
-		size_t rbHead{0};
-		size_t rbTail{0};
-		std::counting_semaphore<RING_BUFFER_CAPACITY> queueSemaphore{0};
-		std::counting_semaphore<1> initSemaphore{0};
-	};
+	alignas(hardware_destructive_interference_size) std::array<ThreadCommand, RING_BUFFER_SIZE> m_ring_queue{};
 
-	struct RuntimeContext {
-		std::jthread workerThread;
-		SharedState state;
-	};
-
-	static void WorkerThreadLoop(std::stop_token stopToken, std::shared_ptr<RuntimeContext> context);
-
-	static inline std::shared_ptr<RuntimeContext> s_context{nullptr};
+	alignas(hardware_destructive_interference_size) std::atomic<size_t> m_head{0};
+	alignas(hardware_destructive_interference_size) std::atomic<size_t> m_tail{0};
+	alignas(hardware_destructive_interference_size) std::atomic<bool> m_ring_bell{false};
+	alignas(hardware_destructive_interference_size) std::atomic<bool> m_isSpeakingCache{false};
+	alignas(hardware_destructive_interference_size) std::atomic<bool> m_fastPathInterrupt{false};
+	alignas(hardware_destructive_interference_size) std::jthread m_workerThread;
 };
 
 } // namespace Sral

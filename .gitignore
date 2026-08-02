@@ -14,6 +14,7 @@ subprojects/
 *.wasm
 CMakeUserPresets.json
 *.ini
+*.ps1
 
 # IDE Configurations and Toolchain Specifics
 .vs/

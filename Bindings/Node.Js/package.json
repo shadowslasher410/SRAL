@@ -14,10 +14,10 @@
     "compile:ios": "cmake-js compile -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_ARCHITECTURES=arm64",
     "compile:ios-sim": "cmake-js compile -G Xcode -DCMAKE_SYSTEM_NAME=iOS -DCMAKE_OSX_SYSROOT=iphonesimulator -DCMAKE_OSX_ARCHITECTURES=x86_64",
     "clean": "cmake-js clean",
-    "test": "node Example.js"
+    "test": "node example.js"
   },
   "dependencies": {
-    "node-addon-api": "^8.9.0"
+    "node-addon-api": "^8.3.0"
   },
   "devDependencies": {
     "cmake-js": "^8.0.0"

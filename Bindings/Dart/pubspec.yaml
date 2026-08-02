@@ -1,0 +1,8 @@
+name: sral_bindings
+description: Cross-platform Dart FFI bindings for the Screen Reader Abstraction Library.
+version: 1.0.0
+environment:
+  sdk: '^3.12.2'
+
+dependencies:
+  ffi: ^2.2.0 

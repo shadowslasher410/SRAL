@@ -1,28 +1,37 @@
 <Project Sdk="Microsoft.NET.Sdk">
     <PropertyGroup>
         <OutputType>Exe</OutputType>
-
+        
         <TargetFrameworks Condition="'$(SKIP_MOBILE_WORKLOADS)' == 'true'">net10.0</TargetFrameworks>
         <TargetFrameworks Condition="'$(SKIP_MOBILE_WORKLOADS)' != 'true'">net10.0;net10.0-android;net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
 
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+        
+        <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('-android'))">21.0</SupportedOSPlatformVersion>
+        <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('-ios'))">15.0</SupportedOSPlatformVersion>
+        <SupportedOSPlatformVersion Condition="$(TargetFramework.Contains('-maccatalyst'))">15.0</SupportedOSPlatformVersion>
     </PropertyGroup>
 
     <ItemGroup Condition="'$(TargetFramework)' == 'net10.0'">
-        <!-- Windows Desktop x64 -->
-        <None Include="..\..\out\build\SRAL.dll" Condition="Exists('..\..\out\build\SRAL.dll')">
+        <Content Include="..\..\out\build\SRAL.dll" Condition="Exists('..\..\out\build\SRAL.dll')">
+            <Link>runtimes\win-x64\native\SRAL.dll</Link>
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </None>
-        <!-- Linux x64 -->
-        <None Include="..\..\out\build\libsral.so" Condition="Exists('..\..\out\build\libsral.so')">
+            <PublishState>Included</PublishState>
+        </Content>
+        
+        <Content Include="..\..\out\build\libsral.so" Condition="Exists('..\..\out\build\libsral.so')">
+            <Link>runtimes\linux-x64\native\libsral.so</Link>
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </None>
-        <!-- macOS Desktop x64/Arm64 -->
-        <None Include="..\..\out\build\libsral.dylib" Condition="Exists('..\..\out\build\libsral.dylib')">
+            <PublishState>Included</PublishState>
+        </Content>
+        
+        <Content Include="..\..\out\build\libsral.dylib" Condition="Exists('..\..\out\build\libsral.dylib')">
+            <Link>runtimes\osx\native\libsral.dylib</Link>
             <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-        </None>
+            <PublishState>Included</PublishState>
+        </Content>
     </ItemGroup>
 
     <ItemGroup Condition="'$(SKIP_MOBILE_WORKLOADS)' != 'true' AND '$(TargetFramework)' == 'net10.0-android'">
@@ -42,5 +51,11 @@
             <ForceLoad>True</ForceLoad>
             <Frameworks>Foundation AVFoundation</Frameworks>
         </NativeReference>
+    </ItemGroup>
+
+    <ItemGroup Condition="'$(SKIP_MOBILE_WORKLOADS)' != 'true' AND '$(TargetFramework)' == 'net10.0-maccatalyst'">
+        <Content Include="..\..\out\build\libsral.dylib" Condition="Exists('..\..\out\build\libsral.dylib')">
+            <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+        </Content>
     </ItemGroup>
 </Project>

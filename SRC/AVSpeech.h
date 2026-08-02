@@ -7,6 +7,7 @@
 
 #if TARGET_OS_OSX || TARGET_OS_IPHONE
 
+#include <version>
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -14,6 +15,7 @@
 #include <new>
 #include <string>
 #include <thread>
+#include <string_view>
 
 #include "SRAL.h"
 #include "Engine.h"
@@ -21,36 +23,39 @@
 class AVSpeechSynthesizerWrapper;
 
 namespace Sral {
-
 #if defined(__cpp_lib_hardware_interference_size) && __cpp_lib_hardware_interference_size >= 201907L
-inline constexpr std::size_t DestructiveInterferenceSize = std::hardware_destructive_interference_size;
-#elif defined(__apple_build_version__) && (defined(__arm64__) || defined(__aarch64__))
-inline constexpr std::size_t DestructiveInterferenceSize = 128;
+    using std::hardware_destructive_interference_size;
 #else
-inline constexpr std::size_t DestructiveInterferenceSize = 64;
+    #if defined(__arm64__) || defined(__aarch64__) || defined(_M_ARM64) || defined(TARGET_CPU_ARM64)
+        static constexpr size_t hardware_destructive_interference_size = 128;
+    #else
+        static constexpr size_t hardware_destructive_interference_size = 64;
+    #endif
 #endif
 
-class alignas(DestructiveInterferenceSize) AvSpeech final : public Engine {
+
+class alignas(hardware_destructive_interference_size) AvSpeech final : public Engine {
 public:
 	AvSpeech() noexcept;
 	~AvSpeech() noexcept override;
+
 	AvSpeech(const AvSpeech&) = delete;
 	AvSpeech& operator=(const AvSpeech&) = delete;
-	AvSpeech(AvSpeech&&) = delete;
-	AvSpeech& operator=(AvSpeech&&) = delete;
+	AvSpeech(AvSpeech&&) noexcept = default;
+	AvSpeech& operator=(AvSpeech&&) noexcept = default;
 
-	bool Speak(const char* const text, const bool interrupt) override;
-	bool SpeakSsml(const char* const ssml, const bool interrupt) override;
-	bool Braille(const char* const text) override;
+	[[nodiscard]] bool Speak(const char* text, bool interrupt) override;
+	[[nodiscard]] bool SpeakSsml(const char* ssml, bool interrupt) override;
+	[[nodiscard]] bool Braille(const char* text) override;
 
-	void* SpeakToMemory(const char* const text,
-		uint64_t* const buffer_size,
-		int* const channels,
-		int* const sample_rate,
-		int* const bits_per_sample) override;
+	void* SpeakToMemory(const char* text,
+		uint64_t* buffer_size,
+		int* channels,
+		int* sample_rate,
+		int* bits_per_sample) override;
 
-	bool SetParameter(const int param, const void* const value) override;
-	bool GetParameter(const int param, void* const value) override;
+	bool SetParameter(int param, const void* value) override;
+	bool GetParameter(int param, void* value) override;
 
 	bool StopSpeech() override;
 	bool PauseSpeech() override;
@@ -59,7 +64,6 @@ public:
 
 	[[nodiscard]] int GetNumber() override { return SRAL_ENGINE_AV_SPEECH; }
 	[[nodiscard]] int GetCategory() override { return SRAL_ENGINE_CATEGORY_TEXT_TO_SPEECH_ENGINE; }
-
 	[[nodiscard]] bool GetActive() override;
 	bool Initialize() override;
 	bool Uninitialize() override;
@@ -67,9 +71,9 @@ public:
 	[[nodiscard]] int GetKeyFlags() override { return HANDLE_NONE; }
 
 private:
-	enum class TaskType : uint8_t { Speak, Stop, Pause, Resume, SetVolume, SetRate };
+	enum class TaskType : uint8_t { Speak, Stop, Pause, Resume, SetVolume, SetRate, SetVoice };
 
-	struct alignas(DestructiveInterferenceSize) AsyncSpeechTask {
+	struct AsyncSpeechTask {
 		std::array<char, 512> text{};
 		std::atomic<size_t> sequence{0};
 		float parameter_value{0.0f};
@@ -82,17 +86,18 @@ private:
 
 	static constexpr size_t RING_BUFFER_SIZE = 128;
 	static constexpr size_t RING_MASK = RING_BUFFER_SIZE - 1;
-	alignas(DestructiveInterferenceSize) std::array<AsyncSpeechTask, RING_BUFFER_SIZE> m_ring_queue;
-	alignas(DestructiveInterferenceSize) std::atomic<size_t> m_head{0};
-	alignas(DestructiveInterferenceSize) std::atomic<size_t> m_tail{0};
-	alignas(DestructiveInterferenceSize) std::atomic<bool> m_ring_bell{false};
 
-	std::mutex m_init_mutex;
+	std::array<AsyncSpeechTask, RING_BUFFER_SIZE> m_ring_queue;
+	alignas(hardware_destructive_interference_size) std::atomic<size_t> m_head{0};
+	alignas(hardware_destructive_interference_size) std::atomic<size_t> m_tail{0};
+	alignas(hardware_destructive_interference_size) std::atomic<bool> m_ring_bell{false};
+
+	alignas(hardware_destructive_interference_size) std::mutex m_init_mutex;
 	std::jthread m_worker_thread;
 	AVSpeechSynthesizerWrapper* obj = nullptr;
 
-	std::atomic<uint64_t> m_cached_volume{100};
-	std::atomic<uint64_t> m_cached_rate{100};
+	std::atomic<uint8_t> m_cached_volume{100};
+	std::atomic<uint8_t> m_cached_rate{100};
 	std::atomic<bool> m_initialized{false};
 };
 

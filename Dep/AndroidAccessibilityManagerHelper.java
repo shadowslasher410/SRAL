@@ -5,6 +5,7 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.text.SpannableString;
 import android.util.Log;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.accessibility.AccessibilityManager;
@@ -13,53 +14,42 @@ import androidx.annotation.Nullable;
 import androidx.lifecycle.DefaultLifecycleObserver;
 import androidx.lifecycle.LifecycleOwner;
 import java.lang.ref.WeakReference;
-import java.util.Arrays;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public final class AndroidAccessibilityManagerHelper implements DefaultLifecycleObserver {
   private static final String TAG = "AccessibilityHelper";
-  private static final int MILLISECONDS_PER_WORD = 400;
-  private static final int MIN_PADDING_MS = 1200;
-  private static final int MAX_PADDING_MS = 8000;
-  private static final int MAX_TEXT_LENGTH = 200;
-  private static final int BUFFER_CAPACITY = 50;
+  private static final String CLASS_NAME = AndroidAccessibilityManagerHelper.class.getName();
 
+  private static final int BUFFER_CAPACITY = 50;
   private static final long FRAMEWORK_FLUSH_DELAY_MS = 100;
+
   private static final int MSG_EXECUTE_ANNOUNCEMENT = 0xAF01;
-  private static final String TRUNCATION_SUFFIX = "...";
+  private static final int MSG_COMPLETE_ANNOUNCEMENT = 0xAF02;
 
   private final Context appContext;
   private final AccessibilityManager am;
   private final Handler mainHandler;
 
-  private final String[] ringBuffer = new String[BUFFER_CAPACITY];
-  private int head = 0;
-  private int tail = 0;
-  private int size = 0;
+  private final ConcurrentLinkedQueue<String> announcementQueue = new ConcurrentLinkedQueue<>();
+  private final AtomicInteger queueSize = new AtomicInteger(0);
 
-  private final Object bufferLock = new Object();
+  private final ExecutorService virtualExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
   private final AtomicBoolean isRunning = new AtomicBoolean(false);
-  private final AtomicBoolean frameworkJustInterrupted = new AtomicBoolean(false);
-  private final AtomicReference<Thread> workerThread = new AtomicReference<>(null);
+  private final AtomicBoolean isProcessing = new AtomicBoolean(false);
 
   public AndroidAccessibilityManagerHelper(
       @NonNull Context context, @Nullable final LifecycleOwner lifecycleOwner) {
     Objects.requireNonNull(context, "Context cannot be null");
     this.appContext = context.getApplicationContext();
     this.am = (AccessibilityManager) appContext.getSystemService(Context.ACCESSIBILITY_SERVICE);
-
-    this.mainHandler = new Handler(Looper.getMainLooper(), msg -> {
-      if (msg.what == MSG_EXECUTE_ANNOUNCEMENT) {
-        if (msg.obj instanceof String) {
-          executeAnnounceEvent((String) msg.obj);
-        }
-        return true;
-      }
-      return false;
-    });
+    this.mainHandler = new Handler(Looper.getMainLooper(), new SafeHandlerCallback(this));
 
     startWorker();
 
@@ -78,8 +68,175 @@ public final class AndroidAccessibilityManagerHelper implements DefaultLifecycle
     }
   }
 
-  public AndroidAccessibilityManagerHelper(@NonNull Context context) {
-    this(context, null);
+  public boolean isActive() {
+    return am != null && am.isEnabled();
+  }
+
+  public void announce(@Nullable String text, final boolean interrupt) {
+    if (text == null || !isActive() || !isRunning.get() || virtualExecutor.isShutdown()) {
+      return;
+    }
+
+    String processedText = text.strip();
+    if (processedText.isEmpty())
+      return;
+
+    final AccessibilityManager targetAm = this.am;
+
+    try {
+      if (interrupt) {
+        announcementQueue.clear();
+        queueSize.set(0);
+        mainHandler.removeMessages(MSG_EXECUTE_ANNOUNCEMENT);
+        mainHandler.removeMessages(MSG_COMPLETE_ANNOUNCEMENT);
+        isProcessing.set(false);
+        virtualExecutor.submit(() -> {
+          try {
+            if (targetAm != null && targetAm.isEnabled()) {
+              targetAm.interrupt();
+            }
+          } catch (Exception e) {
+            Log.e(TAG, "Failed to broadcast interrupt command to accessibility manager", e);
+          }
+        });
+
+        Message msg = mainHandler.obtainMessage(MSG_EXECUTE_ANNOUNCEMENT, processedText);
+        mainHandler.sendMessageDelayed(msg, FRAMEWORK_FLUSH_DELAY_MS);
+        isProcessing.set(true);
+        queueSize.incrementAndGet();
+        return;
+      }
+
+      int previousSize =
+          queueSize.getAndUpdate(current -> current < BUFFER_CAPACITY ? current + 1 : current);
+      if (previousSize < BUFFER_CAPACITY) {
+        announcementQueue.add(processedText);
+        tryScheduleNextAnnouncement();
+      } else {
+        Log.w(TAG, "Ring buffer is full. Dropping announcement.");
+      }
+    } catch (RejectedExecutionException e) {
+      Log.w(TAG, "Submission rejected due to concurrent instance shutdown handling phases");
+      isProcessing.set(false);
+    }
+  }
+
+  private void tryScheduleNextAnnouncement() {
+    if (!isRunning.get() || announcementQueue.isEmpty() || isProcessing.get()
+        || virtualExecutor.isShutdown()) {
+      return;
+    }
+
+    try {
+      virtualExecutor.submit(this::dispatchNextAnnouncement);
+    } catch (RejectedExecutionException e) {
+      isProcessing.set(false);
+    }
+  }
+
+  private void dispatchNextAnnouncement() {
+    if (!isProcessing.compareAndSet(false, true))
+      return;
+
+    String targetText = announcementQueue.poll();
+    if (targetText == null) {
+      isProcessing.set(false);
+      return;
+    }
+    queueSize.decrementAndGet();
+
+    Message msg = mainHandler.obtainMessage(MSG_EXECUTE_ANNOUNCEMENT, targetText);
+    mainHandler.sendMessage(msg);
+  }
+
+  private void executeAnnounceEvent(@NonNull String text) {
+    if (!isActive() || !isRunning.get()) {
+      handleAnnouncementCompletion();
+      return;
+    }
+
+    AccessibilityEvent event = null;
+    try {
+      if (Build.VERSION.SDK_INT >= 30) {
+        event = new AccessibilityEvent(AccessibilityEvent.TYPE_ANNOUNCEMENT);
+        event.setContentChangeTypes(AccessibilityEvent.CONTENT_CHANGE_TYPE_ANNOUNCEMENT);
+      } else {
+        event = AccessibilityEvent.obtain();
+        event.setEventType(AccessibilityEvent.TYPE_ANNOUNCEMENT);
+      }
+
+      event.setPackageName(appContext.getPackageName());
+      event.setClassName(CLASS_NAME);
+      event.getText().add(new SpannableString(text));
+
+      am.sendAccessibilityEvent(event);
+    } catch (Exception e) {
+      Log.e(TAG, "Error sending accessibility event to framework", e);
+      if (event != null && Build.VERSION.SDK_INT < 30) {
+        try {
+          event.recycle();
+        } catch (Exception ignored) {
+        }
+      }
+    }
+
+    long delay = calculateReadingDelayAllocationFree(text);
+    Message completionMsg = mainHandler.obtainMessage(MSG_COMPLETE_ANNOUNCEMENT);
+    mainHandler.sendMessageDelayed(completionMsg, delay);
+  }
+
+  private void handleAnnouncementCompletion() {
+    isProcessing.set(false);
+    tryScheduleNextAnnouncement();
+  }
+
+  public void startWorker() {
+    if (isRunning.compareAndSet(false, true)) {
+      tryScheduleNextAnnouncement();
+    }
+  }
+
+  public void stopWorker() {
+    isRunning.set(false);
+    announcementQueue.clear();
+    queueSize.set(0);
+    mainHandler.removeMessages(MSG_EXECUTE_ANNOUNCEMENT);
+    mainHandler.removeMessages(MSG_COMPLETE_ANNOUNCEMENT);
+    isProcessing.set(false);
+  }
+
+  public void interrupt() {
+    announce("", true);
+  }
+
+  public void shutdown() {
+    stopWorker();
+    virtualExecutor.shutdownNow();
+  }
+
+  private static long calculateReadingDelayAllocationFree(@NonNull String text) {
+    int len = text.length();
+    if (len == 0)
+      return 0L;
+
+    int wordCount = 0;
+    boolean inWord = false;
+
+    for (int i = 0; i < len; i++) {
+      if (Character.isWhitespace(text.charAt(i))) {
+        if (inWord) {
+          wordCount++;
+          inWord = false;
+        }
+      } else {
+        inWord = true;
+      }
+    }
+    if (inWord)
+      wordCount++;
+
+    long estimatedTime = wordCount * 460L + 350L;
+    return Math.clamp(estimatedTime, 800L, 8500L);
   }
 
   private void attachLifecycle(@NonNull LifecycleOwner lifecycleOwner) {
@@ -94,15 +251,13 @@ public final class AndroidAccessibilityManagerHelper implements DefaultLifecycle
   public void onResume(@NonNull LifecycleOwner owner) {
     startWorker();
   }
-
   @Override
   public void onPause(@NonNull LifecycleOwner owner) {
     stopWorker();
   }
-
   @Override
   public void onDestroy(@NonNull LifecycleOwner owner) {
-    shutdownHelper();
+    shutdown();
     try {
       owner.getLifecycle().removeObserver(this);
     } catch (Exception e) {
@@ -110,281 +265,31 @@ public final class AndroidAccessibilityManagerHelper implements DefaultLifecycle
     }
   }
 
-  public boolean isActive() {
-    return am != null && am.isEnabled();
-  }
+  private static final class SafeHandlerCallback implements Handler.Callback {
+    private final WeakReference<AndroidAccessibilityManagerHelper> helperRef;
 
-  public void announce(final String text, final boolean interrupt) {
-    if (text == null || text.isBlank() || !isActive() || !isRunning.get()) {
-      return;
+    SafeHandlerCallback(AndroidAccessibilityManagerHelper helper) {
+      this.helperRef = new WeakReference<>(helper);
     }
 
-    String processedText = text.trim();
-    if (processedText.length() > MAX_TEXT_LENGTH) {
-      processedText = processedText.substring(0, MAX_TEXT_LENGTH).concat(TRUNCATION_SUFFIX);
-    }
-
-    Thread threadToInterrupt = null;
-
-    synchronized (bufferLock) {
-      if (!isRunning.get()) {
-        return;
-      }
-
-      if (interrupt) {
-        clearQueueAndFrameworkInterrupt();
-
-        head = tail;
-        size = 0;
-        Arrays.fill(ringBuffer, null);
-
-        frameworkJustInterrupted.set(true);
-        threadToInterrupt = workerThread.get();
-      }
-
-      if (size < BUFFER_CAPACITY) {
-        ringBuffer[tail] = processedText;
-        tail = (tail + 1) % BUFFER_CAPACITY;
-        size++;
-        bufferLock.notifyAll();
-      } else {
-        Log.w(TAG, "Ring buffer is full. Dropping announcement.");
-      }
-    }
-
-    if (threadToInterrupt != null) {
-      threadToInterrupt.interrupt();
-    }
-  }
-
-  public void startWorker() {
-    synchronized (bufferLock) {
-      if (isRunning.get()) {
-        Thread currentWorker = workerThread.get();
-        if (currentWorker != null && currentWorker.isAlive()) {
-          return;
-        }
-      }
-
-      isRunning.set(true);
-      Thread newWorker =
-          new Thread(new AnnouncementWorkerRunnable(), "AccessibilityAnnouncementWorker");
-      newWorker.setDaemon(true);
-
-      workerThread.set(newWorker);
-      newWorker.start();
-    }
-  }
-
-  public void stopWorker() {
-    synchronized (bufferLock) {
-      isRunning.set(false);
-      clearQueueAndFrameworkInterrupt();
-      head = 0;
-      tail = 0;
-      size = 0;
-      Arrays.fill(ringBuffer, null);
-      bufferLock.notifyAll();
-    }
-
-    Thread threadToInterrupt = workerThread.getAndSet(null);
-    if (threadToInterrupt != null) {
-      threadToInterrupt.interrupt();
-    }
-  }
-
-  private void shutdownHelper() {
-    stopWorker();
-    mainHandler.removeMessages(MSG_EXECUTE_ANNOUNCEMENT);
-  }
-
-  private void clearQueueAndFrameworkInterrupt() {
-    mainHandler.removeMessages(MSG_EXECUTE_ANNOUNCEMENT);
-    if (am != null && am.isEnabled()) {
-      try {
-        am.interrupt();
-      } catch (Exception e) {
-        Log.e(TAG, "Error trying to interrupt active accessibility speech loop", e);
-      }
-    }
-  }
-
-  private long calculateReadingDelay(String text) {
-    String[] words = text.split("\\s+");
-    long estimatedTime = (long) words.length * MILLISECONDS_PER_WORD;
-    return Math.min(Math.max(estimatedTime, MIN_PADDING_MS), MAX_PADDING_MS);
-  }
-
-  private final class AnnouncementWorkerRunnable implements Runnable {
     @Override
-    public void run() {
-      if (Thread.currentThread().isInterrupted()) {
-        Thread.interrupted();
-      }
+    public boolean handleMessage(@NonNull Message msg) {
+      AndroidAccessibilityManagerHelper helper = helperRef.get();
+      if (helper == null)
+        return false;
 
-      while (isRunning.get()) {
-        String targetText = null;
-        boolean shouldDelayFlush = false;
-        boolean interruptedInsideWaitLoop = false;
-
-        synchronized (bufferLock) {
-          while (size == 0 && isRunning.get()) {
-            try {
-              bufferLock.wait();
-            } catch (InterruptedException e) {
-              interruptedInsideWaitLoop = true;
-              break;
-            }
+      switch (msg.what) {
+        case MSG_EXECUTE_ANNOUNCEMENT:
+          if (msg.obj instanceof String) {
+            helper.executeAnnounceEvent((String) msg.obj);
+            return true;
           }
-
-          if (!isRunning.get()) {
-            break;
-          }
-
-          if (!interruptedInsideWaitLoop) {
-            if (frameworkJustInterrupted.compareAndSet(true, false)) {
-              shouldDelayFlush = true;
-            }
-
-            if (size > 0) {
-              targetText = ringBuffer[head];
-              ringBuffer[head] = null;
-              head = (head + 1) % BUFFER_CAPACITY;
-              size--;
-            }
-          }
-        }
-
-        if (interruptedInsideWaitLoop) {
-          continue;
-        }
-
-        if (shouldDelayFlush) {
-          try {
-            Thread.sleep(FRAMEWORK_FLUSH_DELAY_MS);
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            continue;
-          }
-        }
-
-        if (targetText != null && isActive()) {
-          Message msg = mainHandler.obtainMessage(MSG_EXECUTE_ANNOUNCEMENT, targetText);
-          mainHandler.sendMessage(msg);
-
-          long delay = calculateReadingDelay(targetText);
-          try {
-            Thread.sleep(delay);
-          } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-          }
-        }
+          break;
+        case MSG_COMPLETE_ANNOUNCEMENT:
+          helper.handleAnnouncementCompletion();
+          return true;
       }
-
-      workerThread.compareAndSet(Thread.currentThread(), null);
+      return false;
     }
-  }
-
-  private void executeAnnounceEvent(String text) {
-    if (!isActive())
-      return;
-
-    AccessibilityEvent event = createAnnouncementEvent();
-    if (event == null)
-      return;
-
-    event.setPackageName(appContext.getPackageName());
-    event.setClassName(AndroidAccessibilityManagerHelper.class.getName());
-    event.getText().add(text);
-
-    if (Build.VERSION.SDK_INT >= 30) {
-      event.setContentChangeTypes(AccessibilityEvent.CONTENT_CHANGE_TYPE_ANNOUNCEMENT);
-    }
-
-    try {
-      am.sendAccessibilityEvent(event);
-    } catch (Exception e) {
-      Log.e(TAG, "Error sending accessibility event to framework", e);
-      if (Build.VERSION.SDK_INT < 30) {
-        try {
-          event.recycle();
-        } catch (Exception ignored) {
-          // Suppress
-        }
-      }
-    }
-  }
-
-  @SuppressWarnings("deprecation")
-  private AccessibilityEvent createAnnouncementEvent() {
-    if (Build.VERSION.SDK_INT >= 30) {
-      return new AccessibilityEvent(AccessibilityEvent.TYPE_ANNOUNCEMENT);
-    } else {
-      try {
-        AccessibilityEvent event = AccessibilityEvent.obtain();
-        if (event != null) {
-          event.setEventType(AccessibilityEvent.TYPE_ANNOUNCEMENT);
-        } else {
-          event = new AccessibilityEvent();
-          event.setEventType(AccessibilityEvent.TYPE_ANNOUNCEMENT);
-        }
-        return event;
-      } catch (Exception e) {
-        Log.e(TAG, "Failed to instantiate legacy AccessibilityEvent via pool", e);
-        return null;
-      }
-    }
-  }
-
-  private long calculateReadingDelay(@NonNull String text) {
-    if (text.isEmpty()) {
-      return 0L;
-    }
-    String[] words = text.split("\\s+");
-    long estimatedTime = words.length * 460L + 350L;
-    return Math.max(800L, Math.min(estimatedTime, 8500L));
-  }
-
-  public void interrupt() {
-    synchronized (bufferLock) {
-      java.util.Arrays.fill(ringBuffer, null);
-      head = 0;
-      tail = 0;
-      size = 0;
-
-      frameworkJustInterrupted.set(true);
-      bufferLock.notifyAll();
-    }
-
-    if (isActive()) {
-      try {
-        am.interrupt();
-      } catch (Exception e) {
-        Log.e(TAG, "Failed to broadcast interrupt command to accessibility manager", e);
-      }
-    }
-  }
-
-  public void shutdown() {
-    isRunning.set(false);
-
-    synchronized (bufferLock) {
-      java.util.Arrays.fill(ringBuffer, null);
-      head = 0;
-      tail = 0;
-      size = 0;
-      bufferLock.notifyAll();
-    }
-
-    Thread targetWorker = workerThread.getAndSet(null);
-    if (targetWorker != null && targetWorker.isAlive()) {
-      try {
-        targetWorker.interrupt();
-      } catch (Exception e) {
-        Log.e(TAG, "Failed to signal background accessibility thread interruption cleanly", e);
-      }
-    }
-
-    mainHandler.removeMessages(MSG_EXECUTE_ANNOUNCEMENT);
   }
 }

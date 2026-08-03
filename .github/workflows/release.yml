@@ -46,7 +46,6 @@ jobs:
             exit 1
           fi
 
-          # Safe Title-Case Normalization Matrix for Flawless Downstream Artifact Fetching
           if [[ "${RAW_VERSION}" == *-Stable || "${RAW_VERSION}" == *-RC ]]; then
             VARIANT_TOKEN="Release"
           else
@@ -96,7 +95,7 @@ jobs:
             runner-os: ubuntu-24.04
             output-archive: SRAL-Android-arm64.tar.gz
           - target-name: ios-universal
-            artifact-base: bundle-ios-xcframework
+            artifact-name: bundle-ios-xcframework
             runner-os: macos-26
             output-archive: SRAL-iOS-XCFramework.zip
 
@@ -136,7 +135,6 @@ jobs:
         shell: powershell
         run: |
           $hash = (Get-FileHash -Path "${{ matrix.output-archive }}" -Algorithm SHA256).Hash.ToLower()
-          # Output is strictly normalized to match standard Unix format spacing vectors perfectly
           set-content -path "${{ matrix.output-archive }}.sha256" -value "$hash  ${{ matrix.output-archive }}" -NoNewline
 
       - name: Generate SHA-256 Checksum (Linux & macOS)
@@ -179,7 +177,7 @@ jobs:
           tag_name: ${{ needs.validate-version.outputs.release_version }}
           name: Release ${{ needs.validate-version.outputs.release_version }}
           prerelease: ${{ contains(needs.validate-version.outputs.release_version, '-Beta') || contains(needs.validate-version.outputs.release_version, '-RC') }}
-          make_latest:  ${{ contains(needs.validate-version.outputs.release_version, '-Stable') }}
+          make_latest: ${{ contains(needs.validate-version.outputs.release_version, '-Stable') }}
           files: final_release_payload/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

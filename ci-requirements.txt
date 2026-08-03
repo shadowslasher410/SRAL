@@ -1,19 +1,3 @@
-# =============================================================================
-# SRAL CI Python Dependencies Lockfile
-# NOTE: Hashes MUST be updated and re-verified on each new package release!
-# Pip hashes (in order):
-# Python Source Distribution (.tar.gz)
-# Universal Python Wheel (.whl)
-# Ninja hashes (in order):
-# Linux x86_64 Wheel
-# Windows x86_64 Wheel
-# macOS x86_64/Universal Wheel
-# Windows ARM64 Wheel
-# Linux ARM64 Wheel
-# macOS ARM64 Wheel
-# Python Source Distribution (.tar.gz)
-# =============================================================================
-
 pip==26.2 \
   --hash=sha256:2d8542afcc84cdd8e846c2b36b2861fad1da376dd98f8e7113e9108a3c331690 \
   --hash=sha256:931c303696af6fa3417112103b1cad26890e5a07eccb5b99783700e33f2b8aad

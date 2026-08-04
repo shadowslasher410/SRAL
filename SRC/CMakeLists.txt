@@ -165,20 +165,26 @@ if(DEP_SOURCES)
     set(SRAL_DEPS_TARGET "sral_deps")
 endif()
 
-if(BUILD_SHARED_LIBS)
+set(FINAL_TARGETS "")
+
+if(DEFAULT_LIBRARY STREQUAL "shared" OR DEFAULT_LIBRARY STREQUAL "both")
     add_library(SRAL SHARED)
     target_sources(SRAL PRIVATE ${CORE_SOURCES})
+    list(APPEND FINAL_TARGETS SRAL)
+endif()
 
-    add_library(SRAL_Static STATIC)
-    target_sources(SRAL_Static PRIVATE ${CORE_SOURCES})
-    set_target_properties(SRAL_Static PROPERTIES OUTPUT_NAME "SRAL_static")
-    set(FINAL_TARGETS SRAL SRAL_Static)
-else()
-    add_library(SRAL STATIC)
-    target_sources(SRAL PRIVATE ${CORE_SOURCES})
-
-    set_target_properties(SRAL PROPERTIES OUTPUT_NAME "SRAL")
-    set(FINAL_TARGETS SRAL)
+if(DEFAULT_LIBRARY STREQUAL "static" OR DEFAULT_LIBRARY STREQUAL "both")
+    if(DEFAULT_LIBRARY STREQUAL "both")
+        add_library(SRAL_Static STATIC)
+        target_sources(SRAL_Static PRIVATE ${CORE_SOURCES})
+        set_target_properties(SRAL_Static PROPERTIES OUTPUT_NAME "SRAL_static")
+        list(APPEND FINAL_TARGETS SRAL_Static)
+    else()
+        add_library(SRAL STATIC)
+        target_sources(SRAL PRIVATE ${CORE_SOURCES})
+        set_target_properties(SRAL PROPERTIES OUTPUT_NAME "SRAL")
+        list(APPEND FINAL_TARGETS SRAL)
+    endif()
 endif()
 
 set(LOCAL_SHARED_WARNINGS
@@ -198,21 +204,26 @@ foreach(TARGET_OBJ IN LISTS FINAL_TARGETS)
     )
 
     target_include_directories(${TARGET_OBJ}
-        PUBLIC $<BUILD_INTERFACE:${ROOT_SRC}/Include> $<INSTALL_INTERFACE:include>
-        PRIVATE "${ROOT_SRC}/Include" "${ROOT_SRC}/Dep"
+        PUBLIC
+        $<BUILD_INTERFACE:${ROOT_SRC}/Include>
+        $<INSTALL_INTERFACE:include>
+        PRIVATE
+        $<BUILD_INTERFACE:${ROOT_SRC}/SRC>
+        $<BUILD_INTERFACE:${ROOT_SRC}/Dep>
     )
 
     target_link_libraries(${TARGET_OBJ} PRIVATE sral_hardening_options)
 
     if(SRAL_DEPS_TARGET)
-        target_link_libraries(${TARGET_OBJ} PRIVATE ${SRAL_DEPS_TARGET})
+        target_link_libraries(${TARGET_OBJ} PUBLIC ${SRAL_DEPS_TARGET})
     endif()
 
     if(LOCAL_FEATURE_DEFINITIONS)
         target_compile_definitions(${TARGET_OBJ} PRIVATE "${LOCAL_FEATURE_DEFINITIONS}")
     endif()
 
-    if(BUILD_SHARED_LIBS AND TARGET_OBJ STREQUAL "SRAL")
+    get_target_property(TARGET_TYPE ${TARGET_OBJ} TYPE)
+    if(TARGET_TYPE STREQUAL "SHARED_LIBRARY")
         target_compile_definitions(${TARGET_OBJ} PRIVATE "SRAL_BUILDING_DLL" "WASAPI_EXPORTS")
     else()
         target_compile_definitions(${TARGET_OBJ} PRIVATE "SRAL_STATIC")

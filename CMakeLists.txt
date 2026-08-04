@@ -15,8 +15,21 @@ cmake_policy(SET CMP0219 NEW) # Preserves backslashes explicitly in macro argume
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-set(BUILD_SHARED_LIBS ON)
 set(CMAKE_DIRECTORY_LABELS "SRAL_Root_Orchestrator")
+
+set(DEFAULT_LIBRARY "shared" CACHE STRING "Select compilation target strategy matching Meson default_library")
+set_property(CACHE DEFAULT_LIBRARY PROPERTY STRINGS "shared" "static" "both")
+
+if(NOT DEFAULT_LIBRARY MATCHES "^(shared|static|both)$")
+    message(FATAL_ERROR "[SRAL ERROR] Invalid value for option DEFAULT_LIBRARY: '${DEFAULT_LIBRARY}'. Whitelist: shared, static, both")
+endif()
+
+if(DEFAULT_LIBRARY STREQUAL "shared")
+    set(BUILD_SHARED_LIBS ON CACHE BOOL "Build shared libraries" FORCE)
+elseif(DEFAULT_LIBRARY STREQUAL "static")
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Build shared libraries" FORCE)
+endif()
+
 
 include(CheckIPOSupported)
 check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
@@ -46,6 +59,8 @@ if(CMAKE_SYSTEM_NAME MATCHES "^(Windows|Linux|Darwin|iOS|Android|Emscripten)$")
     set(MATCHED_PLATFORM "${CMAKE_MATCH_1}")
     if(MATCHED_PLATFORM STREQUAL "Darwin")
         set(IS_MACOS TRUE)
+    elseif(MATCHED_PLATFORM STREQUAL "iOS")
+        set(IS_IOS TRUE)
     elseif(MATCHED_PLATFORM STREQUAL "Emscripten")
         set(IS_WASM TRUE)
     else()
@@ -225,7 +240,7 @@ foreach(KEY ITEMS nvda_install;speechd_install;python_install;emsdk_install;andr
             endif()
             if(NOT FALLBACK_FOUND AND (CMAKE_SYSTEM_NAME STREQUAL "Android" OR BUILD_ANDROID_HELPERS))
                 if(WIN32)
-                    foreach(p ITEMS "C:/Program Files/Android/Android Studio/jbr" "C:/Program Files/Android/Android Studio/jre" "$ENV{LOCALAPPDATA}/JetBrains/Toolbox/apps/AndroidStudio/ch-0/plugins/jre" "$ENV{LOCALAPPDATA}/JetBrains/Runtime" "C:/Program Files/Java/jdk-21" "C:/Program Files/x86)/Android/Android Studio/jbr" "C:/Program Files/x86)/Android/Android Studio/jre")
+                    foreach(p ITEMS "C:/Program Files/Android/Android Studio/jbr" "C:/Program Files/Android/Android Studio/jre" "$ENV{LOCALAPPDATA}/JetBrains/Toolbox/apps/AndroidStudio/ch-0/plugins/jre" "$ENV{LOCALAPPDATA}/JetBrains/Runtime" "C:/Program Files/Java/jdk-21" "C:/Program Files (x86)/Android/Android Studio/jbr" "C:/Program Files (x86)/Android/Android Studio/jre")
                         if(IS_DIRECTORY "${p}")
                             set(FALLBACK_FOUND "${p}")
                             break()
@@ -287,6 +302,15 @@ foreach(KEY ITEMS nvda_install;speechd_install;python_install;emsdk_install;andr
                         break()
                     endforeach()
                 endif()
+            elseif(APPLE AND DEFINED ENV{HOME} AND IS_DIRECTORY "$ENV{HOME}/Library/Android/sdk/ndk")
+                file(GLOB NDK_VERSIONS_MAC RELATIVE "$ENV{HOME}/Library/Android/sdk/ndk" "$ENV{HOME}/Library/Android/sdk/ndk/*")
+                if(NDK_VERSIONS_MAC)
+                    list(SORT NDK_VERSIONS_MAC COMPARE NATURAL ORDER DESCENDING)
+                    foreach(top_version IN LISTS NDK_VERSIONS_MAC)
+                        set(FALLBACK_FOUND "$ENV{HOME}/Library/Android/sdk/ndk/${top_version}")
+                        break()
+                    endforeach()
+                endif()
             elseif(IS_DIRECTORY "/usr/lib/android-ndk")
                 set(FALLBACK_FOUND "/usr/lib/android-ndk")
             elseif(DEFINED ENV{HOME} AND IS_DIRECTORY "$ENV{HOME}/Android/Sdk/ndk")
@@ -298,15 +322,6 @@ foreach(KEY ITEMS nvda_install;speechd_install;python_install;emsdk_install;andr
                         break()
                     endforeach()
                 endif()
-            elseif(APPLE AND IS_DIRECTORY "/Library/Android/sdk/ndk")
-                file(GLOB NDK_VERSIONS_MAC RELATIVE "/Library/Android/sdk/ndk" "/Library/Android/sdk/ndk/*")
-                if(NDK_VERSIONS_MAC)
-                    list(SORT NDK_VERSIONS_MAC COMPARE NATURAL ORDER DESCENDING)
-                    foreach(top_version IN LISTS NDK_VERSIONS_MAC)
-                        set(FALLBACK_FOUND "/Library/Android/sdk/ndk/${top_version}")
-                        break()
-                    endforeach()
-                endif()
             endif()
         elseif(KEY STREQUAL "python_install")
             set(ENV_MAP "PYTHON_PATH")
@@ -314,8 +329,12 @@ foreach(KEY ITEMS nvda_install;speechd_install;python_install;emsdk_install;andr
             if(DEFINED ENV{PYTHON_PATH} AND IS_DIRECTORY "$ENV{PYTHON_PATH}")
                 set(FALLBACK_FOUND "$ENV{PYTHON_PATH}")
             else()
-                execute_process(COMMAND ${CMAKE_COMMAND} -E true ENVIRONMENT "PYTHON_PATH=" OUTPUT_QUIET ERROR_QUIET)
+                set(OLD_PYTHON_PATH $ENV{PYTHON_PATH})
+                unset(ENV{PYTHON_PATH})
                 find_package(Python3 COMPONENTS Interpreter QUIET)
+                if(OLD_PYTHON_PATH)
+                    set(ENV{PYTHON_PATH} "${OLD_PYTHON_PATH}")
+                endif()
                 if(Python3_INTERPRETER_FOUND)
                     cmake_path(SET PY_EXE "${Python3_EXECUTABLE}")
                     cmake_path(GET PY_EXE PARENT_PATH PY_DIR)
@@ -342,6 +361,32 @@ foreach(KEY ITEMS nvda_install;speechd_install;python_install;emsdk_install;andr
             else()
                 foreach(p ITEMS "/opt/emsdk" "/usr/local/emsdk" "$ENV{HOME}/emsdk" "$ENV{HOME}/src/emsdk" "$ENV{HOME}/devtools/emsdk")
                     if(IS_DIRECTORY "${p}" AND (IS_DIRECTORY "${p}/upstream/emscripten" OR EXISTS "${p}/emsdk"))
+                        set(FALLBACK_FOUND "${p}")
+                        break()
+                    endif()
+                endforeach()
+            endif()
+        elseif(KEY STREQUAL "nvda_install")
+            set(ENV_MAP "NVDA_SDK_PATH")
+            set(NAME_MAP "NVDA SDK Remote Linkage")
+            if(DEFINED ENV{NVDA_SDK_PATH} AND IS_DIRECTORY "$ENV{NVDA_SDK_PATH}")
+                set(FALLBACK_FOUND "$ENV{NVDA_SDK_PATH}")
+            elseif(WIN32)
+                foreach(p ITEMS "C:/nvda-sdk" "C:/SDKS/nvda-sdk" "$ENV{USERPROFILE}/AppData/Local/nvda-sdk" "$ENV{USERPROFILE}/Documents/nvda-sdk")
+                    if(IS_DIRECTORY "${p}")
+                        set(FALLBACK_FOUND "${p}")
+                        break()
+                    endif()
+                endforeach()
+            endif()
+        elseif(KEY STREQUAL "speechd_install")
+            set(ENV_MAP "SPEECHD_PATH")
+            set(NAME_MAP "Speech Dispatcher Sockets")
+            if(DEFINED ENV{SPEECHD_PATH} AND IS_DIRECTORY "$ENV{SPEECHD_PATH}")
+                set(FALLBACK_FOUND "$ENV{SPEECHD_PATH}")
+            elseif(UNIX AND NOT APPLE)
+                foreach(p ITEMS "/usr/include/speech-dispatcher" "/usr/local/include/speech-dispatcher" "/opt/speech-dispatcher/include")
+                    if(IS_DIRECTORY "${p}")
                         set(FALLBACK_FOUND "${p}")
                         break()
                     endif()
@@ -374,44 +419,20 @@ foreach(KEY ITEMS nvda_install;speechd_install;python_install;emsdk_install;andr
                     endif()
                 endforeach()
             endif()
-        elseif(KEY STREQUAL "nvda_install")
-            set(ENV_MAP "NVDA_SDK_PATH")
-            set(NAME_MAP "NVDA SDK Remote Linkage")
-            if(DEFINED ENV{NVDA_SDK_PATH} AND IS_DIRECTORY "$ENV{NVDA_SDK_PATH}")
-                set(FALLBACK_FOUND "$ENV{NVDA_SDK_PATH}")
-            elseif(WIN32)
-                foreach(p ITEMS "C:/nvda-sdk" "C:/SDKS/nvda-sdk" "$ENV{USERPROFILE}/AppData/Local/nvda-sdk" "$ENV{USERPROFILE}/Documents/nvda-sdk")
-                    if(IS_DIRECTORY "${p}")
-                        set(FALLBACK_FOUND "${p}")
-                        break()
-                    endif()
-                endforeach()
-            endif()
-        elseif(KEY STREQUAL "speechd_install")
-            set(ENV_MAP "SPEECHD_PATH")
-            set(NAME_MAP "Speech Dispatcher Sockets")
-            if(DEFINED ENV{SPEECHD_PATH} AND IS_DIRECTORY "$ENV{SPEECHD_PATH}")
-                set(FALLBACK_FOUND "$ENV{SPEECHD_PATH}")
-            elseif(UNIX AND NOT APPLE)
-                foreach(p ITEMS "/usr/include/speech-dispatcher" "/usr/local/include/speech-dispatcher" "/opt/speech-dispatcher/include")
-                    if(IS_DIRECTORY "${p}")
-                        set(FALLBACK_FOUND "${p}")
-                        break()
-                    endif()
-                endforeach()
-            endif()
         endif()
 
-        if(NOT "${FALLBACK_FOUND}" STREQUAL "")
-            cmake_path(SET CONVERTED_FALLBACK "${FALLBACK_FOUND}")
-            cmake_path(NORMAL_PATH CONVERTED_FALLBACK)
-            set(PATH_${KEY} "${CONVERTED_FALLBACK}" CACHE PATH "System Fallback Auto-Resolved Asset" FORCE)
-            message(STATUS "[SRAL DISCOVERY] ${NAME_MAP} auto-resolved via fallback at: ${PATH_${KEY}}")
+        if(FALLBACK_FOUND)
+            cmake_path(SET NORMALIZED_FALLBACK "${FALLBACK_FOUND}")
+            cmake_path(NORMAL_PATH NORMALIZED_FALLBACK)
+            set(PATH_${KEY} "${NORMALIZED_FALLBACK}" CACHE PATH "System Path Resolved Asset" FORCE)
+            message(STATUS "[SRAL STATUS] Custom path for ${NAME_MAP} resolved at: ${PATH_${KEY}}")
+        else()
+            set(PATH_${KEY} "" CACHE PATH "Cached asset verification" FORCE)
+            string(TOUPPER "${KEY}" KEY_UPPER)
+            if(SRAL_WITH_${KEY_UPPER} STREQUAL "enabled")
+                message(FATAL_ERROR "[SRAL ERROR] Required path dependency mapping 'PATH_${KEY}' missing! Please define it via settings.ini or configure environmental mapping: ${ENV_MAP}")
+            endif()
         endif()
-    endif()
-
-    if(PATH_${KEY} AND NOT "${ENV_MAP}" STREQUAL "")
-        set(ENV{${ENV_MAP}} "${PATH_${KEY}}")
     endif()
 endforeach()
 
@@ -450,6 +471,17 @@ elseif(IS_MACOS)
         set(CMAKE_OSX_DEPLOYMENT_TARGET "${TARGET_usertarget_macos}" CACHE STRING "Forced macOS Deployment Base" FORCE)
     endif()
 
+elseif(IS_IOS)
+    if(NOT DEFINED TARGET_usertarget_ios AND DEFINED ENV{USERTARGET_IOS})
+        set(TARGET_usertarget_ios "$ENV{USERTARGET_IOS}" CACHE STRING "Environment iOS Target Pass")
+    endif()
+    if(TARGET_usertarget_ios)
+        if(TARGET_usertarget_ios VERSION_LESS "15.0")
+            message(FATAL_ERROR "\n[SRAL ERROR] Unsupported iOS target version: ${TARGET_usertarget_ios}. The minimum required version is 15.0.\n")
+        endif()
+        set(CMAKE_OSX_DEPLOYMENT_TARGET "${TARGET_usertarget_ios}" CACHE STRING "Forced iOS Deployment Base" FORCE)
+    endif()
+
 elseif(IS_ANDROID)
     if(NOT DEFINED TARGET_usertarget_android AND DEFINED ENV{USERTARGET_ANDROID})
         set(TARGET_usertarget_android "$ENV{USERTARGET_ANDROID}" CACHE STRING "Environment Android Target Pass")
@@ -462,7 +494,7 @@ elseif(IS_ANDROID)
     endif()
 endif()
 
-if((IS_WASM OR IS_ANDROID) AND NOT CMAKE_TOOLCHAIN_FILE)
+if((IS_WASM OR IS_ANDROID OR IS_IOS) AND NOT CMAKE_TOOLCHAIN_FILE)
     message(FATAL_ERROR
         "\n===============================================================================\n"
         "[SRAL ERROR] Toolchain file missing! For cross-compiling, you MUST declare the toolchain parameter flag \n"
@@ -486,6 +518,23 @@ function(sral_safe_check_flag _lang _flag _var)
         block(PROPAGATE ${_var})
             set(_test_bindir "${CMAKE_BINARY_DIR}/CMakeFiles/sral_flag_tests/${_var}")
 
+            set(_target_forward_flags "")
+            if(CMAKE_OSX_SYSROOT)
+                list(APPEND _target_forward_flags "-DCMAKE_OSX_SYSROOT:PATH=${CMAKE_OSX_SYSROOT}")
+            endif()
+            if(CMAKE_OSX_DEPLOYMENT_TARGET)
+                list(APPEND _target_forward_flags "-DCMAKE_OSX_DEPLOYMENT_TARGET:STRING=${CMAKE_OSX_DEPLOYMENT_TARGET}")
+            endif()
+            if(CMAKE_OSX_ARCHITECTURES)
+                list(APPEND _target_forward_flags "-DCMAKE_OSX_ARCHITECTURES:STRING=${CMAKE_OSX_ARCHITECTURES}")
+            endif()
+            if(CMAKE_ANDROID_ARCH_ABI)
+                list(APPEND _target_forward_flags "-DCMAKE_ANDROID_ARCH_ABI:STRING=${CMAKE_ANDROID_ARCH_ABI}")
+            endif()
+            if(CMAKE_TOOLCHAIN_FILE)
+                list(APPEND _target_forward_flags "-DCMAKE_TOOLCHAIN_FILE:FILEPATH=${CMAKE_TOOLCHAIN_FILE}")
+            endif()
+
             if("${_lang}" STREQUAL "CXX")
                 set(_test_srcfile "${_test_bindir}/src.cpp")
             else()
@@ -493,10 +542,13 @@ function(sral_safe_check_flag _lang _flag _var)
             endif()
 
             file(WRITE "${_test_srcfile}" "int main(void) { return 0; }\n")
+
             try_compile(${_var}
                 "${_test_bindir}"
                 "${_test_srcfile}"
-                CMAKE_FLAGS "-DCMAKE_${_lang}_FLAGS:STRING=${_flag}"
+                CMAKE_FLAGS
+                "-DCMAKE_${_lang}_FLAGS:STRING=${_flag}"
+                ${_target_forward_flags}
                 OUTPUT_VARIABLE _compile_log
             )
 
@@ -580,7 +632,6 @@ function(sral_add_safe_target_flags TARGET_NAME)
 
                     if(SRAL_HAS_${LANG})
                         if(NOT DEFINED ${CACHE_VAR})
-                            # OPTIMIZED: Clean quoting to protect string context maps
                             sral_safe_check_flag("${LANG}" "${FLAG}" "${CACHE_VAR}")
                         endif()
                         if(${CACHE_VAR})
@@ -637,7 +688,7 @@ set(UNIVERSAL_GCC_CLANG_ARGS "-fno-delete-null-pointer-checks" "-fwrapv" "-fno-c
 if(CMAKE_COMPILER_IS_GNUCXX)
     list(APPEND UNIVERSAL_GCC_CLANG_ARGS "-fno-strict-overflow")
 endif()
-if(NOT IS_WASM)
+if(NOT (IS_WASM OR IS_MACOS OR IS_IOS))
     list(APPEND UNIVERSAL_GCC_CLANG_ARGS "-fstack-clash-protection")
 endif()
 
@@ -702,11 +753,13 @@ else()
     set(LINK_CANDIDATES "-Wl,-z,now" "-Wl,-z,noexecstack" "-Wl,-z,relro")
 
     if(IS_CLANG)
-        sral_safe_check_flag(C "-fsanitize=cfi" LINK_HAS_CFI)
-        if(LINK_HAS_CFI)
-            list(APPEND C_CANDIDATES "$<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-fsanitize=cfi>")
-            list(APPEND CXX_CANDIDATES "$<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-fsanitize=cfi>")
-            target_link_options(sral_hardening_options INTERFACE "$<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-fsanitize=cfi>")
+        if(NOT APPLE)
+            sral_safe_check_flag(C "-fsanitize=cfi" LINK_HAS_CFI)
+            if(LINK_HAS_CFI)
+                list(APPEND C_CANDIDATES "$<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-fsanitize=cfi>")
+                list(APPEND CXX_CANDIDATES "$<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-fsanitize=cfi>")
+                target_link_options(sral_hardening_options INTERFACE "$<$<OR:$<CONFIG:Release>,$<CONFIG:RelWithDebInfo>>:-fsanitize=cfi>")
+            endif()
         endif()
 
         if(IS_MACOS OR IS_IOS OR IS_ANDROID)
@@ -763,10 +816,6 @@ elseif(IS_MACOS OR IS_IOS)
 
         find_library(APPKIT_FRAMEWORK AppKit REQUIRED)
         target_link_libraries(sral_hardening_options INTERFACE ${APPKIT_FRAMEWORK})
-        if(SRAL_WITH_NSSPEECH)
-            find_library(FRAMEWORK_CORESPEECH CoreSpeech REQUIRED)
-            target_link_libraries(sral_hardening_options INTERFACE ${FRAMEWORK_CORESPEECH})
-        endif()
     else()
         find_library(FRAMEWORK_UIKIT UIKit REQUIRED)
         target_link_libraries(sral_hardening_options INTERFACE ${FRAMEWORK_UIKIT})
@@ -813,7 +862,7 @@ if(NOT IS_ANDROID AND NOT IS_WASM)
 
         if(IS_WINDOWS)
             list(APPEND JNI_INCLUDE_DIRS "${PATH_jdk_install}/include/win32")
-        elseif(IS_MACOS)
+        elseif(IS_MACOS OR IS_IOS)
             list(APPEND JNI_INCLUDE_DIRS "${PATH_jdk_install}/include/darwin")
         else()
             list(APPEND JNI_INCLUDE_DIRS "${PATH_jdk_install}/include/linux")
@@ -885,26 +934,17 @@ if(SRAL_WITH_ACCESSKIT)
     target_link_libraries(sral_hardening_options INTERFACE AccessKit::Core)
 else()
     message(STATUS "[SRAL STATUS] AccessKit is disabled.")
-    set(ACCESSKIT_NO_DEF "$<$<NOT:$<BOOL:${SRAL_WITH_ACCESSKIT}>>:SRAL_NO_ACCESSKIT>")
-    target_compile_definitions(sral_hardening_options INTERFACE ${ACCESSKIT_NO_DEF})
+    target_compile_definitions(sral_hardening_options INTERFACE "SRAL_NO_ACCESSKIT")
 endif()
 
-if(NOT TARGET SRAL)
-    target_include_directories(sral_hardening_options SYSTEM INTERFACE
-        "${CMAKE_CURRENT_SOURCE_DIR}/Include"
-        "${CMAKE_CURRENT_SOURCE_DIR}/SRC"
-        "${CMAKE_CURRENT_SOURCE_DIR}/Dep"
-    )
-
-    if(SRAL_DEPENDENCIES)
-        target_link_libraries(sral_hardening_options INTERFACE ${SRAL_DEPENDENCIES})
-    endif()
-    if(SRAL_SYS_INCLUDE_DIRS)
-        target_include_directories(sral_hardening_options SYSTEM INTERFACE ${SRAL_SYS_INCLUDE_DIRS})
-    endif()
-
-    add_subdirectory(SRC)
+if(SRAL_DEPENDENCIES)
+    target_link_libraries(sral_hardening_options INTERFACE ${SRAL_DEPENDENCIES})
 endif()
+if(SRAL_SYS_INCLUDE_DIRS)
+    target_include_directories(sral_hardening_options SYSTEM INTERFACE ${SRAL_SYS_INCLUDE_DIRS})
+endif()
+
+add_subdirectory(SRC)
 
 if(BUILD_TESTS STREQUAL "enabled" AND NOT IS_WASM AND NOT IS_ANDROID)
     enable_testing()
@@ -983,6 +1023,9 @@ if(BUILD_BINDINGS STREQUAL "enabled")
     elseif(IS_WASM)
         set(SRAL_CARGO_TARGET_ARGS "--target" "wasm32-unknown-emscripten")
         set(SRAL_GO_ENV_ARGS "GOOS=js" "GOARCH=wasm")
+    elseif(IS_IOS)
+        set(SRAL_CARGO_TARGET_ARGS "--target" "aarch64-apple-ios")
+        set(SRAL_GO_ENV_ARGS "GOOS=ios" "GOARCH=arm64")
     endif()
 
     set(SRAL_NODE_ENV_FLAGS "")
@@ -1087,12 +1130,14 @@ if(BUILD_BINDINGS STREQUAL "enabled")
         if(Python3_VERSION VERSION_GREATER_EQUAL "3.11")
             list(APPEND PY_ARGS --break-system-packages)
         endif()
+
         add_custom_command(
             OUTPUT "${PY_OUT_MARKER}"
             COMMAND ${PY_ARGS}
             COMMAND "${CMAKE_COMMAND}" -E touch "${PY_OUT_MARKER}"
             DEPENDS SRAL
             COMMENT "Deploying isolated Python site packages..."
+            VERBATIM
         )
         add_custom_target(sral_python_binding ALL DEPENDS "${PY_OUT_MARKER}")
     endif()
@@ -1106,11 +1151,33 @@ if(BUILD_BINDINGS STREQUAL "enabled")
     endif()
 endif()
 
+set(SRAL_EXPORT_TARGETS "")
+if(TARGET sral_hardening_options AND (TARGET SRAL OR TARGET SRAL_Static OR TARGET sral_deps))
+    list(APPEND SRAL_EXPORT_TARGETS sral_hardening_options)
+endif()
+
+if(TARGET sral_deps)
+    list(APPEND SRAL_EXPORT_TARGETS sral_deps)
+endif()
+
 if(TARGET SRAL)
+    list(APPEND SRAL_EXPORT_TARGETS SRAL)
     set_target_properties(SRAL PROPERTIES
         PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Include/SRAL.h;${CMAKE_CURRENT_SOURCE_DIR}/Include/Sral.hpp"
     )
-    install(TARGETS SRAL
+endif()
+
+if(TARGET SRAL_Static)
+    list(APPEND SRAL_EXPORT_TARGETS SRAL_Static)
+    if(NOT TARGET SRAL)
+        set_target_properties(SRAL_Static PROPERTIES
+            PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Include/SRAL.h;${CMAKE_CURRENT_SOURCE_DIR}/Include/Sral.hpp"
+        )
+    endif()
+endif()
+
+if(SRAL_EXPORT_TARGETS)
+    install(TARGETS ${SRAL_EXPORT_TARGETS}
         EXPORT SRALTargets
         RUNTIME DESTINATION bin COMPONENT Runtime
         LIBRARY DESTINATION lib COMPONENT Runtime
@@ -1150,21 +1217,44 @@ write_basic_package_version_file(
 )
 
 if(IS_MACOS OR IS_IOS)
-    generate_apple_platform_selection_file(
-        "${CMAKE_CURRENT_BINARY_DIR}/SRALPlatformSelection.cmake"
-        INSTALL_DESTINATION "${SRAL_CMAKECONFIG_INSTALL_DIR}"
-        MACOS_CONFIG_FILE "SRALConfig-macos.cmake"
-        IOS_CONFIG_FILE "SRALConfig-ios.cmake"
-    )
-    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/SRALPlatformSelection.cmake" DESTINATION "${SRAL_CMAKECONFIG_INSTALL_DIR}" COMPONENT Development)
+    set(PLAT_SEL_FILE "${CMAKE_CURRENT_BINARY_DIR}/SRALPlatformSelection.cmake")
+    file(WRITE "${PLAT_SEL_FILE}" [=[
+if(TARGET SRAL::SRAL)
+    return()
+endif()
+if(APPLE)
+    if(IOS OR CMAKE_SYSTEM_NAME STREQUAL "iOS")
+        include("${CMAKE_CURRENT_LIST_DIR}/SRALConfig-ios.cmake" OPTIONAL)
+    else()
+        include("${CMAKE_CURRENT_LIST_DIR}/SRALConfig-macos.cmake" OPTIONAL)
+    endif()
+endif()
+]=])
+
+    install(FILES "${PLAT_SEL_FILE}" DESTINATION "${SRAL_CMAKECONFIG_INSTALL_DIR}" COMPONENT Development)
 endif()
 
-file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/SRALConfig.cmake" [=[
-include(CMakeFindDependencyMacro)
+set(CONFIG_TEMPLATE_IN "${CMAKE_CURRENT_BINARY_DIR}/SRALConfig.cmake.in")
+file(WRITE "${CONFIG_TEMPLATE_IN}" [=[
 @PACKAGE_INIT@
-include("${CMAKE_CURRENT_LIST_DIR}/SRALTargets.cmake")
+include(CMakeFindDependencyMacro)
+
+if(APPLE)
+    include("${CMAKE_CURRENT_LIST_DIR}/SRALPlatformSelection.cmake" OPTIONAL)
+else()
+    if(NOT TARGET SRAL::SRAL)
+        include("${CMAKE_CURRENT_LIST_DIR}/SRALTargets.cmake")
+    endif()
+endif()
+
 check_required_components(SRAL)
 ]=])
+
+configure_package_config_file(
+    "${CONFIG_TEMPLATE_IN}"
+    "${CMAKE_CURRENT_BINARY_DIR}/SRALConfig.cmake"
+    INSTALL_DESTINATION "${SRAL_CMAKECONFIG_INSTALL_DIR}"
+)
 
 install(FILES
     "${CMAKE_CURRENT_BINARY_DIR}/SRALConfig.cmake"

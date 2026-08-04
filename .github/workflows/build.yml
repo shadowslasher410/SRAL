@@ -182,10 +182,12 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
             libspeechd-dev libdbus-1-dev libatspi2.0-dev brltty libbrlapi-dev ninja-build
+          
           mkdir -p ${{ github.workspace }}/apt-cache/archives
           mkdir -p ${{ github.workspace }}/apt-cache/lists
-          cp -r /var/cache/apt/archives/. ${{ github.workspace }}/apt-cache/archives/
-          cp -r /var/lib/apt/lists/. ${{ github.workspace }}/apt-cache/lists/
+          
+          sudo cp -r /var/cache/apt/archives/. ${{ github.workspace }}/apt-cache/archives/
+          sudo cp -r /var/lib/apt/lists/. ${{ github.workspace }}/apt-cache/lists/
 
       - name: Configure Project Sandbox (CMake Engine)
         if: ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}

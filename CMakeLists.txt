@@ -1106,9 +1106,6 @@ if(BUILD_BINDINGS STREQUAL "enabled")
     endif()
 endif()
 
-# ===============================================================================
-# Verified Layout Extract (Sections 18 & 19)
-# ===============================================================================
 if(TARGET SRAL)
     set_target_properties(SRAL PROPERTIES
         PUBLIC_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Include/SRAL.h;${CMAKE_CURRENT_SOURCE_DIR}/Include/Sral.hpp"

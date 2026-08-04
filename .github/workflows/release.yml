@@ -38,7 +38,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          RAW_VERSION="${{ github.event.inputs.version || github.ref_name }}"
+          RAW_VERSION="${{ inputs.version || github.ref_name }}"
           echo "Processing structural review for version token: ${RAW_VERSION}"
 
           if [[ ! "${RAW_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-(Stable|RC|Beta)$ ]]; then
@@ -52,7 +52,7 @@ jobs:
             VARIANT_TOKEN="Debug"
           fi
 
-          SELECTED_ENGINE="${{ github.event.inputs.build_system || 'cmake' }}"
+          SELECTED_ENGINE="${{ inputs.build_system || 'cmake' }}"
 
           echo "version=${RAW_VERSION}" >> "$GITHUB_OUTPUT"
           echo "variant=${VARIANT_TOKEN}" >> "$GITHUB_OUTPUT"
@@ -100,47 +100,72 @@ jobs:
             output-archive: SRAL-iOS-XCFramework.zip
 
     steps:
+      - name: Resolve Expected Upstream Case Variant Token
+        id: target-variant
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENGINE="${{ needs.validate-version.outputs.build_system }}"
+          VARIANT="${{ needs.validate-version.outputs.build_variant }}"
+          if [ "$ENGINE" = "meson" ]; then
+            echo "token=$(echo "$VARIANT" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
+          else
+            echo "token=$(echo "$VARIANT" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Fetch Compiled Pre-Release Binary Packages
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: "${{ matrix.artifact-name }}-${{ needs.validate-version.outputs.build_system }}-${{ needs.validate-version.outputs.build_variant }}"
+          name: "${{ matrix.artifact-name }}-${{ needs.validate-version.outputs.build_system }}-${{ steps.target-variant.outputs.token }}"
           path: staging_dist
 
       - name: Package Release Assets (Windows)
         if: matrix.runner-os == 'windows-2025'
         shell: powershell
-        run: Compress-Archive -Path staging_dist/* -DestinationPath ${{ matrix.output-archive }}
+        run: |
+          if (-not (Test-Path staging_dist) -or (Get-ChildItem staging_dist).Count -eq 0) {
+              Write-Error "Staging directory is empty! Upstream download failed."
+              Exit 1
+          }
+          Compress-Archive -Path staging_dist\* -DestinationPath ${{ matrix.output-archive }} -Force
 
       - name: Package Release Assets (Linux & Android)
         if: matrix.runner-os == 'ubuntu-24.04' && matrix.target-name != 'wasm-framework'
         shell: bash
         run: |
+          set -euo pipefail
           if [ -z "$(ls -A staging_dist 2>/dev/null)" ]; then
             echo "::error::staging_dist directory is empty! Upstream compilation artifacts failed to download."
             exit 1
           fi
           cd staging_dist
-          tar -czvf "../${{ matrix.output-archive }}" *
+          tar -czvf "../${{ matrix.output-archive }}" .
 
       - name: Package Release Assets (macOS, iOS & WebAssembly)
         if: matrix.runner-os == 'macos-26' || matrix.target-name == 'wasm-framework'
         shell: bash
         run: |
+          set -euo pipefail
+          if [ -z "$(ls -A staging_dist 2>/dev/null)" ]; then
+            echo "::error::staging_dist directory is empty! Upstream compilation artifacts failed to download."
+            exit 1
+          fi
           cd staging_dist
-          zip -r ../${{ matrix.output-archive }} .
-          cd ..
+          zip -r "../${{ matrix.output-archive }}" .
 
       - name: Generate SHA-256 Checksum (Windows - Standard Cross-Platform Format Fixed)
         if: matrix.runner-os == 'windows-2025'
         shell: powershell
         run: |
           $hash = (Get-FileHash -Path "${{ matrix.output-archive }}" -Algorithm SHA256).Hash.ToLower()
-          set-content -path "${{ matrix.output-archive }}.sha256" -value "$hash  ${{ matrix.output-archive }}" -NoNewline
+          $content = "$hash  ${{ matrix.output-archive }}`n"
+          [System.IO.File]::WriteAllText("${{ github.workspace }}/${{ matrix.output-archive }}.sha256", $content, [System.Text.Encoding]::UTF8)
 
       - name: Generate SHA-256 Checksum (Linux & macOS)
         if: matrix.runner-os != 'windows-2025'
         shell: bash
         run: |
+          set -euo pipefail
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "${{ matrix.output-archive }}" > "${{ matrix.output-archive }}.sha256"
           else

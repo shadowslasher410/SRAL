@@ -77,7 +77,8 @@ on:
         type: string
         default: "Release"
 
-permissions: {}
+permissions:
+  contents: read
 
 concurrency:
   group: build-${{ github.ref }}-${{ inputs.release_version || github.sha }}-${{ inputs.build_system || 'cmake' }}
@@ -101,19 +102,22 @@ jobs:
 
       - name: Compile and Validate Lockfile Integrity
         run: |
+          if [ ! -f ci-requirements.txt ]; then
+            echo "ERROR: ci-requirements.txt does not exist!"
+            exit 1
+          fi
           uv pip compile --generate-hashes --output-file=ci-requirements.tmp ci-requirements.in
-          touch ci-requirements.txt
           if ! diff -u ci-requirements.txt ci-requirements.tmp; then
             echo "ERROR: Your ci-requirements.txt file is out of sync or missing cross-platform hashes!"
             echo "Please fix this locally by running:"
             echo "uv pip compile --generate-hashes --output-file=ci-requirements.txt ci-requirements.in"
             echo "Then commit and push the updated ci-requirements.txt file."
             exit 1
-          fi
+          fi 
           echo "Lockfile hashes validated."
 
   desktop:
-    name: Desktop (${{ matrix.os }} - ${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant || 'dynamic' }})
+    name: Desktop (${{ matrix.os }} - ${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant }})
     needs: validate-lockfile
     runs-on: ${{ matrix.os }}
     permissions:
@@ -130,23 +134,6 @@ jobs:
           - os: macos-26
             name: macos-universal
     steps:
-      - name: Parse and Resolve Runtime Build Variant
-        id: resolve-variant
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -n "${{ inputs.build_variant }}" ]; then
-            echo "variant=${{ inputs.build_variant }}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          REF_NAME="${{ github.ref_name }}"
-          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${REF_NAME}" == "main" ]]; then
-            echo "variant=Release" >> "$GITHUB_OUTPUT"
-          else
-            echo "variant=Debug" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -158,9 +145,7 @@ jobs:
         with:
           python-version: "3.14"
           cache: "pip"
-          cache-dependency-path: |
-            ${{ github.workspace }}/ci-requirements.txt
-            # os-cache-key: ${{ matrix.os }}
+          cache-dependency-path: "${{ github.workspace }}/ci-requirements.txt"
 
       - name: Secure and Bootstrap Pip Installer
         run: python -m pip install --upgrade pip==26.2
@@ -178,9 +163,7 @@ jobs:
         if: matrix.os == 'ubuntu-24.04'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
-            /var/cache/apt/archives
-            /var/lib/apt/lists
+          path: ${{ github.workspace }}/apt-cache
           key: ${{ runner.os }}-apt-dev-packages-${{ hashFiles('ci-requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-apt-dev-packages-
@@ -191,18 +174,26 @@ jobs:
         run: |
           set -euo pipefail
           export DEBIAN_FRONTEND=noninteractive
+          if [ -d "${{ github.workspace }}/apt-cache/archives" ]; then
+            sudo cp -r ${{ github.workspace }}/apt-cache/archives/. /var/cache/apt/archives/
+            sudo cp -r ${{ github.workspace }}/apt-cache/lists/. /var/lib/apt/lists/
+          fi
 
           sudo apt-get update -y
           sudo apt-get install -y --no-install-recommends \
-            libspeechd-dev libdbus-1-dev libatspi2.0-dev brltty libbrlapi-dev
-          
-          sudo chown -R runner:runner /var/cache/apt/archives
-          sudo chown -R runner:runner /var/lib/apt/lists
+            libspeechd-dev libdbus-1-dev libatspi2.0-dev brltty libbrlapi-dev ninja-build
+          mkdir -p ${{ github.workspace }}/apt-cache/archives
+          mkdir -p ${{ github.workspace }}/apt-cache/lists
+          cp -r /var/cache/apt/archives/. ${{ github.workspace }}/apt-cache/archives/
+          cp -r /var/lib/apt/lists/. ${{ github.workspace }}/apt-cache/lists/
 
       - name: Configure Project Sandbox (CMake Engine)
-        if:  ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
+        if: ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
+        shell: bash
         run: |
-          VARIANT_TITLE=$(echo "${{ steps.resolve-variant.outputs.variant }}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+          set -euo pipefail
+          INPUT_VARIANT="${{ inputs.build_variant }}"
+          VARIANT_TITLE=$(echo "${INPUT_VARIANT:-Release}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
           cmake -G "Ninja" -B builddir_cmake \
             -DCMAKE_BUILD_TYPE="${VARIANT_TITLE}" \
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/dist" \
@@ -211,17 +202,28 @@ jobs:
             -DSRAL_INSTALL_BINDING_SOURCES=enabled
 
       - name: Compile and Link Targets (CMake Engine)
-        if:  ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
-        run: cmake --build builddir_cmake -j $(nproc 2>/dev/null || echo 4)
+        if: ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          THREADS=$(python -c 'import os; print(os.cpu_count() or 4)')
+          cmake --build builddir_cmake -j "$THREADS"
 
-      - name: Install into Staging Tree (CMake Engine Multi-Threaded -j Deploy)
-        if:  ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
-        run: cmake --install builddir_cmake --component Runtime --component Development -j $(nproc 2>/dev/null || echo 4)
+      - name: Install into Staging Tree (CMake Engine)
+        if: ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          THREADS=$(python -c 'import os; print(os.cpu_count() or 4)')
+          cmake --install builddir_cmake --component Runtime --component Development -j "$THREADS"
 
       - name: Configure Project Sandbox (Meson Engine)
         if: ${{ inputs.build_system == 'meson' }}
+        shell: bash
         run: |
-          VARIANT_LOWER=$(echo "${{ steps.resolve-variant.outputs.variant }}" | tr '[:upper:]' '[:lower:]')
+          set -euo pipefail
+          INPUT_VARIANT="${{ inputs.build_variant }}"
+          VARIANT_LOWER=$(echo "${INPUT_VARIANT:-Release}" | tr '[:upper:]' '[:lower:]')
           meson setup builddir_meson \
             --buildtype="$VARIANT_LOWER" \
             --prefix="${{ github.workspace }}/dist" \
@@ -236,21 +238,27 @@ jobs:
 
       - name: Compile and Link Targets (Meson Engine)
         if: ${{ inputs.build_system == 'meson' }}
-        run: meson compile -C builddir_meson
+        shell: bash
+        run: |
+          set -euo pipefail
+          meson compile -C builddir_meson
 
       - name: Install into Staging Tree (Meson Engine)
         if: ${{ inputs.build_system == 'meson' }}
-        run: meson install -C builddir_meson
+        shell: bash
+        run: |
+          set -euo pipefail
+          meson install -C builddir_meson
 
       - name: Archive Consolidated Artifact Bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-${{ matrix.name }}-${{ inputs.build_system || 'cmake' }}-${{ steps.resolve-variant.outputs.variant }}
+          name: bundle-${{ matrix.name }}-${{ inputs.build_system || 'cmake' }}-${{ inputs.build_variant }}
           path: "${{ github.workspace }}/dist"
           if-no-files-found: error
 
   android:
-    name: Android (${{ matrix.abi }} - ${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant || 'dynamic' }})
+    name: Android (${{ matrix.abi }} - ${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant }})
     runs-on: ubuntu-24.04
     needs: validate-lockfile
     permissions:
@@ -270,22 +278,6 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Parse and Resolve Runtime Build Optimization Variant
-        id: resolve-variant
-        run: |
-          set -euo pipefail
-          if [ -n "${{ inputs.build_variant }}" ]; then
-            echo "variant=${{ inputs.build_variant }}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          REF_NAME="${{ github.ref_name }}"
-          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${REF_NAME}" == "main" ]]; then
-            echo "variant=Release" >> "$GITHUB_OUTPUT"
-          else
-            echo "variant=Debug" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -297,9 +289,7 @@ jobs:
         with:
           python-version: "3.14"
           cache: "pip"
-          cache-dependency-path: |
-            ${{ github.workspace }}/ci-requirements.txt
-            # android-abi-cache-key: ${{ matrix.abi }}
+          cache-dependency-path: "${{ github.workspace }}/ci-requirements.txt"
 
       - name: Secure and Bootstrap Pip Installer
         run: python -m pip install --upgrade pip==26.2
@@ -313,31 +303,12 @@ jobs:
           distribution: "jetbrains"
           java-version: "21"
 
-      - name: Cache Android SDK Components
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            /usr/local/lib/android/sdk/platforms
-            /usr/local/lib/android/sdk/platform-tools
-            /usr/local/lib/android/sdk/build-tools
-          key: ${{ runner.os }}-android-sdk-v1-${{ hashFiles('ci-requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-android-sdk-v1-
-
       - name: Set up Base Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
         env:
           ACCEPT_ANDROID_SDK_LICENSES: "true"
 
-      - name: Cache Android NDK r27c Workspace
-        id: cache-ndk
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: /opt/hostedtoolcache/ndk
-          key: ${{ runner.os }}-ndk-r27c
-
-      - name: Set up Native Linux Android NDK (r27)
-        if: steps.cache-ndk.outputs.cache-hit != 'true'
+      - name: Set up Native Linux Android NDK (r27c)
         uses: nttld/setup-ndk@ed92fe6cadad69be94a966a7ee3271275e62f779 # v1.6.0
         id: setup-ndk
         with:
@@ -370,14 +341,19 @@ jobs:
       - name: Configure Android Project (CMake Engine)
         if: ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
         run: |
-          VARIANT_TITLE=$(echo "${{ steps.resolve-variant.outputs.variant }}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
-            
+          INPUT_VARIANT="${{ inputs.build_variant }}"
+          case "${INPUT_VARIANT,,}" in
+            debug) CMAKE_CONFIG="Debug" ;;
+            release) CMAKE_CONFIG="Release" ;;
+            *) CMAKE_CONFIG="Release" ;;
+          esac
+                    
           cmake -G "Ninja" -B builddir_cmake \
             -DCMAKE_SYSTEM_NAME=Android \
             -DCMAKE_ANDROID_NDK="${{ steps.locate-ndk.outputs.ndk_path }}" \
             -DCMAKE_ANDROID_ARCH_ABI="${{ matrix.abi }}" \
             -DCMAKE_SYSTEM_VERSION=21 \
-            -DCMAKE_BUILD_TYPE="${VARIANT_TITLE}" \
+            -DCMAKE_BUILD_TYPE="${CMAKE_CONFIG}" \
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/dist-android" \
             -DBUILD_TESTS=disabled \
             -DBUILD_BINDINGS=enabled
@@ -404,11 +380,12 @@ jobs:
           cat << EOF > android_cross.txt
           [constants]
           toolchain = '$TOOLCHAIN_BIN'
-          triple = '$TRIPLE$API_LEVEL'
+          triple_base = '$TRIPLE'
+          api = '$API_LEVEL'
 
           [binaries]
-          c         = toolchain + '/' + triple + '-clang'
-          cpp       = toolchain + '/' + triple + '-clang++'
+          c         = toolchain + '/' + triple_base + api + '-clang'
+          cpp       = toolchain + '/' + triple_base + api + '-clang++'
           ar        = toolchain + '/llvm-ar'
           strip     = toolchain + '/llvm-strip'
           pkgconfig = 'false'
@@ -425,12 +402,14 @@ jobs:
 
           echo "::group::Generated Cross File View"
           cat android_cross.txt
-          echo "::group::"
+          echo "::endgroup::"
 
       - name: Configure Cross Sandbox (Meson Engine)
         if: ${{ inputs.build_system == 'meson' }}
         run: |
-          VARIANT_LOWER=$(echo "${{ steps.resolve-variant.outputs.variant }}" | tr '[:upper:]' '[:lower:]')
+          set -euo pipefail
+          INPUT_VARIANT="${{ inputs.build_variant }}"
+          VARIANT_LOWER=$(echo "${INPUT_VARIANT:-Release}" | tr '[:upper:]' '[:lower:]')
           
           meson setup builddir_meson \
             --cross-file android_cross.txt \
@@ -446,50 +425,38 @@ jobs:
 
       - name: Compile Cross Targets
         run: |
+          set -euo pipefail
+          THREADS=$(python -c 'import os; print(os.cpu_count() or 4)')
           if [ "${{ inputs.build_system }}" = "meson" ]; then
             meson compile -C builddir_meson
           else
-            cmake --build builddir_cmake -j $(nproc)
+            cmake --build builddir_cmake -j "$THREADS"
           fi
 
       - name: Install into Staging Tree
         run: |
+          set -euo pipefail
+          THREADS=$(python -c 'import os; print(os.cpu_count() or 4)')
           if [ "${{ inputs.build_system }}" = "meson" ]; then
             meson install -C builddir_meson
           else
-            cmake --install builddir_cmake --component Runtime --component PlatformAssets -j $(nproc)
+            cmake --install builddir_cmake --component Runtime --component PlatformAssets -j "$THREADS"
           fi
 
       - name: Archive Android Artifact Bundle
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-android-${{ matrix.abi }}-${{ inputs.build_system || 'cmake' }}-${{ steps.resolve-variant.outputs.variant }}
+          name: bundle-android-${{ matrix.abi }}-${{ inputs.build_system || 'cmake' }}-${{ inputs.build_variant }}
           path: "${{ github.workspace }}/dist-android"
           if-no-files-found: error
 
   ios:
-    name: iOS Framework (macos-26 - ${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant || 'dynamic' }})
+    name: iOS Framework (macos-26 - ${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant }})
     runs-on: macos-26
     needs: validate-lockfile
     permissions:
       contents: read
     steps:
-      - name: Parse and Resolve Runtime Build Optimization Variant
-        id: resolve-variant
-        run: |
-          set -euo pipefail
-          if [ -n "${{ inputs.build_variant }}" ]; then
-            echo "variant=${{ inputs.build_variant }}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          REF_NAME="${{ github.ref_name }}"
-          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${REF_NAME}" == "main" ]]; then
-            echo "variant=Release" >> "$GITHUB_OUTPUT"
-          else
-            echo "variant=Debug" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -501,9 +468,7 @@ jobs:
         with:
           python-version: "3.14"
           cache: "pip"
-          cache-dependency-path: |
-            ${{ github.workspace }}/ci-requirements.txt
-            # platform-cache-key: ios-framework
+          cache-dependency-path: "${{ github.workspace }}/ci-requirements.txt"
 
       - name: Secure and Bootstrap Pip Installer
         run: python -m pip install --upgrade pip==26.2
@@ -520,7 +485,7 @@ jobs:
       - name: Cache C/C++ Compilation Objects
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.ccache
+          path: /Users/runner/.ccache
           key: ${{ runner.os }}-ccache-ios-${{ hashFiles('SRC/**', 'Include/**', 'Dep/**', 'Bindings/**', 'Examples/**', 'ci-requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-ccache-ios-
@@ -532,25 +497,27 @@ jobs:
         if: ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
         run: |
           set -euo pipefail
-          NCPU=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu || echo 4)
+          THREADS=$(python -c 'import os; print(os.cpu_count() or 4)')
+          INPUT_VARIANT="${{ inputs.build_variant }}"
+          CMAKE_CONFIG=$(echo "${INPUT_VARIANT:-Release}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
           
           cmake -G "Ninja" -B build_device_cmake \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_ARCHITECTURES=arm64 \
-            -DCMAKE_BUILD_TYPE="${{ steps.resolve-variant.outputs.variant }}" \
+            -DCMAKE_BUILD_TYPE="${CMAKE_CONFIG}" \
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/staging/device" \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build build_device_cmake -j $NCPU
+          cmake --build build_device_cmake -j "$THREADS"
           cmake --install build_device_cmake
 
           cmake -G "Ninja" -B build_sim_cmake \
             -DCMAKE_SYSTEM_NAME=iOS \
             -DCMAKE_OSX_SYSROOT=iphonesimulator \
             -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
-            -DCMAKE_BUILD_TYPE="${{ steps.resolve-variant.outputs.variant }}" \
+            -DCMAKE_BUILD_TYPE="${CMAKE_CONFIG}" \
             -DCMAKE_INSTALL_PREFIX="${{ github.workspace }}/staging/simulator" \
             -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          cmake --build build_sim_cmake -j $NCPU
+          cmake --build build_sim_cmake -j "$THREADS"
           cmake --install build_sim_cmake
 
       - name: Create iOS Cross Files Dynamically (Meson Engine)
@@ -609,7 +576,8 @@ jobs:
         if: ${{ inputs.build_system == 'meson' }}
         run: |
           set -euo pipefail
-          VARIANT_LOWER=$(echo "${{ steps.resolve-variant.outputs.variant }}" | tr '[:upper:]' '[:lower:]')
+          INPUT_VARIANT="${{ inputs.build_variant }}"
+          VARIANT_LOWER=$(echo "${INPUT_VARIANT:-Release}" | tr '[:upper:]' '[:lower:]')
           
           meson setup build_device_meson --cross-file ios_device_cross.txt --buildtype="$VARIANT_LOWER" --ccache --prefix="${{ github.workspace }}/staging/device"
           meson compile -C build_device_meson
@@ -660,12 +628,12 @@ jobs:
       - name: Archive iOS XCFramework Artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-ios-xcframework-${{ inputs.build_system || 'cmake' }}-${{ steps.resolve-variant.outputs.variant }}
+          name: bundle-ios-xcframework-${{ inputs.build_system || 'cmake' }}-${{ inputs.build_variant }}
           path: "${{ github.workspace }}/final_staging"
           if-no-files-found: error
 
   webassembly:
-    name: WebAssembly (${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant || 'dynamic' }})
+    name: WebAssembly (${{ inputs.build_system || 'cmake' }} - ${{ inputs.build_variant }})
     runs-on: ubuntu-24.04
     needs: validate-lockfile
     permissions:
@@ -674,22 +642,6 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Parse and Resolve Runtime Build Optimization Variant
-        id: resolve-variant
-        run: |
-          set -euo pipefail
-          if [ -n "${{ inputs.build_variant }}" ]; then
-            echo "variant=${{ inputs.build_variant }}" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          REF_NAME="${{ github.ref_name }}"
-          if [[ "${REF_NAME}" == *-Stable || "${REF_NAME}" == *-RC || "${github.ref_name}" == "main" ]]; then
-            echo "variant=Release" >> "$GITHUB_OUTPUT"
-          else
-            echo "variant=Debug" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -701,9 +653,7 @@ jobs:
         with:
           python-version: "3.14"
           cache: "pip"
-          cache-dependency-path: |
-            ${{ github.workspace }}/ci-requirements.txt
-            # platform-cache-key: webassembly
+          cache-dependency-path: "${{ github.workspace }}/ci-requirements.txt"
 
       - name: Secure and Bootstrap Pip Installer
         run: python -m pip install --upgrade pip==26.2
@@ -720,7 +670,7 @@ jobs:
       - name: Cache WebAssembly C/C++ Compilation Objects
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.ccache
+          path: /home/runner/.ccache
           key: ${{ runner.os }}-ccache-wasm-${{ hashFiles('SRC/**', 'Include/**', 'Dep/**', 'Bindings/**', 'Examples/**', 'ci-requirements.txt') }}
           restore-keys: |
             ${{ runner.os }}-ccache-wasm-
@@ -741,8 +691,9 @@ jobs:
         if: ${{ inputs.build_system == 'cmake' || inputs.build_system == '' }}
         run: |
           set -euo pipefail
-          
-          VARIANT_TITLE=$(echo "${{ steps.resolve-variant.outputs.variant }}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
+          THREADS=$(python -c 'import os; print(os.cpu_count() or 4)')
+          INPUT_VARIANT="${{ inputs.build_variant }}"
+          VARIANT_TITLE=$(echo "${INPUT_VARIANT:-Release}" | awk '{print toupper(substr($0,1,1)) tolower(substr($0,2))}')
           
           emcmake cmake -G "Ninja" -B builddir_cmake \
             -DCMAKE_BUILD_TYPE="${VARIANT_TITLE}" \
@@ -752,25 +703,24 @@ jobs:
             -DBUILD_BINDINGS=enabled \
             -DSRAL_WITH_CHROMEVOX=enabled
             
-          cmake --build builddir_cmake -j $(nproc)
+          cmake --build builddir_cmake -j "$THREADS"
           cmake --install builddir_cmake
 
       - name: Create WebAssembly Cross File (Meson Engine)
         if: ${{ inputs.build_system == 'meson' }}
         run: |
           set -euo pipefail
-          EM_BIN_DIR="${EMSDK}/upstream/emscripten"
-          if [ -z "${EMSDK:-}" ] || [ ! -d "${EM_BIN_DIR}" ]; then
+          if [ -z "${EMSDK:-}" ] || [ ! -d "${EMSDK}/upstream/emscripten" ]; then
             echo "::error::EMSDK root tracking block could not be accurately mapped."
             exit 1
           fi
 
           cat << EOF > emscripten_cross.txt
           [binaries]
-          c     = ['ccache', '${EM_BIN_DIR}/emcc']
-          cpp   = ['ccache', '${EM_BIN_DIR}/em++']
-          ar    = '${EM_BIN_DIR}/emar'
-          strip = '${EM_BIN_DIR}/emstrip'
+          c     = 'emcc'
+          cpp   = 'em++'
+          ar    = 'emar'
+          strip = 'emstrip'
 
           [built-in options]
           c_args        = ['-fstack-protector-all', '-ftrivial-auto-var-init=zero', '-Werror', '-pthread', '-Qunused-arguments']
@@ -789,11 +739,13 @@ jobs:
         if: ${{ inputs.build_system == 'meson' }}
         run: |
           set -euo pipefail
-          VARIANT_LOWER=$(echo "${{ steps.resolve-variant.outputs.variant }}" | tr '[:upper:]' '[:lower:]')
+          INPUT_VARIANT="${{ inputs.build_variant }}"
+          VARIANT_LOWER=$(echo "${INPUT_VARIANT:-Release}" | tr '[:upper:]' '[:lower:]')
           
           meson setup builddir_meson \
             --cross-file emscripten_cross.txt \
             --buildtype="$VARIANT_LOWER" \
+            --ccache \
             --prefix="${{ github.workspace }}/dist" \
             -Ddefault_library=static \
             -Dwerror=true \
@@ -816,6 +768,6 @@ jobs:
       - name: Archive WebAssembly artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: bundle-wasm-${{ inputs.build_system || 'cmake' }}-${{ steps.resolve-variant.outputs.variant }}
+          name: bundle-wasm-${{ inputs.build_system || 'cmake' }}-${{ inputs.build_variant }}
           path: "${{ github.workspace }}/dist"
           if-no-files-found: error
